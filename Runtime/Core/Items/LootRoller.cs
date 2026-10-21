@@ -89,7 +89,18 @@ namespace DungeonGen.Core.Items
             return rng.Pick(ItemBase.Jewellery);
         }
 
-        private static List<AffixRoll> RollAffixes(ItemBase b, int level, int count, bool prefix, DungeonRandom rng, List<AffixRoll> taken)
+        internal static AffixRoll RollOne(AffixDefinition chosen, int level, DungeonRandom rng)
+        {
+            int tier = Math.Min(4, Math.Max(1, level));
+            if (level == 0) tier = 1;
+            if (tier > 1 && rng.Chance(0.3f)) tier--;
+            var (min, max) = chosen.Tiers[tier - 1];
+            return new AffixRoll(chosen, tier, (float)Math.Round(min + rng.NextFloat() * (max - min)));
+        }
+
+        internal static string NameFor(ItemBase b, Rarity rarity, List<AffixRoll> pre, List<AffixRoll> suf, DungeonRandom rng) => Name(b, rarity, pre, suf, rng);
+
+        internal static List<AffixRoll> RollAffixes(ItemBase b, int level, int count, bool prefix, DungeonRandom rng, List<AffixRoll> taken)
         {
             var result = new List<AffixRoll>();
             var pool = AffixDefinition.Pool.Where(d => d.IsPrefix == prefix && d.Slots.Contains(b.Slot)).ToList();
@@ -103,12 +114,7 @@ namespace DungeonGen.Core.Items
                 foreach (var d in available) { r -= d.Weight; if (r < 0) { chosen = d; break; } }
 
                 // Tier follows item level, with a 30% chance of one tier lower so high-level drops still vary.
-                int tier = Math.Min(4, Math.Max(1, level)) ;
-                if (level == 0) tier = 1;
-                if (tier > 1 && rng.Chance(0.3f)) tier--;
-                var (min, max) = chosen.Tiers[tier - 1];
-                float value = (float)Math.Round(min + rng.NextFloat() * (max - min));
-                result.Add(new AffixRoll(chosen, tier, value));
+                result.Add(RollOne(chosen, level, rng));
             }
             return result;
         }

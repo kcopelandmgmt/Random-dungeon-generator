@@ -38,8 +38,9 @@ dead-end rooms (`TileType.LockedDoor`) with a key hidden elsewhere (`Layout.Keys
 archetypes (never repeated in a dungeon) plus 0-2 affixes from the seed (`Room.Boss`). Players have five
 attributes (STR/DEX/INT/CON/SPI) and six damage types with resistances (`PlayerStats`,
 `StatFormulas`); every ordinary room holds a mob pack sized by danger (`Room.Mobs`) and rolled loot
-(`Room.Loot`: nine slots, Normal/Magic/Rare/Unique, prefix/suffix affixes, boss-themed uniques with legendary effects). Gear wears, repairs cost max
-durability, and death destroys half of what you wore (`DurabilityRules`). Six classes
+(`Room.Loot`: nine slots, Normal/Magic/Rare/Unique, prefix/suffix affixes, boss-themed uniques with legendary effects). Gear wears out with no repairs and death
+destroys half of what you wore (`DurabilityRules`); worn-out gear is sold or salvaged into scrap,
+essences and shards that craft new, still-random items (`CraftingRules`, `Crafter`). Six classes
 are in `docs/CLASSES.md` and `ClassArchetype.DefaultRoster`. Design details in `docs/DESIGN.md`.
 
 **Teams.** One spawn room per team, 1–16 supported. For more than 3–4 teams use the preset:

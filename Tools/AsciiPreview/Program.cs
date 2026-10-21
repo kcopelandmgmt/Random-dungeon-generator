@@ -17,6 +17,7 @@ namespace DungeonGen.Tools
             int seed = Environment.TickCount;
             int batch = 0;
             bool legend = true;
+            string command = null; int rollN = 0, rollLevel = 0;
 
             // --teams applies a whole preset, so it must be read before any individual overrides.
             for (int i = 0; i + 1 < args.Length; i++)
@@ -33,12 +34,13 @@ namespace DungeonGen.Tools
                     case "--candidates": settings.CandidateCount = int.Parse(Next()); break;
                     case "--bosses": settings.BossCount = int.Parse(Next()); break;
                     case "--vaults": settings.VaultCount = int.Parse(Next()); break;
-                    case "--fights": return PrintFightTable(settings);
-                    case "--stats": return PrintStats(settings);
-                    case "--roll": { int n = int.Parse(Next()); int lvl = int.Parse(Next()); return RollItems(n, lvl, seed); }
-                    case "--loot": { var l = DungeonGenerator.Generate(settings, seed); foreach (var r in l.Rooms.Where(r => r.Loot.Count > 0).OrderBy(r => r.LootTier)) { Console.WriteLine($"room {r.Id} {r.Type} tier {r.LootTier}:"); foreach (var it in r.Loot) Console.WriteLine("  " + it); } return 0; }
-                    case "--wear": return WearRolledSet(seed);
-                    case "--lifetime": return PrintLifetimes(seed);
+                    case "--fights": command = "--fights"; break;
+                    case "--stats": command = "--stats"; break;
+                    case "--roll": rollN = int.Parse(Next()); rollLevel = int.Parse(Next()); command = "--roll"; break;
+                    case "--loot": command = "--loot"; break;
+                    case "--wear": command = "--wear"; break;
+                    case "--lifetime": command = "--lifetime"; break;
+                    case "--craft": command = "--craft"; break;
                     case "--seed": seed = int.Parse(Next()); break;
                     case "--width": settings.Width = int.Parse(Next()); break;
                     case "--height": settings.Height = int.Parse(Next()); break;
@@ -50,7 +52,7 @@ namespace DungeonGen.Tools
                     case "--batch": batch = int.Parse(Next()); break;
                     case "--no-legend": legend = false; break;
                     case "--help":
-                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear --lifetime");
+                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear --lifetime --craft");
                         return 0;
                     default:
                         Console.Error.WriteLine("Unknown argument " + args[i]);
@@ -58,6 +60,25 @@ namespace DungeonGen.Tools
                 }
             }
 
+            switch (command)
+            {
+                case "--fights": return PrintFightTable(settings);
+                case "--stats": return PrintStats(settings);
+                case "--wear": return WearRolledSet(seed);
+                case "--lifetime": return PrintLifetimes(seed);
+                case "--craft": return CraftDemo(settings, seed);
+                case "--roll": return RollItems(rollN, rollLevel, seed);
+                case "--loot":
+                    {
+                        var l = DungeonGenerator.Generate(settings, seed);
+                        foreach (var r in l.Rooms.Where(r => r.Loot.Count > 0).OrderBy(r => r.LootTier))
+                        {
+                            Console.WriteLine($"room {r.Id} {r.Type} tier {r.LootTier}:");
+                            foreach (var it in r.Loot) Console.WriteLine("  " + it);
+                        }
+                        return 0;
+                    }
+            }
             if (batch > 0) return RunBatch(settings, seed, batch);
 
             var sw = Stopwatch.StartNew();
@@ -72,8 +93,8 @@ namespace DungeonGen.Tools
         private static int PrintLifetimes(int seed)
         {
             const float taken = 2500f, dealt = 6000f;   // a reference round: two mob packs, one boss, one skirmish
-            Console.WriteLine($"Reference round: {taken:0} damage taken, {dealt:0} dealt. Rounds an item survives in constant use, repairing when broken:");
-            Console.WriteLine("  rarity   armour  weapon  jewellery   (first break / with all repairs)");
+            Console.WriteLine($"Reference round: {taken:0} damage taken, {dealt:0} dealt. Rounds an item survives in constant use (no repairs):");
+            Console.WriteLine("  rarity   armour  weapon  jewellery");
             foreach (DungeonGen.Core.Items.Rarity r in Enum.GetValues(typeof(DungeonGen.Core.Items.Rarity)))
             {
                 var armour = new DungeonGen.Core.Items.Item(DungeonGen.Core.Items.ItemBase.Armours[1], 3, r, "x", new System.Collections.Generic.List<DungeonGen.Core.Items.AffixRoll>(), new System.Collections.Generic.List<DungeonGen.Core.Items.AffixRoll>());
@@ -83,7 +104,7 @@ namespace DungeonGen.Tools
                 float aw = DungeonGen.Core.Items.DurabilityRules.BaseWearPerRound + taken / DungeonGen.Core.Items.DurabilityRules.ArmourDamagePerPoint;
                 float ww = DungeonGen.Core.Items.DurabilityRules.BaseWearPerRound + dealt / DungeonGen.Core.Items.DurabilityRules.WeaponDamagePerPoint;
                 float jw = DungeonGen.Core.Items.DurabilityRules.BaseWearPerRound + DungeonGen.Core.Items.DurabilityRules.JewelleryWearPerRound;
-                Console.WriteLine($"  {r,-8} {max / aw,4:0.0}/{DungeonGen.Core.Items.DurabilityRules.ExpectedLifetimeRounds(armour, taken, dealt),-3}  {max / ww,4:0.0}/{DungeonGen.Core.Items.DurabilityRules.ExpectedLifetimeRounds(weapon, taken, dealt),-3}  {max / jw,4:0.0}/{DungeonGen.Core.Items.DurabilityRules.ExpectedLifetimeRounds(ring, taken, dealt),-3}");
+                Console.WriteLine($"  {r,-8} {max / aw,6:0.0}  {max / ww,6:0.0}  {max / jw,9:0.0}");
             }
             Console.WriteLine();
             var rng = new DungeonRandom(seed);
@@ -98,6 +119,40 @@ namespace DungeonGen.Tools
             }
             var (dropped, destroyed) = DungeonGen.Core.Items.DurabilityRules.OnDeath(kit, rng);
             Console.WriteLine($"Then a death: {dropped.Count} items drop for the killer, {destroyed.Count} are trashed.");
+            return 0;
+        }
+
+        /// <summary>Salvage a whole dungeon's loot, show the bag, then craft a few things from it.</summary>
+        private static int CraftDemo(DungeonSettings settings, int seed)
+        {
+            var layout = DungeonGenerator.Generate(settings, seed);
+            var bag = new DungeonGen.Core.Items.MaterialBag();
+            float silver = 0f;
+            foreach (var it in layout.Items)
+            {
+                if (it.Rarity == DungeonGen.Core.Items.Rarity.Normal) silver += DungeonGen.Core.Items.CraftingRules.SellPrice(it);   // sell the plain stuff
+                else bag.Add(DungeonGen.Core.Items.CraftingRules.Salvage(it));                                                   // salvage the rest
+            }
+            Console.WriteLine($"Salvaged every Magic+ item in seed {seed} ({layout.Items.Count} items), sold the Normals for {silver:0} silver.");
+            Console.WriteLine("Bag: " + bag);
+            Console.WriteLine();
+            var rng = new DungeonRandom(seed);
+            var requests = new[]
+            {
+                new DungeonGen.Core.Items.CraftRequest(DungeonGen.Core.Items.ItemBase.Weapons[0], 3),
+                new DungeonGen.Core.Items.CraftRequest(DungeonGen.Core.Items.ItemBase.Armours[1], 3, new[] { "Health" }),
+                new DungeonGen.Core.Items.CraftRequest(DungeonGen.Core.Items.ItemBase.Jewellery[1], 4, new[] { "Resist:Fire", "Attribute:Strength" }, forceRare: true),
+                new DungeonGen.Core.Items.CraftRequest(DungeonGen.Core.Items.ItemBase.Weapons[6], 4, new[] { "IncreasedDamage" }, forceRare: true),
+            };
+            foreach (var r in requests)
+            {
+                string want = $"{r.Base.Name} L{r.Level}" + (r.GuaranteedFamilies.Count > 0 ? " pin " + string.Join("+", r.GuaranteedFamilies) : "") + (r.ForceRare ? " RARE" : "");
+                if (!r.Affordable(bag, out string why)) { Console.WriteLine($"  {want}: cannot, {why}"); continue; }
+                var item = DungeonGen.Core.Items.Crafter.Craft(r, bag, rng);
+                Console.WriteLine($"  {want} (cost {r.ScrapCost} scrap, {r.ShardCost} shards)");
+                Console.WriteLine($"    → {item}");
+            }
+            Console.WriteLine("Bag after: " + bag);
             return 0;
         }
 

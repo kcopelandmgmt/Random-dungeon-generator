@@ -765,17 +765,17 @@ namespace DungeonGen.Tests
         private static Item Fresh(ItemBase b, Rarity r = Rarity.Normal) => new Item(b, 2, r, b.Name, new List<AffixRoll>(), new List<AffixRoll>());
 
         [Fact]
-        public void RepairsRefillButLowerTheCeilingUntilNothingIsLeft()
+        public void BrokenIsForeverButStillSellsAndSalvages()
         {
-            var it = Fresh(ItemBase.Armours[0]);
-            float max0 = it.Condition.Max;
-            it.Condition.Wear(max0);
+            var it = new Item(ItemBase.Armours[0], 2, Rarity.Rare, "x", new List<AffixRoll>(), new List<AffixRoll>());
+            it.Condition.Wear(1000f);
             Assert.True(it.Condition.IsBroken);
-            int repairs = 0;
-            while (it.Condition.Repair()) { repairs++; it.Condition.Wear(1000f); }
-            Assert.True(it.Condition.IsDestroyed);
-            Assert.Equal((int)System.Math.Ceiling(max0 / DurabilityRules.RepairMaxLoss) - 1, repairs);
-            Assert.False(it.Condition.Repair());
+            Assert.False(it.Condition.IsDestroyed);
+            Assert.True(CraftingRules.SellPrice(it) > 0f);
+            Assert.True(CraftingRules.Salvage(it).Scrap > 0);
+            it.Condition.Destroy();
+            Assert.Equal(0f, CraftingRules.SellPrice(it));
+            Assert.Equal(0, CraftingRules.Salvage(it).Scrap);
         }
 
         [Fact]
@@ -786,9 +786,9 @@ namespace DungeonGen.Tests
                 int armour = DurabilityRules.ExpectedLifetimeRounds(Fresh(ItemBase.Armours[1], r), 2500f, 6000f);
                 int weapon = DurabilityRules.ExpectedLifetimeRounds(Fresh(ItemBase.Weapons[0], r), 2500f, 6000f);
                 int ring = DurabilityRules.ExpectedLifetimeRounds(Fresh(ItemBase.Jewellery[1], r), 2500f, 6000f);
-                Assert.InRange(armour, 8, 50);
-                Assert.InRange(weapon, 8, 50);
-                Assert.InRange(ring, 8, 50);
+                Assert.InRange(armour, 2, 8);
+                Assert.InRange(weapon, 2, 8);
+                Assert.InRange(ring, 3, 10);
             }
             // Uniques outlast Normals.
             Assert.True(DurabilityRules.ExpectedLifetimeRounds(Fresh(ItemBase.Weapons[0], Rarity.Unique), 2500f, 6000f) >
@@ -855,14 +855,112 @@ namespace DungeonGen.Tests
         }
 
         [Fact]
-        public void RepairCostScalesWithValueAndDamage()
+        public void VendorPaysMoreForBetterAndLessForBroken()
         {
-            var cheap = Fresh(ItemBase.Armours[0]);
-            var fancy = new Item(ItemBase.Armours[0], 4, Rarity.Rare, "x", new List<AffixRoll>(), new List<AffixRoll>());
-            cheap.Condition.Wear(50f); fancy.Condition.Wear(60f);
-            Assert.True(DurabilityRules.RepairCost(fancy) > DurabilityRules.RepairCost(cheap) * 3f);
-            var intact = Fresh(ItemBase.Armours[0]);
-            Assert.True(DurabilityRules.RepairCost(intact) < DurabilityRules.RepairCost(cheap));
+            var plain = new Item(ItemBase.Armours[0], 1, Rarity.Normal, "x", new List<AffixRoll>(), new List<AffixRoll>());
+            var rare = new Item(ItemBase.Armours[0], 4, Rarity.Rare, "x", new List<AffixRoll>(), new List<AffixRoll>());
+            Assert.True(CraftingRules.SellPrice(rare) > CraftingRules.SellPrice(plain) * 5f);
+            float intact = CraftingRules.SellPrice(rare);
+            rare.Condition.Wear(1000f);
+            Assert.True(CraftingRules.SellPrice(rare) < intact * 0.3f);
+        }
+    }
+}
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Items;
+
+    public class CraftingTests
+    {
+        private static Item Rolled(DungeonRandom rng, int level, LootSource src = LootSource.Vault) => LootRoller.Roll(level, src, rng);
+
+        [Fact]
+        public void SalvageYieldsScrapShardsAndOneEssencePerAffix()
+        {
+            var rng = new DungeonRandom(4);
+            for (int i = 0; i < 300; i++)
+            {
+                var it = Rolled(rng, rng.Range(0, 5), LootSource.Chest);
+                var bag = CraftingRules.Salvage(it);
+                Assert.Equal((int)System.Math.Round(CraftingRules.ScrapPerLevel * (it.ItemLevel + 1) * CraftingRules.ScrapRarityMultiplier(it.Rarity)), bag.Scrap);
+                Assert.Equal(CraftingRules.ShardsFor(it.Rarity), bag.PrimeShards);
+                Assert.Equal(it.Affixes.Select(a => a.Definition.FamilyKey).Distinct().Count(), bag.Essences.Count);
+                foreach (var a in it.Affixes) Assert.True(bag.Essence(a.Definition.FamilyKey) >= 1);
+            }
+        }
+
+        [Fact]
+        public void CraftingConsumesMaterialsAndRefusesWhenShort()
+        {
+            var bag = new MaterialBag { Scrap = 100 };
+            var req = new CraftRequest(ItemBase.Weapons[0], 3);
+            Assert.False(req.Affordable(bag, out string why));
+            Assert.Contains("scrap", why);
+            bag.Scrap = 200;
+            var item = Crafter.Craft(req, bag, new DungeonRandom(1));
+            Assert.Equal(200 - CraftingRules.ScrapCost(3), bag.Scrap);
+            Assert.Equal(3, item.ItemLevel);
+            Assert.Equal(1f, item.Condition.Fraction, 3);
+        }
+
+        [Fact]
+        public void CraftedItemsAreNeverNormalOrUnique()
+        {
+            var rng = new DungeonRandom(2);
+            for (int i = 0; i < 300; i++)
+            {
+                var bag = new MaterialBag { Scrap = 1000 };
+                var item = Crafter.Craft(new CraftRequest(rng.Pick(ItemBase.Armours), rng.Range(0, 5)), bag, rng);
+                Assert.NotEqual(Rarity.Normal, item.Rarity);
+                Assert.NotEqual(Rarity.Unique, item.Rarity);
+                Assert.Null(item.Unique);
+            }
+        }
+
+        [Fact]
+        public void PinnedFamiliesAlwaysAppearAndTheRestStillRolls()
+        {
+            var rng = new DungeonRandom(3);
+            var seen = new HashSet<string>();
+            for (int i = 0; i < 200; i++)
+            {
+                var bag = new MaterialBag { Scrap = 1000, PrimeShards = 10 };
+                bag.AddEssence("Resist:Fire", 3);
+                bag.AddEssence("Attribute:Strength", 3);
+                var item = Crafter.Craft(new CraftRequest(ItemBase.Jewellery[1], 4, new[] { "Resist:Fire", "Attribute:Strength" }, forceRare: true), bag, rng);
+                Assert.Equal(Rarity.Rare, item.Rarity);
+                Assert.Contains(item.Affixes, a => a.Definition.FamilyKey == "Resist:Fire");
+                Assert.Contains(item.Affixes, a => a.Definition.FamilyKey == "Attribute:Strength");
+                Assert.InRange(item.Affixes.Count(), 3, 4);
+                Assert.Equal(0, bag.Essence("Resist:Fire"));
+                Assert.Equal(7, bag.PrimeShards);
+                seen.Add(string.Join("|", item.Affixes.Select(a => a.ToString())));
+            }
+            Assert.True(seen.Count > 100, "pinning two families should still leave the item random");
+        }
+
+        [Fact]
+        public void PinningAnIllegalFamilyIsRefused()
+        {
+            var bag = new MaterialBag { Scrap = 1000 };
+            bag.AddEssence("IncreasedDamage", 3);
+            var req = new CraftRequest(ItemBase.Armours[0], 2, new[] { "IncreasedDamage" });
+            Assert.False(req.Affordable(bag, out string why));
+            Assert.Contains("cannot roll", why);
+        }
+
+        [Fact]
+        public void JunkSellsForMoreThanItSalvagesAndGoodGearSalvagesIntoMore()
+        {
+            var plain = new Item(ItemBase.Armours[0], 1, Rarity.Normal, "x", new List<AffixRoll>(), new List<AffixRoll>());
+            Assert.True(CraftingRules.SellPrice(plain) > CraftingRules.Salvage(plain).Scrap);
+            var rng = new DungeonRandom(6);
+            var rare = LootRoller.Roll(4, LootSource.Vault, rng);
+            while (rare.Rarity != Rarity.Rare) rare = LootRoller.Roll(4, LootSource.Vault, rng);
+            var bag = CraftingRules.Salvage(rare);
+            Assert.True(bag.Scrap > CraftingRules.Salvage(plain).Scrap * 4);
+            Assert.True(bag.PrimeShards >= 1 && bag.Essences.Count >= 3);
         }
     }
 }

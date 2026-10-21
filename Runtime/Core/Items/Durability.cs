@@ -5,33 +5,23 @@ using System.Linq;
 namespace DungeonGen.Core.Items
 {
     /// <summary>
-    /// The state of one item's wear. The only mutable part of an item. Current durability falls
-    /// with use; a repair refills it but lowers the maximum, so every item is finite.
+    /// The state of one item's wear. The only mutable part of an item. Durability only ever goes
+    /// down: there are no repairs. A broken item is worn out for good and can only be sold or
+    /// salvaged; a destroyed one (trashed on death) is gone entirely.
     /// </summary>
     public sealed class ItemCondition
     {
         public float Max { get; private set; }
         public float Current { get; private set; }
-        public int Repairs { get; private set; }
 
         public ItemCondition(float max, float current) { Max = max; Current = Math.Min(current, max); }
 
         public bool IsBroken => Current <= 0f && Max > 0f;
-        /// <summary>No maximum left: the item is gone for good.</summary>
+        /// <summary>Trashed on death: nothing to sell or salvage.</summary>
         public bool IsDestroyed => Max <= 0f;
         public float Fraction => Max <= 0f ? 0f : Current / Max;
 
         public void Wear(float points) => Current = Math.Max(0f, Current - Math.Max(0f, points));
-
-        /// <summary>Refill to the (reduced) maximum. Returns false if the item cannot take another repair.</summary>
-        public bool Repair()
-        {
-            if (IsDestroyed) return false;
-            Max = Math.Max(0f, Max - DurabilityRules.RepairMaxLoss);
-            Current = Max;
-            Repairs++;
-            return !IsDestroyed;
-        }
 
         public void Destroy() { Max = 0f; Current = 0f; }
 
@@ -40,15 +30,12 @@ namespace DungeonGen.Core.Items
 
     /// <summary>
     /// Every durability number in one place. Tuned so that an item in constant use lasts a handful
-    /// of rounds before its first break, a dozen or so with repairs, and never forever.
+    /// of rounds and then is finished. No repairs: the first break is the last.
     /// </summary>
     public static class DurabilityRules
     {
         /// <summary>Points of maximum durability by rarity. Uniques are the prize; they last longest.</summary>
         public static float MaxFor(Rarity r) => r == Rarity.Unique ? 150f : r == Rarity.Rare ? 120f : 100f;
-
-        /// <summary>Each repair takes this many points off the maximum. 100 max → six repairs at most.</summary>
-        public const float RepairMaxLoss = 15f;
 
         /// <summary>Armour: 1 point per this much raw damage taken, on every worn piece.</summary>
         public const float ArmourDamagePerPoint = 100f;
@@ -65,9 +52,6 @@ namespace DungeonGen.Core.Items
         /// <summary>Items found in ordinary chests spawn between these fractions of max: found gear is used gear.</summary>
         public const float FoundMinFraction = 0.6f;
         public const float FoundMaxFraction = 1.0f;
-
-        /// <summary>Repair price in silver: proportional to the item's value and how much is missing.</summary>
-        public static float RepairCost(Item item) => item.Value * 10f * (1f - item.Condition.Fraction) + item.Value * 2f;
 
         /// <summary>Apply one round's wear: damage the wearer took and dealt, plus the extraction itself.</summary>
         public static void WearForRound(Equipment e, float damageTaken, float damageDealt)
@@ -97,21 +81,13 @@ namespace DungeonGen.Core.Items
         }
 
         /// <summary>
-        /// How many rounds an item survives in constant use, repairing whenever it breaks, if its
-        /// owner never dies. The design number for "how long does gear last".
+        /// How many rounds an item survives in constant use if its owner never dies. With no repairs
+        /// this is simply max durability over wear per round. The design number for "how long does gear last".
         /// </summary>
         public static int ExpectedLifetimeRounds(Item item, float damageTakenPerRound, float damageDealtPerRound)
         {
-            var probe = new ItemCondition(DurabilityRules.MaxFor(item.Rarity), DurabilityRules.MaxFor(item.Rarity));
             float perRound = BaseWearPerRound + (item.Base.IsArmour ? damageTakenPerRound / ArmourDamagePerPoint : item.Base.IsWeapon ? damageDealtPerRound / WeaponDamagePerPoint : JewelleryWearPerRound);
-            int rounds = 0;
-            while (!probe.IsDestroyed && rounds < 1000)
-            {
-                probe.Wear(perRound);
-                rounds++;
-                if (probe.IsBroken) probe.Repair();
-            }
-            return rounds;
+            return (int)Math.Ceiling(DurabilityRules.MaxFor(item.Rarity) / perRound);
         }
     }
 }

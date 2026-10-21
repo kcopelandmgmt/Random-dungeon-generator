@@ -46,6 +46,11 @@ namespace DungeonGen.Core.Items
         /// <summary>Two affixes conflict if they are the same family (same kind and same type/attribute).</summary>
         public bool SameFamily(AffixDefinition other) => Kind == other.Kind && Type == other.Type && Attribute == other.Attribute;
 
+        /// <summary>Stable name of the family: "Resist:Fire", "Attribute:Strength", "Health". Essences are keyed by it.</summary>
+        public string FamilyKey => Kind + (Type != null ? ":" + Type : Attribute != null ? ":" + Attribute : "");
+
+        public static AffixDefinition ByFamily(string key) => Pool.FirstOrDefault(d => d.FamilyKey == key);
+
         private static readonly ItemSlot[] WeaponOnly = { ItemSlot.Weapon };
         private static readonly ItemSlot[] ArmourOnly = { ItemSlot.Head, ItemSlot.Chest, ItemSlot.Hands, ItemSlot.Legs, ItemSlot.Feet };
         private static readonly ItemSlot[] ArmourAndJewels = { ItemSlot.Head, ItemSlot.Chest, ItemSlot.Hands, ItemSlot.Legs, ItemSlot.Feet, ItemSlot.Amulet, ItemSlot.Ring };

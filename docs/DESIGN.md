@@ -409,18 +409,16 @@ tool dresses each class in a rolled set and prints both sheets.
 
 Full loot alone does not shrink the amount of gear in the world; it only moves items from the
 loser to the winner. Without a sink, every player's bank fills with spare sets and the loot stops
-mattering. Three sinks make every item finite (`DurabilityRules`, one file of numbers):
+mattering. Two sinks make every item finite, and **there are no repairs** (`DurabilityRules`):
 
 1. **Wear from use.** Every item has a maximum durability (Normal and Magic 100, Rare 120,
    Unique 150) and loses points with use: armour pieces 1 per 100 raw damage taken, weapons 1 per
    200 damage dealt, jewellery a flat 15 per round, and everything 5 per extraction for the trip.
-   At 0 the item is *broken*: an armour piece gives nothing, a broken weapon is fists (half
-   damage). Found gear is used gear: ordinary chests hold items at 60–100% durability; bosses,
-   vaults and the final boss hand out fresh ones.
-2. **Repairs cost the ceiling.** A repair refills the item but takes 15 points off its maximum.
-   A 100-point item can be repaired six times, then it is dust. Repair price scales with the
-   item's value and how much is missing, so a Rare costs real silver to keep alive.
-3. **Death trashes half.** When a player dies, each worn item is destroyed with 50% probability
+   At 0 the item is *broken* for good: an armour piece gives nothing, a broken weapon is fists
+   (half damage). A broken item can still be sold or salvaged; it just cannot be worn again.
+   Found gear is used gear: ordinary chests hold items at 60–100% durability; bosses, vaults and
+   the final boss hand out fresh ones.
+2. **Death trashes half.** When a player dies, each worn item is destroyed with 50% probability
    and the rest drop for the killer. Keys always drop.
 
 Under the reference round (2,500 damage taken, 6,000 dealt: two mob packs, a boss, a skirmish),
@@ -428,13 +426,43 @@ an item in constant use whose owner never dies lasts:
 
 | Rarity | Armour piece | Weapon | Ring / amulet |
 |--------|-------------:|-------:|--------------:|
-| Normal / Magic | 3 rounds, 16 with every repair | 3 / 14 | 5 / 22 |
-| Rare | 4 / 20 | 3 / 19 | 6 / 30 |
-| Unique | 5 / 30 | 4 / 28 | 8 / 45 |
+| Normal / Magic | 3 rounds | 3 | 5 |
+| Rare | 4 | 3 | 6 |
+| Unique | 5 | 4 | 8 |
 
-`--lifetime` in the preview tool prints this table and walks a kit through five rounds and a
-death. With deaths in the mix the real numbers are far lower: half of everything you wear is
-gone the first time you lose a fight. The bank that fills up is the one with broken junk in it.
+With deaths in the mix the real numbers are lower still. Every item is a few rounds of use and
+then a decision: sell it or break it down.
+
+## Vendor, salvage and crafting
+
+Two ways an unwanted or worn-out item leaves the game, and one way materials come back as gear
+(`CraftingRules`, `Crafter`):
+
+**Sell.** A vendor pays silver proportional to the item's value (rarity × level) and condition;
+broken gear sells at a quarter. Plain Normal items are worth more sold than salvaged.
+
+**Salvage.** Any item that is not destroyed, broken or not, breaks down into three materials:
+
+| Material | From | Used for |
+|----------|------|----------|
+| **Scrap** (untyped) | every item: 4 × (level + 1) × rarity multiplier (Normal 1, Magic 1.5, Rare 2.5, Unique 4) | the price of every craft |
+| **Essence** (typed by affix family: `Resist:Fire`, `Attribute:Strength`, `Health` …) | one per affix on the item, two for a T3+ roll | guaranteeing that family on a craft |
+| **Prime Shard** | 1 per Rare, 3 per Unique | forcing a crafted item to be Rare |
+
+**Craft.** The player chooses a *base* (slot, weight, weapon type) and an *item level* and pays
+scrap: 10 / 40 / 90 / 160 / 250 for levels 0–4. Optionally they pin up to two affix *families* at
+3 essences each, which must be legal on that slot, and spend 3 shards to force Rare. Then the
+forge rolls exactly as a drop would:
+
+* rarity from the drop table at that level with Normal removed (or Rare if forced),
+* the pinned families present at a random tier and value,
+* every other affix slot filled randomly with the usual family exclusion and prefix/suffix caps,
+* a fresh item at full durability, never Normal, never Unique.
+
+That is the "somewhat random" line: a crafter can say *fire resistance on a ring, level 4, Rare*
+and will get it, but not which tier, not what else is on it, and not the second and third
+affix. Uniques never come from the forge; a salvaged unique is three shards and its essences.
+`--craft` in the preview tool salvages a whole dungeon's loot and crafts from the bag.
 
 ## Classes
 
@@ -528,6 +556,6 @@ authoritative loot/AI, and sends only the `int` to clients, which rebuild the id
 * Room interior templates (pillars, pits, cover) chosen by room role and size.
 * Locked gates on loop corridors (vault doors and keys are done; the graph already knows which edges are loops).
 * Timed extract activation (Tarkov-style) using `Danger` as the schedule.
-* Consumables and crafting materials; gear is done.
+* Consumables (potions, in-dungeon salvage kits) and a crafting UI; the forge rules are done.
 * Multi-floor dungeons: stack layouts, connect via stair rooms.
 * Mesh / Tilemap renderer and NavMesh baking in the Unity layer.
