@@ -1,0 +1,14 @@
+{
+    "name": "DungeonGen.Unity",
+    "rootNamespace": "DungeonGen.Unity",
+    "references": [ "DungeonGen.Core" ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

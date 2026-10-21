@@ -1,0 +1,12 @@
+# .NET build output (console tool + tests)
+bin/
+obj/
+*.user
+.vs/
+
+# Unity-generated files if this package is opened inside a project
+Library/
+Temp/
+Logs/
+UserSettings/
+*.csproj.meta
