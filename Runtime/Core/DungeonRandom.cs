@@ -49,7 +49,9 @@ namespace DungeonGen.Core
         {
             if (maxExclusive <= minInclusive) return minInclusive;
             ulong span = (ulong)(maxExclusive - minInclusive);
-            return minInclusive + (int)(NextULong() % span);
+            // Use the high 32 bits: xorshift128+'s low bits are weak and a modulo on them
+            // visibly skews small picks (one boss archetype showed up in every dungeon).
+            return minInclusive + (int)(((NextULong() >> 32) * span) >> 32);
         }
 
         /// <summary>Uniform float in [0, 1).</summary>

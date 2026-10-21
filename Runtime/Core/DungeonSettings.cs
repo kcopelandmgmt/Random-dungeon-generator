@@ -60,6 +60,9 @@ namespace DungeonGen.Core
         public float KeyFromBossChance = 0.5f;
         /// <summary>Minimum walking distance (cells) between a key and the vault it opens, so the key is always a trip.</summary>
         public int KeyMinWalk = 40;
+        /// <summary>Roll 0-2 affixes per room boss from the seed.</summary>
+        public bool BossAffixesEnabled = true;
+        public int MaxAffixesPerBoss = 2;
         /// <summary>Numbers every boss is tuned against.</summary>
         public CombatBaseline Combat = new CombatBaseline();
         public int ExtractCount = 2;
@@ -110,6 +113,7 @@ namespace DungeonGen.Core
             if (BossRingRadius < 0.15f || BossRingRadius >= ExtractRingRadius) throw new ArgumentException("BossRingRadius must be >= 0.15 and smaller than ExtractRingRadius.");
             if (BossCount < 0 || VaultCount < 0) throw new ArgumentException("BossCount and VaultCount must be >= 0.");
             if (KeyFromBossChance < 0f || KeyFromBossChance > 1f) throw new ArgumentException("KeyFromBossChance must be 0..1.");
+            if (MaxAffixesPerBoss < 0 || MaxAffixesPerBoss > 3) throw new ArgumentException("MaxAffixesPerBoss must be 0..3.");
             if (TargetRoomCount < SpawnCount + ExtractCount + BossCount + VaultCount + 3)
                 throw new ArgumentException("Need at least SpawnCount + ExtractCount + BossCount + VaultCount + 3 rooms.");
             Combat.Validate();

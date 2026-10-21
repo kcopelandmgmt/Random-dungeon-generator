@@ -283,3 +283,105 @@ namespace DungeonGen.Tests
         }
     }
 }
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+
+    public class BossTypeTests
+    {
+        [Theory]
+        [InlineData(3)]
+        [InlineData(8)]
+        public void NoArchetypeRepeatsWithinADungeon(int teams)
+        {
+            var s = DungeonSettings.ForTeams(teams);
+            for (int seed = 1; seed <= 40; seed++)
+            {
+                var layout = DungeonGenerator.Generate(s, seed);
+                var names = layout.BossRooms.Select(r => r.Boss.Archetype.Name).ToList();
+                Assert.Equal(s.BossCount, names.Count);
+                Assert.Equal(names.Count, names.Distinct().Count());
+                Assert.All(layout.BossRooms, r => Assert.NotNull(r.Boss.Budget));
+                Assert.All(layout.BossRooms, r => Assert.Same(r.Boss.Budget, r.Encounter));
+            }
+        }
+
+        [Fact]
+        public void FourBossesCoverAllFourFamilies()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            for (int seed = 1; seed <= 40; seed++)
+            {
+                var layout = DungeonGenerator.Generate(s, seed);
+                var families = layout.BossRooms.Select(r => r.Boss.Archetype.Family).Distinct().Count();
+                Assert.Equal(4, families);
+            }
+        }
+
+        [Fact]
+        public void EveryArchetypeShowsUpAcrossSeeds()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            var seen = new HashSet<string>();
+            for (int seed = 1; seed <= 60; seed++)
+                foreach (var r in DungeonGenerator.Generate(s, seed).BossRooms) seen.Add(r.Boss.Archetype.Name);
+            Assert.Equal(BossArchetype.DefaultPool.Count, seen.Count);
+        }
+
+        [Fact]
+        public void KeybearerExactlyWhenTheBossDropsAKey()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            for (int seed = 1; seed <= 30; seed++)
+            {
+                var layout = DungeonGenerator.Generate(s, seed);
+                foreach (var r in layout.BossRooms)
+                    Assert.Equal(r.HoldsKeyId >= 0, r.Boss.HasAffix(BossAffix.Keybearer));
+                Assert.All(layout.BossRooms, r => Assert.True(r.Boss.Affixes.Count(a => a != BossAffix.Keybearer) <= s.MaxAffixesPerBoss));
+            }
+        }
+
+        [Fact]
+        public void AffixesScaleTheBudgetAndKeepTheLine()
+        {
+            var b = new CombatBaseline();
+            var plain = EncounterTuner.RoomBoss(b);
+            var s = DungeonSettings.ForTeams(8);
+            for (int seed = 1; seed <= 30; seed++)
+                foreach (var r in DungeonGenerator.Generate(s, seed).BossRooms)
+                {
+                    float hp = r.Boss.Archetype.HealthMultiplier, dps = r.Boss.Archetype.DpsMultiplier;
+                    foreach (var a in r.Boss.Affixes) { hp *= a.HealthMultiplier; dps *= a.DpsMultiplier; }
+                    Assert.Equal(plain.Health * hp, r.Boss.Budget.Health, 1);
+                    Assert.Equal(plain.Dps * dps, r.Boss.Budget.Dps, 1);
+                    // Even the nastiest roll stays beatable by a geared trio; a solo never wins.
+                    Assert.True(EncounterTuner.Simulate(r.Boss.Budget, b, 3, b.GoodGearMultiplier).Wins, r.Boss.DisplayName);
+                    Assert.False(EncounterTuner.Simulate(r.Boss.Budget, b, 1).Wins, r.Boss.DisplayName);
+                }
+        }
+
+        [Fact]
+        public void FinalBossHasItsOwnArchetypeOutsideThePool()
+        {
+            var layout = DungeonGenerator.Generate(DungeonSettings.ForTeams(8), 9);
+            Assert.Same(BossArchetype.FinalBoss, layout.FinalBossRoom.Boss.Archetype);
+            Assert.DoesNotContain(BossArchetype.FinalBoss, BossArchetype.DefaultPool);
+            Assert.Equal(8, BossArchetype.DefaultPool.Count);
+            Assert.All(System.Enum.GetValues(typeof(BossFamily)).Cast<BossFamily>(),
+                f => Assert.Equal(2, BossArchetype.DefaultPool.Count(a => a.Family == f)));
+        }
+
+        [Fact]
+        public void RingArenasAreSizedForTheirBoss()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            for (int seed = 1; seed <= 20; seed++)
+                foreach (var r in DungeonGenerator.Generate(s, seed).BossRooms)
+                {
+                    int side = System.Math.Max(r.Bounds.Width, r.Bounds.Height);
+                    Assert.True(side >= System.Math.Min(r.Boss.Archetype.ArenaMin, s.MaxRoomSize) - 1, $"{r.Boss.Archetype.Name} in a {side}-cell room");
+                }
+        }
+    }
+}

@@ -18,8 +18,11 @@ namespace DungeonGen.Core
         /// <summary>Loot tier 0..N; higher is rarer. Mapped from Danger in RoleAssigner.</summary>
         public int LootTier { get; set; }
 
-        /// <summary>Boss tuning for Boss / FinalBoss rooms; null otherwise.</summary>
+        /// <summary>Boss tuning for Boss / FinalBoss rooms; null otherwise. Same object as <see cref="Boss"/>.Budget.</summary>
         public EncounterBudget Encounter { get; set; }
+
+        /// <summary>Which boss, with which affixes. Null unless this is a Boss / FinalBoss room.</summary>
+        public BossInstance Boss { get; set; }
 
         /// <summary>Vault rooms: id of the key that opens their locked doors. -1 for everything else.</summary>
         public int RequiredKeyId { get; set; } = -1;

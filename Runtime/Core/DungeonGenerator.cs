@@ -65,15 +65,9 @@ namespace DungeonGen.Core
             var corridors = CorridorCarver.Carve(rooms, edges, s, layout.Warnings);
             RoleAssigner.Assign(rooms, corridors, s, rng.Fork(3), layout.Warnings, layout.Keys);
 
+            BossRoller.Assign(rooms, s, rng.Fork(4), layout.Warnings);
             foreach (var r in rooms)
-            {
-                if (r.Type == RoomType.Boss) r.Encounter = EncounterTuner.RoomBoss(s.Combat);
-                else if (r.Type == RoomType.FinalBoss)
-                {
-                    r.Encounter = EncounterTuner.FinalBoss(s.Combat);
-                    layout.BossExit = new BossGatedExit(r.Id, r.Center);
-                }
-            }
+                if (r.Type == RoomType.FinalBoss) layout.BossExit = new BossGatedExit(r.Id, r.Center);
 
             layout.Rooms.AddRange(rooms);
             layout.Corridors.AddRange(corridors);

@@ -34,7 +34,8 @@ See `docs/DESIGN.md` for the full explanation of how each stage works and why.
 **Bosses, vaults, keys, classes.** Boss rooms carry an `Encounter` budget tuned for 2.5 players
 (`CombatBaseline`); the final boss at the center is tuned for a geared full party and opens a
 boss-gated exit (`Layout.BossExit`, `DungeonBuilder.OpenBossGatedExit()`). Vaults are locked
-dead-end rooms (`TileType.LockedDoor`) with a key hidden elsewhere (`Layout.Keys`). Six classes
+dead-end rooms (`TileType.LockedDoor`) with a key hidden elsewhere (`Layout.Keys`). Each boss room rolls one of eight boss
+archetypes (never repeated in a dungeon) plus 0-2 affixes from the seed (`Room.Boss`). Six classes
 are in `docs/CLASSES.md` and `ClassArchetype.DefaultRoster`. Design details in `docs/DESIGN.md`.
 
 **Teams.** One spawn room per team, 1–16 supported. For more than 3–4 teams use the preset:

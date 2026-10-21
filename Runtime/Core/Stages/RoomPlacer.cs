@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using DungeonGen.Core.Combat;
 
 namespace DungeonGen.Core.Stages
 {
@@ -156,13 +158,20 @@ namespace DungeonGen.Core.Stages
             if (bCount > 0)
             {
                 double bossSlice = Math.PI * 2 / bCount;
-                int bossMin = Math.Min(s.MaxRoomSize, s.MinRoomSize + 2);
-                int bossMax = Math.Max(bossMin, s.MaxRoomSize - 2);
+                // Roll the archetypes now so each arena can be sized for its boss.
+                var usedArchetypes = new HashSet<BossArchetype>();
                 for (int j = 0; j < bCount; j++)
                 {
+                    var archetype = BossRoller.PickArchetype(usedArchetypes, null, rng) ?? rng.Pick(BossArchetype.DefaultPool);
+                    usedArchetypes.Add(archetype);
+                    int bossMin = Math.Max(s.MinRoomSize, Math.Min(s.MaxRoomSize, archetype.ArenaMin));
+                    int bossMax = Math.Max(bossMin, Math.Min(s.MaxRoomSize, archetype.ArenaMax));
+
                     double angle = phase + spawnSlice * 0.5 + bossSlice * j + (rng.NextFloat() - 0.5) * bossSlice * s.RingJitter * 0.5;
-                    if (!TryPlaceOnRing(rooms, s, rng, pad, angle, s.BossRingRadius, bossMin, bossMax, RoomType.Boss))
-                        warnings.Add($"Ring placement could not fit boss room {j + 1}/{bCount}; falling back to graph selection for it.");
+                    if (TryPlaceOnRing(rooms, s, rng, pad, angle, s.BossRingRadius, bossMin, bossMax, RoomType.Boss))
+                        rooms[rooms.Count - 1].Boss = new BossInstance(archetype);
+                    else
+                        warnings.Add($"Ring placement could not fit boss room {j + 1}/{bCount} ({archetype.Name}); falling back to graph selection for it.");
                 }
             }
         }

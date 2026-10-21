@@ -46,6 +46,7 @@ namespace DungeonGen.Unity
             Settings.BossCount = Mathf.Max(0, Settings.BossCount);
             Settings.VaultCount = Mathf.Max(0, Settings.VaultCount);
             Settings.KeyFromBossChance = Mathf.Clamp01(Settings.KeyFromBossChance);
+            Settings.MaxAffixesPerBoss = Mathf.Clamp(Settings.MaxAffixesPerBoss, 0, 3);
         }
     }
 }

@@ -86,6 +86,9 @@ namespace DungeonGen.Tools
             int totalRooms = 0, totalLoops = 0, maxDepthSum = 0;
             double fairnessSum = 0; float fairnessMin = 1f;
             var warningKinds = new System.Collections.Generic.Dictionary<string, int>();
+            var archetypes = new System.Collections.Generic.Dictionary<string, int>();
+            var affixes = new System.Collections.Generic.Dictionary<string, int>();
+            int affixSlots = 0, bossRooms = 0;
             var sw = Stopwatch.StartNew();
             for (int i = 0; i < count; i++)
             {
@@ -102,6 +105,16 @@ namespace DungeonGen.Tools
                 totalLoops += layout.Corridors.Count(c => c.IsLoop);
                 maxDepthSum += layout.Rooms.Max(r => r.DepthFromSpawn);
                 fairnessSum += layout.Fairness.Score;
+                foreach (var r in layout.BossRooms)
+                {
+                    bossRooms++;
+                    archetypes[r.Boss.Archetype.Name] = archetypes.TryGetValue(r.Boss.Archetype.Name, out int ac) ? ac + 1 : 1;
+                    foreach (var a in r.Boss.Affixes)
+                    {
+                        affixSlots++;
+                        affixes[a.Name] = affixes.TryGetValue(a.Name, out int fc) ? fc + 1 : 1;
+                    }
+                }
                 if (layout.Fairness.Score < fairnessMin) fairnessMin = layout.Fairness.Score;
             }
             sw.Stop();
@@ -115,6 +128,11 @@ namespace DungeonGen.Tools
             Console.WriteLine($"  avg time per dungeon     : {sw.Elapsed.TotalMilliseconds / count:0.00} ms");
             foreach (var kv in warningKinds.OrderByDescending(kv => kv.Value))
                 Console.WriteLine($"  warning x{kv.Value,-4}: {kv.Key}");
+            if (bossRooms > 0)
+            {
+                Console.WriteLine($"  boss archetypes over {bossRooms} boss rooms: " + string.Join(", ", archetypes.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} {100.0 * kv.Value / bossRooms:0}%")));
+                Console.WriteLine($"  affixes ({(double)affixSlots / bossRooms:0.00} per boss): " + string.Join(", ", affixes.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} {kv.Value}")));
+            }
             return failed == 0 ? 0 : 2;
         }
     }

@@ -127,7 +127,7 @@ namespace DungeonGen.Unity
                 if (marker != null)
                 {
                     var go = Instantiate(marker, pos, Quaternion.identity, _root);
-                    go.name = $"{room.Type}_{room.Id}_tier{room.LootTier}";
+                    go.name = room.Boss != null ? $"{room.Type}_{room.Id}_{room.Boss.DisplayName}" : $"{room.Type}_{room.Id}_tier{room.LootTier}";
                 }
             }
 

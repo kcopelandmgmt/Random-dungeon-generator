@@ -136,6 +136,54 @@ teams shares a boss and an extract: the boss is a *third-party magnet* by design
 commits 60 seconds to a boss is loud, stationary and low on cooldowns when the neighbours arrive.
 Boss tier loot (`LootTiers - 2`) and a 50% chance of holding a vault key make it worth the risk.
 
+## Boss types
+
+Eight room bosses, two per mechanic family, and a dungeon never repeats one. With four bosses
+drawn per 8-team dungeon that is 70 possible sets, and a given boss comes back every other round
+on average; with the family-first draw every 8-team dungeon holds one of each family.
+
+| Family | Boss | One-line fight | Answer |
+|--------|------|----------------|--------|
+| Space denial | **Ashen Colossus** | Slams leave permanent lava; the floor shrinks to islands | Ranged kiting, Warden on the last island |
+| Space denial | **Glasswright** | Crystal walls partition the room and the team | Keep Mender with Reaver; Firewall through gaps |
+| Summoner | **Hive Matron** | Skitterers every 8 s until she dies | AoE (Ignite, Piercing Shot), Warden holds the door |
+| Summoner | **Bone Choir** | Raises every corpse in the room, players included | Burn corpses, interrupt Dirge |
+| Chaser | **Hound of Vesh** | Pursues the lowest-health player into corridors, leashes after 8 s | Purge bleeds, taunt ends the chase |
+| Chaser | **Lantern Wraith** | Hunts the richest inventory within two rooms, passes through doors | Spread loot before engaging; Veil breaks the target |
+| Check | **Iron Juggernaut** | Tank check: telegraphed 60% hits, an interruptible overdrive | Shield Wall or rotate the hit; hold the interrupt |
+| Check | **Plague Herald** | Healer check: stacking blight that never expires | Mender Purge, or out-race it |
+
+Each archetype carries a small budget multiplier (0.85–1.2 on health or damage) because a boss
+whose adds do half the work needs fewer raw numbers, and an arena size range that ring placement
+honours when sizing its room (summoners want space for adds, chasers want less). The full design
+text, including how each fight interacts with a third team arriving, is in
+`BossArchetype.DefaultPool`. The center boss, **The Sovereign Below**, is a three-phase fight
+outside the pool: a tank check, then a flooding arena with adds, then stacking blight under a
+90-second enrage; one phase per role a full party has to prove.
+
+### Affixes
+
+Each room boss rolls 0, 1 or 2 affixes (40 / 40 / 20%) from a weighted pool, deterministically
+from the seed. Affixes multiply the budget and change the tell, never the base mechanics, so the
+2.5-player line holds: the tests check that every rolled boss is still beaten by a geared trio
+and never by a solo.
+
+| Affix | Effect | Loot |
+|-------|--------|-----:|
+| Armoured | +30% health | +1 roll |
+| Frenzied | Enrage at 1.5× instead of 2×, +10% damage | +1 |
+| Swift | +10% damage, faster movement (chasers catch) | |
+| Venomous | +15% damage, every hit poisons | +1 |
+| Thorned | +10% health, reflects 15% of melee | |
+| Shrouded | Room is dark except boss and doorway | |
+| Hoarder | No stronger, +2 loot rolls | +2 |
+| Ancient (rare) | +20% health and damage, enrages later | +1 |
+| **Keybearer** | Assigned, not rolled: every boss holding a vault key wears it visibly | key |
+
+`BossRoller` runs after keys are placed: it fills any boss room without an archetype (fringe
+mode), rolls affixes, pins Keybearer, and folds all multipliers into `Room.Encounter`.
+`Room.Boss.DisplayName` gives the HUD string, e.g. *Hound of Vesh (Keybearer, Armoured)*.
+
 ## Final boss and the gated exit
 
 The final boss room is the center of the dungeon (ring mode places it there; fringe mode picks the
@@ -236,6 +284,7 @@ and `CandidateCount` if you go there.
 | `Keys` | Where each vault key is and what it opens. |
 | `BossExit` | Room and cell of the exit that opens when the final boss dies. |
 | `Room.Encounter` | Boss health, DPS, target time and enrage for Boss / FinalBoss rooms. |
+| `Room.Boss` | Archetype, rolled affixes, display name. |
 | `Warnings` | Non-fatal generation notes; log them in the editor. |
 
 ## Determinism and multiplayer
@@ -265,6 +314,6 @@ authoritative loot/AI, and sends only the `int` to clients, which rebuild the id
 * Room interior templates (pillars, pits, cover) chosen by room role and size.
 * Locked gates on loop corridors (vault doors and keys are done; the graph already knows which edges are loops).
 * Timed extract activation (Tarkov-style) using `Danger` as the schedule.
-* Boss archetypes per room (a different kit per boss, same budget) and vault loot tables per key.
+* Vault loot tables per key; boss archetypes and affixes are done.
 * Multi-floor dungeons: stack layouts, connect via stair rooms.
 * Mesh / Tilemap renderer and NavMesh baking in the Unity layer.
