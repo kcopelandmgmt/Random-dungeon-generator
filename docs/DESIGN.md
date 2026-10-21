@@ -224,6 +224,88 @@ tier, and the only way in is the matching key.
 Keys are inventory items. In full-loot PvP that means a key is also a bounty: whoever holds it is a
 target, and killing the holder is the other way into the vault.
 
+## Player stats
+
+Five primary attributes, everything else derived. Ten is an average adventurer; a class starts
+with 50 points over the five, gear tiers add a few more, and `StatFormulas` holds every number
+in one place so a rebalance is one file.
+
+| Attribute | Drives |
+|-----------|--------|
+| **Strength** | Melee / Strength-kit damage, carry capacity (30 kg + 2 kg per point; full loot makes this a real stat) |
+| **Dexterity** | Ranged / finesse damage, crit chance (+0.5%/pt), attack speed (+2%/pt), move speed (+1%/pt), stamina |
+| **Intelligence** | Spell damage, mana (+5%/pt) |
+| **Constitution** | Health (+5%/pt: 1000 at 10) |
+| **Spirit** | Healing power (+5%/pt), resource regen, +2 magic resistance rating per point to every non-physical type |
+
+Derived: health, stamina, mana, DPS (`kit coefficient × primary-attribute scaling × gear`),
+healing, crit, attack speed, move speed (armour weight: light 100%, medium 95%, heavy 90%),
+carry weight, armour rating and five resistances. `PlayerStats.For(class, gearTier)` builds the
+whole sheet; `TakeHit(amount, type)` applies mitigation.
+
+**Anchor.** All-10 attributes in tier-1 medium gear with a 1.0 kit is exactly the
+`CombatBaseline` player: 1000 health, 100 DPS. The class multipliers used by boss tuning are no
+longer stored; they are derived from each class's attributes and kit coefficient, and the roster
+still averages to 1.0 on both (test-enforced). Gear tier 3 multiplies DPS by about 1.45 and health
+by about 1.2, which is where the "good gear ×1.4" in the baseline comes from.
+
+**Mitigation.** Armour and each resistance are ratings; damage reduction is
+`rating / (rating + 100)`, capped at 75%. 100 rating = 50%, 300 = 75%. Negative ratings mean
+extra damage on the same curve, so a weakness is never an instant kill. Armour weight trades
+physical for magic: heavy armour is 100 armour and 0 resistance (50% physical, 0% magic), light
+is 30 armour and 25 resistance (23% physical, 20% magic), medium sits between.
+
+## Damage types and resistances
+
+Six types: **Physical, Fire, Frost, Lightning, Poison, Shadow.** Physical is mitigated by armour,
+the other five by their resistance. Every damage source carries a `DamageProfile` (fractions per
+type that sum to 1), so a hit from the Ashen Colossus is 70% fire and 30% physical and each part
+is mitigated separately.
+
+| Boss | Deals | Retinue mob |
+|------|-------|-------------|
+| Ashen Colossus | 70% Fire / 30% Physical | Ember Wisp |
+| Glasswright | 50% Lightning / 50% Physical | Storm Acolyte |
+| Hive Matron | 60% Poison / 40% Physical | Skitterer |
+| Bone Choir | 70% Shadow / 30% Physical | Gravewalker |
+| Hound of Vesh | 100% Physical | Bandit |
+| Lantern Wraith | 50% Shadow / 50% Frost | Frostbound |
+| Iron Juggernaut | 80% Physical / 20% Lightning | Hollow Knight |
+| Plague Herald | 100% Poison | Carrion Crawler |
+| The Sovereign Below | 40% Physical / 30% Frost / 30% Poison (one per phase) | – |
+
+Because a dungeon draws one boss per family, every 8-team dungeon has at least four dominant boss
+damage types in it, and the resistance a team stacks for one boss is the wrong one for the next.
+
+## Mobs
+
+Eight ordinary enemy types, each dealing one dominant damage type (all six covered, physical
+twice), resisting its own type (60%) and weak to its opposite (+50%). `MobPlacer` stations one
+pack in every ordinary, loot, hub and vault room:
+
+* **Budget.** Each pack is sized in player-equivalents from the room's danger: 0.5 PE next to a
+  spawn, 2.0 at the deepest room, +0.5 for loot rooms and vaults. A room boss is 2.5 PE, so the
+  deepest ordinary room is a real fight for a trio and the first room out is a warm-up. Mob health
+  and DPS also scale 0.8× to 1.4× with danger.
+* **Spread.** Each pick is weighted toward the damage types the dungeon has used least, so every
+  layout contains at least five of the six types among its mobs (test-enforced).
+* **Retinue.** Rooms adjacent to a boss draw that boss's retinue 75% of the time, so the approach
+  telegraphs the fight: skitterers mean the Matron is next door.
+
+| Mob | Deals | Resists | Weak to | Note |
+|-----|-------|---------|---------|------|
+| Bandit | Physical | Physical | Shadow | Uses doors like a player; loots corpses if left alone |
+| Hollow Knight | Physical / Shadow | Physical | Fire | Armoured, blocks a doorway |
+| Skitterer | Poison / Physical | Poison | Fire | Fast, packs of six or more |
+| Ember Wisp | Fire | Fire | Frost | Floats over hazards, lights the room |
+| Frostbound | Frost / Physical | Frost | Fire | Slows on hit |
+| Storm Acolyte | Lightning | Lightning | Physical | Caster, chains between grouped players |
+| Carrion Crawler | Poison / Physical | Poison | Lightning | Eats corpses and their loot |
+| Gravewalker | Shadow / Physical | Shadow | Fire | Rises again once unless burned |
+
+`Room.Mobs` and `DungeonLayout.MobPacks` carry the result; `MobPack.TotalHealth / TotalDps`
+give absolute numbers against the baseline.
+
 ## Classes
 
 See `docs/CLASSES.md`. The six-class roster (`ClassArchetype.DefaultRoster`) averages to exactly one
@@ -284,7 +366,8 @@ and `CandidateCount` if you go there.
 | `Keys` | Where each vault key is and what it opens. |
 | `BossExit` | Room and cell of the exit that opens when the final boss dies. |
 | `Room.Encounter` | Boss health, DPS, target time and enrage for Boss / FinalBoss rooms. |
-| `Room.Boss` | Archetype, rolled affixes, display name. |
+| `Room.Boss` | Archetype, rolled affixes, display name, damage profile. |
+| `Room.Mobs` | Mob pack: type, count, tier multiplier, player-equivalents. |
 | `Warnings` | Non-fatal generation notes; log them in the editor. |
 
 ## Determinism and multiplayer
@@ -314,6 +397,6 @@ authoritative loot/AI, and sends only the `int` to clients, which rebuild the id
 * Room interior templates (pillars, pits, cover) chosen by room role and size.
 * Locked gates on loop corridors (vault doors and keys are done; the graph already knows which edges are loops).
 * Timed extract activation (Tarkov-style) using `Danger` as the schedule.
-* Vault loot tables per key; boss archetypes and affixes are done.
+* Vault loot tables per key; gear items with attribute and resistance rolls on top of the stat system.
 * Multi-floor dungeons: stack layouts, connect via stair rooms.
 * Mesh / Tilemap renderer and NavMesh baking in the Unity layer.

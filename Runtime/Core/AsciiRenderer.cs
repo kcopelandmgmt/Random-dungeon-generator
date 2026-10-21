@@ -65,7 +65,15 @@ namespace DungeonGen.Core
                 foreach (var r in layout.Rooms.OrderBy(r => r.DepthFromSpawn))
                     sb.AppendLine($"  {r.Id,2} {r.Type,-8} depth {r.DepthFromSpawn}  danger {r.Danger:0.00}  tier {r.LootTier}  exits {r.Neighbours.Count}");
                 foreach (var r in layout.Rooms.Where(r => r.Boss != null).OrderBy(r => r.Type))
-                    sb.AppendLine($"  room {r.Id,2} [{r.Boss.Archetype.Family}] {r.Boss}");
+                    sb.AppendLine($"  room {r.Id,2} [{r.Boss.Archetype.Family}] {r.Boss}  deals {r.Boss.Archetype.Damage}");
+                if (layout.MobPacks.Count > 0)
+                {
+                    var byType = layout.MobPacks.GroupBy(m => m.Mob.Damage.Dominant).OrderByDescending(g => g.Count());
+                    sb.AppendLine($"Mobs: {layout.MobPacks.Sum(m => m.Count)} in {layout.MobPacks.Count} packs; dominant damage types: " +
+                                  string.Join(", ", byType.Select(g => $"{g.Key} x{g.Count()}")));
+                    foreach (var r in layout.Rooms.Where(r => r.Mobs != null).OrderBy(r => r.DepthFromSpawn))
+                        sb.AppendLine($"  room {r.Id,2} {r.Type,-8} {r.Mobs}");
+                }
                 foreach (var k in layout.Keys)
                     sb.AppendLine($"  key {k.KeyId} opens vault {k.VaultRoomId}: {(k.DroppedByBoss ? "dropped by boss in" : "chest in")} room {k.HolderRoomId}, {k.WalkToVault:0} cells away");
                 var f = layout.Fairness;

@@ -60,6 +60,14 @@ namespace DungeonGen.Core
         public float KeyFromBossChance = 0.5f;
         /// <summary>Minimum walking distance (cells) between a key and the vault it opens, so the key is always a trip.</summary>
         public int KeyMinWalk = 40;
+        // --- Mobs ---------------------------------------------------------------
+        public bool MobsEnabled = true;
+        /// <summary>Scales every pack's budget. 1 = the defaults below.</summary>
+        public float MobDensity = 1f;
+        /// <summary>Pack difficulty in baseline player-equivalents for a room next to a spawn (danger 0) and for the deepest room (danger 1). Loot rooms and vaults add MobBudgetLootBonus.</summary>
+        public float MobBudgetAtEdge = 0.5f;
+        public float MobBudgetAtCenter = 2.0f;
+        public float MobBudgetLootBonus = 0.5f;
         /// <summary>Roll 0-2 affixes per room boss from the seed.</summary>
         public bool BossAffixesEnabled = true;
         public int MaxAffixesPerBoss = 2;
@@ -113,6 +121,7 @@ namespace DungeonGen.Core
             if (BossRingRadius < 0.15f || BossRingRadius >= ExtractRingRadius) throw new ArgumentException("BossRingRadius must be >= 0.15 and smaller than ExtractRingRadius.");
             if (BossCount < 0 || VaultCount < 0) throw new ArgumentException("BossCount and VaultCount must be >= 0.");
             if (KeyFromBossChance < 0f || KeyFromBossChance > 1f) throw new ArgumentException("KeyFromBossChance must be 0..1.");
+            if (MobDensity < 0f || MobDensity > 3f) throw new ArgumentException("MobDensity must be 0..3.");
             if (MaxAffixesPerBoss < 0 || MaxAffixesPerBoss > 3) throw new ArgumentException("MaxAffixesPerBoss must be 0..3.");
             if (TargetRoomCount < SpawnCount + ExtractCount + BossCount + VaultCount + 3)
                 throw new ArgumentException("Need at least SpawnCount + ExtractCount + BossCount + VaultCount + 3 rooms.");

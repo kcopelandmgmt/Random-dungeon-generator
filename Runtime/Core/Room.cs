@@ -30,6 +30,9 @@ namespace DungeonGen.Core
         /// <summary>Id of the key that spawns in this room (chest or boss drop). -1 if none.</summary>
         public int HoldsKeyId { get; set; } = -1;
 
+        /// <summary>Ordinary enemies stationed here. Null for spawns, extracts and boss rooms.</summary>
+        public MobPack Mobs { get; set; }
+
         public bool IsBossRoom => Type == RoomType.Boss || Type == RoomType.FinalBoss;
 
         /// <summary>Ids of rooms reached directly by a corridor.</summary>

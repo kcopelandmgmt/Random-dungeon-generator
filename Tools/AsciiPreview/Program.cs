@@ -34,6 +34,7 @@ namespace DungeonGen.Tools
                     case "--bosses": settings.BossCount = int.Parse(Next()); break;
                     case "--vaults": settings.VaultCount = int.Parse(Next()); break;
                     case "--fights": return PrintFightTable(settings);
+                    case "--stats": return PrintStats(settings);
                     case "--seed": seed = int.Parse(Next()); break;
                     case "--width": settings.Width = int.Parse(Next()); break;
                     case "--height": settings.Height = int.Parse(Next()); break;
@@ -45,7 +46,7 @@ namespace DungeonGen.Tools
                     case "--batch": batch = int.Parse(Next()); break;
                     case "--no-legend": legend = false; break;
                     case "--help":
-                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights");
+                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats");
                         return 0;
                     default:
                         Console.Error.WriteLine("Unknown argument " + args[i]);
@@ -60,6 +61,38 @@ namespace DungeonGen.Tools
             sw.Stop();
             Console.Write(AsciiRenderer.Render(layout, legend));
             Console.WriteLine($"Generated in {sw.Elapsed.TotalMilliseconds:0.0} ms");
+            return 0;
+        }
+
+        private static int PrintStats(DungeonSettings settings)
+        {
+            var b = settings.Combat;
+            Console.WriteLine("CLASSES (tier 0 and tier 3 gear)");
+            foreach (var c in DungeonGen.Core.Combat.ClassArchetype.DefaultRoster)
+            {
+                Console.WriteLine($"  {DungeonGen.Core.Combat.PlayerStats.For(c, 0, b)}");
+                Console.WriteLine($"  {DungeonGen.Core.Combat.PlayerStats.For(c, 3, b)}");
+            }
+            Console.WriteLine();
+            Console.WriteLine("BOSS DAMAGE");
+            foreach (var a in DungeonGen.Core.Combat.BossArchetype.DefaultPool.Append(DungeonGen.Core.Combat.BossArchetype.FinalBoss))
+                Console.WriteLine($"  {a.Name,-20} {a.Damage}   retinue: {a.RetinueMob ?? "-"}");
+            Console.WriteLine();
+            Console.WriteLine("MOBS");
+            foreach (var m in DungeonGen.Core.Combat.MobArchetype.DefaultRoster)
+                Console.WriteLine($"  {m.Name,-16} deals {m.Damage,-28} resists {m.Resists,-9} weak to {m.WeakTo,-9} hp {m.HealthFraction:0.00} dps {m.DpsFraction:0.00}");
+            Console.WriteLine();
+            Console.WriteLine("A 100-damage hit of each type, taken by each class in tier-0 gear:");
+            Console.Write("  class        ");
+            foreach (DungeonGen.Core.Combat.DamageType t in Enum.GetValues(typeof(DungeonGen.Core.Combat.DamageType))) Console.Write($"{t,10}");
+            Console.WriteLine();
+            foreach (var c in DungeonGen.Core.Combat.ClassArchetype.DefaultRoster)
+            {
+                var st = DungeonGen.Core.Combat.PlayerStats.For(c, 0, b);
+                Console.Write($"  {c.Name,-12}");
+                foreach (DungeonGen.Core.Combat.DamageType t in Enum.GetValues(typeof(DungeonGen.Core.Combat.DamageType))) Console.Write($"{st.TakeHit(100f, t),10:0}");
+                Console.WriteLine();
+            }
             return 0;
         }
 

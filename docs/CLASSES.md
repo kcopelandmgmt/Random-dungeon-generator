@@ -5,14 +5,31 @@ baseline (`CombatBaseline`: 100 DPS, 1000 effective HP for "one average player")
 averages to 1.0 on both so boss tuning and class balance share a single set of numbers.
 Full loot PvP shapes every kit: no mid-fight resurrection, and every ability has a doorway use.
 
-| Class | Role | Armour | DPS | HP | Tagline |
-|-------|------|--------|----:|---:|---------|
-| **Warden** | Tank | Heavy | 0.70 | 1.50 | Holds the doorway so the team decides where the fight happens. |
-| **Reaver** | Melee DPS | Medium | 1.30 | 1.00 | Burst and mobility. Opens fights and ends them. |
-| **Marksman** | Ranged DPS | Light | 1.15 | 0.85 | Controls sightlines down long corridors. |
-| **Pyromancer** | Caster | Light | 1.20 | 0.80 | Area denial. Burns rooms, not people. |
-| **Mender** | Support | Medium | 0.65 | 1.10 | Keeps the trio alive long enough for the math to work. |
-| **Shade** | Skirmisher | Light | 1.00 | 0.75 | Finds the key, picks the moment, leaves with the loot. |
+| Class | Role | Armour | STR | DEX | INT | CON | SPI | Primary | Kit | DPS | HP | Tagline |
+|-------|------|--------|----:|----:|----:|----:|----:|---------|----:|----:|---:|---------|
+| **Warden** | Tank | Heavy | 14 | 6 | 4 | 20 | 6 | STR | 0.625 | 0.70 | 1.50 | Holds the doorway so the team decides where the fight happens. |
+| **Reaver** | Melee DPS | Medium | 16 | 12 | 4 | 10 | 8 | STR | 1.10 | 1.30 | 1.00 | Burst and mobility. Opens fights and ends them. |
+| **Marksman** | Ranged DPS | Light | 8 | 17 | 8 | 7 | 10 | DEX | 0.95 | 1.15 | 0.85 | Controls sightlines down long corridors. |
+| **Pyromancer** | Caster | Light | 4 | 8 | 18 | 6 | 14 | INT | 0.97 | 1.20 | 0.80 | Area denial. Burns rooms, not people. |
+| **Mender** | Support | Medium | 6 | 8 | 10 | 12 | 14 | SPI | 0.58 | 0.65 | 1.10 | Keeps the trio alive long enough for the math to work. |
+| **Shade** | Skirmisher | Light | 8 | 16 | 8 | 5 | 13 | DEX | 0.85 | 1.00 | 0.75 | Finds the key, picks the moment, leaves with the loot. |
+
+DPS and HP are derived (see *Player stats* in DESIGN.md): DPS = kit × (1 + 3% per primary point over 10),
+HP = 1 + 5% per Constitution point over 10. Every class has exactly 50 attribute points.
+
+Starting sheets (tier-0 gear), 100-damage hit taken by type:
+
+| Class | HP | DPS | Crit | Armour | Carry | Physical | Fire / Frost / Lightning / Poison / Shadow |
+|-------|---:|----:|-----:|-------:|------:|---------:|---:|
+| Warden | 1500 | 70 | 3% | 100 (50%) | 58 kg | 50 | 107 |
+| Reaver | 1000 | 130 | 6% | 60 (38%) | 62 kg | 63 | 94 |
+| Marksman | 850 | 115 | 9% | 30 (23%) | 46 kg | 77 | 80 |
+| Pyromancer | 800 | 120 | 4% | 30 (23%) | 38 kg | 77 | 75 |
+| Mender | 1100 | 65 | 4% | 60 (38%) | 42 kg | 63 | 85 |
+| Shade | 750 | 100 | 8% | 30 (23%) | 46 kg | 77 | 76 |
+
+The Warden takes *more* than 100 from magic: heavy iron and 6 Spirit. That is the trade; a Warden
+walking into the Plague Herald's room wants a Mender more than anyone.
 
 ## Kits
 

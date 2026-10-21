@@ -73,6 +73,7 @@ namespace DungeonGen.Core
             layout.Corridors.AddRange(corridors);
             Rasterizer.Paint(layout, rooms, corridors);
             DangerMapper.Assign(layout, s);
+            MobPlacer.Assign(layout, s, rng.Fork(5));
             FairnessMapper.Assign(layout);
 
             return layout;

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using DungeonGen.Core;
@@ -382,6 +383,138 @@ namespace DungeonGen.Tests
                     int side = System.Math.Max(r.Bounds.Width, r.Bounds.Height);
                     Assert.True(side >= System.Math.Min(r.Boss.Archetype.ArenaMin, s.MaxRoomSize) - 1, $"{r.Boss.Archetype.Name} in a {side}-cell room");
                 }
+        }
+    }
+}
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+
+    public class StatsAndResistanceTests
+    {
+        [Fact]
+        public void AllTensInMediumGearIsTheBaselinePlayer()
+        {
+            var b = new CombatBaseline();
+            var avg = new ClassArchetype("Average", ClassRole.MeleeDps, Attributes.Baseline, Attribute.Strength, 1f, ArmourWeight.Medium, "", new string[0], "");
+            var st = PlayerStats.For(avg, 0, b);
+            Assert.Equal(b.PlayerHealth, st.Health, 1);
+            Assert.Equal(b.PlayerDps, st.Dps, 1);
+            Assert.Equal(0.05f, st.CritChance, 3);
+            Assert.Equal(50f, st.CarryKg, 1);
+        }
+
+        [Fact]
+        public void ClassMultipliersComeFromAttributesAndStillAverageToOne()
+        {
+            var roster = ClassArchetype.DefaultRoster;
+            Assert.All(roster, c => Assert.Equal(50, c.BaseAttributes.Total));
+            Assert.InRange(roster.Average(c => c.DpsMultiplier), 0.97f, 1.03f);
+            Assert.InRange(roster.Average(c => c.HealthMultiplier), 0.97f, 1.03f);
+            var warden = roster.First(c => c.Name == "Warden");
+            Assert.Equal(0.70f, warden.DpsMultiplier, 2);
+            Assert.Equal(1.50f, warden.HealthMultiplier, 2);
+            var reaver = roster.First(c => c.Name == "Reaver");
+            Assert.Equal(1.30f, reaver.DpsMultiplier, 2);
+        }
+
+        [Fact]
+        public void GearTierThreeIsAboutGoodGear()
+        {
+            var b = new CombatBaseline();
+            foreach (var c in ClassArchetype.DefaultRoster)
+            {
+                var t0 = PlayerStats.For(c, 0, b);
+                var t3 = PlayerStats.For(c, 3, b);
+                Assert.InRange(t3.Dps / t0.Dps, 1.35f, 1.6f);
+                Assert.InRange(t3.Health / t0.Health, 1.1f, 1.4f);
+            }
+        }
+
+        [Fact]
+        public void MitigationHasDiminishingReturnsAndACap()
+        {
+            Assert.Equal(0f, StatFormulas.Mitigation(0f), 3);
+            Assert.Equal(0.5f, StatFormulas.Mitigation(100f), 3);
+            Assert.Equal(0.75f, StatFormulas.Mitigation(10000f), 3);
+            Assert.True(StatFormulas.Mitigation(-100f) < 0f);
+            var r = new Resistances();
+            r.Set(DamageType.Fire, 100f);
+            Assert.Equal(50f, r.DamageTaken(100f, DamageType.Fire), 1);
+            Assert.Equal(100f, r.DamageTaken(100f, DamageType.Frost), 1);
+        }
+
+        [Fact]
+        public void ArmourWeightTradesPhysicalForMagic()
+        {
+            var b = new CombatBaseline();
+            var warden = PlayerStats.For(ClassArchetype.DefaultRoster.First(c => c.Name == "Warden"), 0, b);
+            var pyro = PlayerStats.For(ClassArchetype.DefaultRoster.First(c => c.Name == "Pyromancer"), 0, b);
+            Assert.True(warden.TakeHit(100f, DamageType.Physical) < pyro.TakeHit(100f, DamageType.Physical));
+            Assert.True(warden.TakeHit(100f, DamageType.Fire) > pyro.TakeHit(100f, DamageType.Fire));
+            Assert.True(warden.MoveSpeed < pyro.MoveSpeed);
+        }
+
+        [Fact]
+        public void DamageProfilesSumToOne()
+        {
+            foreach (var a in BossArchetype.DefaultPool.Append(BossArchetype.FinalBoss).Select(a => a.Damage).Concat(MobArchetype.DefaultRoster.Select(m => m.Damage)))
+                Assert.Equal(1f, a.Types.Sum(t => a.Fraction(t)), 3);
+        }
+
+        [Fact]
+        public void BossesAndMobsCoverEveryDamageType()
+        {
+            var all = System.Enum.GetValues(typeof(DamageType)).Cast<DamageType>().ToList();
+            var bossTypes = BossArchetype.DefaultPool.Select(a => a.Damage.Dominant).Distinct().ToList();
+            var mobTypes = MobArchetype.DefaultRoster.Select(m => m.Damage.Dominant).Distinct().ToList();
+            Assert.All(all, t => Assert.Contains(t, mobTypes));
+            Assert.True(bossTypes.Count >= 5, "bosses should spread over at least five of six damage types");
+            Assert.All(MobArchetype.DefaultRoster, m => Assert.NotEqual(m.Resists, m.WeakTo));
+            Assert.All(BossArchetype.DefaultPool, a => Assert.Contains(MobArchetype.DefaultRoster, m => m.Name == a.RetinueMob));
+        }
+
+        [Fact]
+        public void EveryOrdinaryRoomHasMobsAndTypesAreSpread()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            for (int seed = 1; seed <= 20; seed++)
+            {
+                var layout = DungeonGenerator.Generate(s, seed);
+                foreach (var r in layout.Rooms)
+                {
+                    bool shouldHave = r.Type != RoomType.Spawn && r.Type != RoomType.Extract && !r.IsBossRoom;
+                    Assert.Equal(shouldHave, r.Mobs != null);
+                }
+                var types = layout.MobPacks.Select(m => m.Mob.Damage.Dominant).Distinct().Count();
+                Assert.True(types >= 5, $"seed {seed}: only {types} damage types among mobs");
+                // Deeper rooms get bigger, tougher packs: compare the most and least dangerous third.
+                var ordered = layout.Rooms.Where(r => r.Mobs != null).OrderBy(r => r.Danger).ToList();
+                int third = Math.Max(1, ordered.Count / 3);
+                var shallow = ordered.Take(third).Average(r => r.Mobs.PlayerEquivalents);
+                var deep = ordered.Skip(ordered.Count - third).Average(r => r.Mobs.PlayerEquivalents);
+                Assert.True(deep > shallow, $"seed {seed}: deep {deep:0.00} vs shallow {shallow:0.00}");
+                Assert.All(ordered, r => Assert.InRange(r.Mobs.PlayerEquivalents, 0.2f, 3.2f));
+            }
+        }
+
+        [Fact]
+        public void BossRetinueGuardsTheApproach()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            int matched = 0, total = 0;
+            for (int seed = 1; seed <= 20; seed++)
+            {
+                var layout = DungeonGenerator.Generate(s, seed);
+                foreach (var boss in layout.BossRooms)
+                    foreach (var n in boss.Neighbours.Select(id => layout.Rooms[id]).Where(n => n.Mobs != null))
+                    {
+                        total++;
+                        if (n.Mobs.Mob.Name == boss.Boss.Archetype.RetinueMob) matched++;
+                    }
+            }
+            Assert.True(total > 0 && (float)matched / total > 0.5f, $"{matched}/{total} boss-adjacent rooms hold the retinue");
         }
     }
 }

@@ -19,6 +19,9 @@ namespace DungeonGen.Core
         /// <summary>One entry per vault: where its key is and what it opens.</summary>
         public List<KeyPlacement> Keys { get; } = new List<KeyPlacement>();
 
+        /// <summary>Every mob pack in the dungeon (also reachable via Room.Mobs).</summary>
+        public List<Combat.MobPack> MobPacks { get; } = new List<Combat.MobPack>();
+
         /// <summary>Exit that opens when the final boss dies. Null if the layout has no final boss.</summary>
         public BossGatedExit BossExit { get; set; }
 
