@@ -74,6 +74,13 @@ namespace DungeonGen.Core
                     foreach (var r in layout.Rooms.Where(r => r.Mobs != null).OrderBy(r => r.DepthFromSpawn))
                         sb.AppendLine($"  room {r.Id,2} {r.Type,-8} {r.Mobs}");
                 }
+                if (layout.Items.Count > 0)
+                {
+                    var byRarity = layout.Items.GroupBy(i => i.Rarity).OrderBy(g => g.Key);
+                    sb.AppendLine($"Loot: {layout.Items.Count} items; " + string.Join(", ", byRarity.Select(g => $"{g.Count()} {g.Key}")));
+                    foreach (var r in layout.Rooms.Where(r => r.Loot.Count > 0 && (r.Type == RoomType.Vault || r.IsBossRoom)).OrderBy(r => r.Type))
+                        foreach (var it in r.Loot) sb.AppendLine($"  room {r.Id,2} {r.Type,-9} {it}");
+                }
                 foreach (var k in layout.Keys)
                     sb.AppendLine($"  key {k.KeyId} opens vault {k.VaultRoomId}: {(k.DroppedByBoss ? "dropped by boss in" : "chest in")} room {k.HolderRoomId}, {k.WalkToVault:0} cells away");
                 var f = layout.Fairness;

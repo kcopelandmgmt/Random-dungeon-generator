@@ -1,3 +1,4 @@
+using Attribute = DungeonGen.Core.Combat.Attribute;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -515,6 +516,167 @@ namespace DungeonGen.Tests
                     }
             }
             Assert.True(total > 0 && (float)matched / total > 0.5f, $"{matched}/{total} boss-adjacent rooms hold the retinue");
+        }
+    }
+}
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+    using DungeonGen.Core.Items;
+
+    public class GearTests
+    {
+        [Fact]
+        public void StartingSetEqualsTheAbstractTierZeroSheet()
+        {
+            var b = new CombatBaseline();
+            foreach (var c in ClassArchetype.DefaultRoster)
+            {
+                var abstractSheet = PlayerStats.For(c, 0, b);
+                var real = PlayerStats.For(c, Equipment.StandardSet(c.Armour, 0, c.Primary), b);
+                Assert.Equal(abstractSheet.Health, real.Health, 0);
+                Assert.Equal(abstractSheet.Dps, real.Dps, 0);
+                Assert.Equal(abstractSheet.ArmourRating, real.ArmourRating, 0);
+                Assert.Equal(abstractSheet.TakeHit(100f, DamageType.Fire), real.TakeHit(100f, DamageType.Fire), 0);
+                Assert.Equal(abstractSheet.MoveSpeed, real.MoveSpeed, 2);
+            }
+        }
+
+        [Fact]
+        public void RarityFollowsItemLevelAndSourceFloors()
+        {
+            var rng = new DungeonRandom(11);
+            for (int i = 0; i < 300; i++)
+            {
+                Assert.NotEqual(Rarity.Unique, LootRoller.RollRarity(0, LootSource.Chest, rng));
+                Assert.True(LootRoller.RollRarity(2, LootSource.Vault, rng) >= Rarity.Rare);
+                Assert.True(LootRoller.RollRarity(1, LootSource.Boss, rng) >= Rarity.Magic);
+            }
+            int rareAt0 = 0, rareAt4 = 0;
+            for (int i = 0; i < 2000; i++)
+            {
+                if (LootRoller.RollRarity(0, LootSource.Chest, rng) >= Rarity.Rare) rareAt0++;
+                if (LootRoller.RollRarity(4, LootSource.Chest, rng) >= Rarity.Rare) rareAt4++;
+            }
+            Assert.True(rareAt4 > rareAt0 * 5, $"rare at L4 {rareAt4} vs L0 {rareAt0}");
+        }
+
+        [Fact]
+        public void AffixCountsAndFamiliesObeyTheRules()
+        {
+            var rng = new DungeonRandom(3);
+            for (int i = 0; i < 1500; i++)
+            {
+                var it = LootRoller.Roll(rng.Range(0, 5), LootSource.Chest, rng);
+                int n = it.Affixes.Count();
+                switch (it.Rarity)
+                {
+                    case Rarity.Normal: Assert.Equal(0, n); break;
+                    case Rarity.Magic: Assert.InRange(n, 1, 2); Assert.True(it.Prefixes.Count <= 1 && it.Suffixes.Count <= 1); break;
+                    case Rarity.Rare: Assert.InRange(n, 3, 4); Assert.True(it.Prefixes.Count <= 2 && it.Suffixes.Count <= 2); break;
+                }
+                var defs = it.Affixes.Select(a => a.Definition).ToList();
+                for (int a = 0; a < defs.Count; a++)
+                    for (int c = a + 1; c < defs.Count; c++)
+                        Assert.False(defs[a].SameFamily(defs[c]), $"{it}: duplicate family");
+                Assert.All(it.Affixes, a => Assert.Contains(it.Base.Slot, a.Definition.Slots));
+                Assert.All(it.Affixes, a => Assert.InRange(a.Tier, 1, System.Math.Max(1, it.ItemLevel)));
+                Assert.All(it.Affixes, a => Assert.InRange(a.Value, a.Definition.Tiers[a.Tier - 1].min, a.Definition.Tiers[a.Tier - 1].max));
+            }
+        }
+
+        [Fact]
+        public void UniquesComeOnlyFromBossesVaultsAndTheFinalBossAndAreThemed()
+        {
+            var rng = new DungeonRandom(8);
+            for (int i = 0; i < 500; i++)
+                Assert.NotEqual(Rarity.Unique, LootRoller.Roll(4, LootSource.LootRoom, rng).Rarity);
+            int themed = 0, uniques = 0;
+            for (int i = 0; i < 2000; i++)
+            {
+                var it = LootRoller.Roll(4, LootSource.Boss, rng, "Hive Matron");
+                if (it.Rarity != Rarity.Unique) continue;
+                uniques++;
+                Assert.NotNull(it.Unique);
+                Assert.True(it.ItemLevel >= 3);
+                if (it.Unique.Source == "Hive Matron") themed++;
+            }
+            Assert.True(uniques > 50, $"only {uniques} uniques");
+            Assert.True(themed > uniques / 3, $"{themed}/{uniques} themed");
+            Assert.All(UniqueItem.All, u => Assert.Contains(BossArchetype.DefaultPool.Select(a => a.Name).Append(BossArchetype.FinalBoss.Name), s => s == u.Source));
+        }
+
+        [Fact]
+        public void LootIsRolledForEveryRoomThatShouldHaveIt()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            for (int seed = 1; seed <= 10; seed++)
+            {
+                var layout = DungeonGenerator.Generate(s, seed);
+                foreach (var r in layout.Rooms)
+                {
+                    bool should = r.Type != RoomType.Spawn && r.Type != RoomType.Extract;
+                    Assert.Equal(should, r.Loot.Count > 0);
+                    Assert.All(r.Loot, it => Assert.Equal(it.Rarity == Rarity.Unique ? System.Math.Max(3, r.LootTier) : r.LootTier, it.ItemLevel));
+                }
+                Assert.All(layout.VaultRooms, v => Assert.All(v.Loot, it => Assert.True(it.Rarity >= Rarity.Rare)));
+                Assert.All(layout.BossRooms, bRoom => Assert.Equal(2 + bRoom.Boss.BonusLootRolls, bRoom.Loot.Count));
+                Assert.Equal(4, layout.FinalBossRoom.Loot.Count);
+                Assert.Equal(layout.Rooms.Sum(r => r.Loot.Count), layout.Items.Count);
+            }
+        }
+
+        [Fact]
+        public void LootIsDeterministic()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            var a = string.Join("\n", DungeonGenerator.Generate(s, 77).Items.Select(i => i.ToString()));
+            var b = string.Join("\n", DungeonGenerator.Generate(s, 77).Items.Select(i => i.ToString()));
+            Assert.Equal(a, b);
+        }
+
+        [Fact]
+        public void RareTierThreeSetsLandNearTheAbstractTierThree()
+        {
+            var b = new CombatBaseline();
+            var rng = new DungeonRandom(21);
+            foreach (var c in ClassArchetype.DefaultRoster)
+            {
+                float dpsSum = 0, hpSum = 0; int sets = 0;
+                for (int n = 0; n < 12; n++)
+                {
+                    var eq = Equipment.StandardSet(c.Armour, 3, c.Primary);
+                    int tries = 0;
+                    while (eq.Items.Count(i => i.Rarity == Rarity.Rare) < 9 && tries++ < 600)
+                    {
+                        var it = LootRoller.Roll(3, LootSource.Vault, rng);
+                        if (it.Rarity != Rarity.Rare) continue;
+                        if (it.Base.IsArmour && it.Base.Weight != c.Armour) continue;
+                        if (it.Base.IsWeapon && it.Base.ScalesWith != c.Primary) continue;
+                        eq.Equip(it);
+                    }
+                    var st = PlayerStats.For(c, eq, b);
+                    dpsSum += st.Dps; hpSum += st.Health; sets++;
+                }
+                var abs3 = PlayerStats.For(c, 3, b);
+                float dpsRatio = dpsSum / sets / abs3.Dps, hpRatio = hpSum / sets / abs3.Health;
+                // A full nine-slot Rare set is the lucky top end: expect it a little above the tuning assumption, never double it.
+                Assert.InRange(dpsRatio, 0.9f, 1.5f);
+                Assert.InRange(hpRatio, 0.9f, 1.45f);
+            }
+        }
+
+        [Fact]
+        public void EquipReplacesSlotsAndFillsBothRings()
+        {
+            var ring = ItemBase.Jewellery.First(j => j.Slot == ItemSlot.Ring);
+            Item R(string n) => new Item(ring, 0, Rarity.Normal, n, new List<AffixRoll>(), new List<AffixRoll>());
+            var e = new Equipment();
+            Assert.Null(e.Equip(R("a")));
+            Assert.Null(e.Equip(R("b")));
+            Assert.Equal("a", e.Equip(R("c")).Name);
+            Assert.Equal(2, e.Items.Count());
         }
     }
 }

@@ -74,6 +74,7 @@ namespace DungeonGen.Core
             Rasterizer.Paint(layout, rooms, corridors);
             DangerMapper.Assign(layout, s);
             MobPlacer.Assign(layout, s, rng.Fork(5));
+            LootPlacer.Assign(layout, s, rng.Fork(6));
             FairnessMapper.Assign(layout);
 
             return layout;

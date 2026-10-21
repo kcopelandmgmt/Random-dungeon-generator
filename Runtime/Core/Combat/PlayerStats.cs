@@ -1,16 +1,19 @@
 using System;
+using DungeonGen.Core.Items;
 
 namespace DungeonGen.Core.Combat
 {
     /// <summary>
     /// A character sheet: attributes + class kit + gear → every derived stat. Pure data; the
-    /// game applies it. Build one with <see cref="For"/> and read the properties.
+    /// game applies it. Build one with <see cref="For(ClassArchetype, Equipment, CombatBaseline)"/>
+    /// from real items, or <see cref="For(ClassArchetype, int, CombatBaseline)"/> for the abstract
+    /// tier the boss tuning reasons about.
     /// </summary>
     public sealed class PlayerStats
     {
         public ClassArchetype Class { get; }
         public Attributes Attributes { get; }
-        public ArmourWeight Armour { get; }
+        public GearSummary Gear { get; }
         public int GearTier { get; }
 
         public float Health { get; }
@@ -19,6 +22,8 @@ namespace DungeonGen.Core.Combat
         /// <summary>Sustained DPS with the class kit: CombatBaseline.PlayerDps × this.</summary>
         public float DamageMultiplier { get; }
         public float Dps { get; }
+        /// <summary>What basic attacks deal, by type. Added-damage affixes widen it.</summary>
+        public DamageProfile AttackProfile => Gear.AttackProfile;
         public float HealingMultiplier { get; }
         public float CritChance { get; }
         public float AttackSpeed { get; }
@@ -30,50 +35,41 @@ namespace DungeonGen.Core.Combat
 
         public float PhysicalMitigation => StatFormulas.Mitigation(ArmourRating);
 
-        private PlayerStats(ClassArchetype cls, Attributes attrs, ArmourWeight armour, int tier, CombatBaseline baseline)
+        private PlayerStats(ClassArchetype cls, GearSummary gear, int tier, CombatBaseline baseline)
         {
-            Class = cls; Attributes = attrs; Armour = armour; GearTier = tier;
-            float gear = StatFormulas.GearMultiplier(tier);
+            Class = cls; Gear = gear; GearTier = tier;
+            var attrs = cls.BaseAttributes + gear.AttributeBonus;
+            Attributes = attrs;
 
-            Health = StatFormulas.BaseHealth * StatFormulas.Linear(StatFormulas.HealthPerCon, attrs.Constitution);
+            // The kit scales from the class primary unless the weapon scales from something else (a Reaver with a bow is a worse Reaver).
+            var scaling = gear.WeaponScalesWith ?? cls.Primary;
+            float offStat = scaling == cls.Primary ? 1f : 0.75f;
+
+            Health = StatFormulas.BaseHealth * StatFormulas.Linear(StatFormulas.HealthPerCon, attrs.Constitution) * (1f + gear.HealthPct / 100f);
             Stamina = StatFormulas.BaseStamina * StatFormulas.Linear(StatFormulas.StaminaPerDex, attrs.Dexterity);
             Mana = StatFormulas.BaseMana * StatFormulas.Linear(StatFormulas.ManaPerInt, attrs.Intelligence);
-            DamageMultiplier = cls.KitCoefficient * StatFormulas.Linear(StatFormulas.DamagePerPrimary, attrs.Get(cls.Primary)) * gear;
+            AttackSpeed = StatFormulas.Linear(StatFormulas.AttackSpeedPerDex, attrs.Dexterity) * gear.WeaponSpeed * (1f + gear.AttackSpeedPct / 100f);
+            DamageMultiplier = cls.KitCoefficient * StatFormulas.Linear(StatFormulas.DamagePerPrimary, attrs.Get(scaling)) * offStat * gear.WeaponDamage * AttackSpeed / StatFormulas.Linear(StatFormulas.AttackSpeedPerDex, cls.BaseAttributes.Dexterity);
             Dps = baseline.PlayerDps * DamageMultiplier;
-            HealingMultiplier = StatFormulas.Linear(StatFormulas.HealingPerSpirit, attrs.Spirit) * gear;
-            CritChance = StatFormulas.BaseCrit + StatFormulas.CritPerDex * (attrs.Dexterity - StatFormulas.AverageAttribute);
-            AttackSpeed = StatFormulas.Linear(StatFormulas.AttackSpeedPerDex, attrs.Dexterity);
-            MoveSpeed = StatFormulas.Linear(StatFormulas.MoveSpeedPerDex, attrs.Dexterity) * StatFormulas.MoveSpeedFor(armour);
+            HealingMultiplier = StatFormulas.Linear(StatFormulas.HealingPerSpirit, attrs.Spirit) * (1f + gear.HealingPct / 100f) * StatFormulas.GearMultiplier(tier > 0 && gear.HealingPct == 0f ? tier : 0);
+            CritChance = StatFormulas.BaseCrit + StatFormulas.CritPerDex * (attrs.Dexterity - StatFormulas.AverageAttribute) + gear.CritPct / 100f;
+            MoveSpeed = StatFormulas.Linear(StatFormulas.MoveSpeedPerDex, attrs.Dexterity) * gear.MoveSpeedFactor * (1f + gear.MoveSpeedPct / 100f);
             RegenMultiplier = StatFormulas.Linear(StatFormulas.RegenPerSpirit, attrs.Spirit);
-            CarryKg = StatFormulas.BaseCarryKg + StatFormulas.CarryPerStr * attrs.Strength;
-            ArmourRating = StatFormulas.BaseArmour(armour) * gear;
+            CarryKg = StatFormulas.BaseCarryKg + StatFormulas.CarryPerStr * attrs.Strength + gear.CarryKg;
+            ArmourRating = gear.ArmourRating;
 
             Resistances = new Resistances();
-            Resistances.AddAllMagic(StatFormulas.BaseResist(armour) * gear);
+            foreach (DamageType t in Enum.GetValues(typeof(DamageType))) Resistances.Set(t, gear.Resistances.Rating(t));
             Resistances.AddAllMagic(StatFormulas.MagicResistPerSpirit * (attrs.Spirit - StatFormulas.AverageAttribute));
         }
 
-        /// <summary>Sheet for a class at a gear tier (0 = starting gear, 4 = vault / final boss drops). Gear adds attribute points to the class primary and Constitution.</summary>
-        public static PlayerStats For(ClassArchetype cls, int gearTier = 0, CombatBaseline baseline = null)
-        {
-            baseline ??= new CombatBaseline();
-            var attrs = cls.BaseAttributes;
-            int bonus = StatFormulas.GearAttributePoints(gearTier);
-            attrs = attrs + Bonus(cls.Primary, bonus / 2 + bonus % 2) + Bonus(Attribute.Constitution, bonus / 2);
-            return new PlayerStats(cls, attrs, cls.Armour, gearTier, baseline);
-        }
+        /// <summary>Sheet for a class at an abstract gear tier (0 = starting gear, 4 = vault / final boss drops). What the boss tuning assumes.</summary>
+        public static PlayerStats For(ClassArchetype cls, int gearTier = 0, CombatBaseline baseline = null) =>
+            new PlayerStats(cls, GearSummary.ForTier(cls.Armour, gearTier, cls.Primary), gearTier, baseline ?? new CombatBaseline());
 
-        private static Attributes Bonus(Attribute a, int points)
-        {
-            switch (a)
-            {
-                case Attribute.Strength: return new Attributes(points, 0, 0, 0, 0);
-                case Attribute.Dexterity: return new Attributes(0, points, 0, 0, 0);
-                case Attribute.Intelligence: return new Attributes(0, 0, points, 0, 0);
-                case Attribute.Constitution: return new Attributes(0, 0, 0, points, 0);
-                default: return new Attributes(0, 0, 0, 0, points);
-            }
-        }
+        /// <summary>Sheet for a class wearing real items.</summary>
+        public static PlayerStats For(ClassArchetype cls, Equipment equipment, CombatBaseline baseline = null) =>
+            new PlayerStats(cls, equipment.Summarise(), 0, baseline ?? new CombatBaseline());
 
         /// <summary>Damage actually taken from a hit of the given raw amount and type.</summary>
         public float TakeHit(float raw, DamageType type) =>
@@ -87,6 +83,6 @@ namespace DungeonGen.Core.Combat
         }
 
         public override string ToString() =>
-            $"{Class.Name} T{GearTier} [{Attributes}] HP {Health:0} DPS {Dps:0} heal x{HealingMultiplier:0.00} crit {CritChance * 100:0}% armour {ArmourRating:0} ({PhysicalMitigation * 100:0}%) carry {CarryKg:0}kg | {Resistances}";
+            $"{Class.Name} [{Attributes}] HP {Health:0} DPS {Dps:0} ({AttackProfile}) heal x{HealingMultiplier:0.00} crit {CritChance * 100:0}% spd x{MoveSpeed:0.00} armour {ArmourRating:0} ({PhysicalMitigation * 100:0}%) carry {CarryKg:0}kg | {Resistances}";
     }
 }

@@ -22,6 +22,9 @@ namespace DungeonGen.Core
         /// <summary>Every mob pack in the dungeon (also reachable via Room.Mobs).</summary>
         public List<Combat.MobPack> MobPacks { get; } = new List<Combat.MobPack>();
 
+        /// <summary>Every item in the dungeon (also reachable via Room.Loot).</summary>
+        public List<Items.Item> Items { get; } = new List<Items.Item>();
+
         /// <summary>Exit that opens when the final boss dies. Null if the layout has no final boss.</summary>
         public BossGatedExit BossExit { get; set; }
 

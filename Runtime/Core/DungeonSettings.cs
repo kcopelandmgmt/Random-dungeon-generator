@@ -68,6 +68,10 @@ namespace DungeonGen.Core
         public float MobBudgetAtEdge = 0.5f;
         public float MobBudgetAtCenter = 2.0f;
         public float MobBudgetLootBonus = 0.5f;
+        // --- Loot ---------------------------------------------------------------
+        public bool LootEnabled = true;
+        /// <summary>Scales item counts per room. 1 = 1-2 per ordinary room, 3 in loot rooms, 4 in vaults and the final boss.</summary>
+        public float LootDensity = 1f;
         /// <summary>Roll 0-2 affixes per room boss from the seed.</summary>
         public bool BossAffixesEnabled = true;
         public int MaxAffixesPerBoss = 2;
@@ -121,6 +125,7 @@ namespace DungeonGen.Core
             if (BossRingRadius < 0.15f || BossRingRadius >= ExtractRingRadius) throw new ArgumentException("BossRingRadius must be >= 0.15 and smaller than ExtractRingRadius.");
             if (BossCount < 0 || VaultCount < 0) throw new ArgumentException("BossCount and VaultCount must be >= 0.");
             if (KeyFromBossChance < 0f || KeyFromBossChance > 1f) throw new ArgumentException("KeyFromBossChance must be 0..1.");
+            if (LootDensity < 0f || LootDensity > 3f) throw new ArgumentException("LootDensity must be 0..3.");
             if (MobDensity < 0f || MobDensity > 3f) throw new ArgumentException("MobDensity must be 0..3.");
             if (MaxAffixesPerBoss < 0 || MaxAffixesPerBoss > 3) throw new ArgumentException("MaxAffixesPerBoss must be 0..3.");
             if (TargetRoomCount < SpawnCount + ExtractCount + BossCount + VaultCount + 3)

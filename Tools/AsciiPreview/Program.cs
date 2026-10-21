@@ -35,6 +35,9 @@ namespace DungeonGen.Tools
                     case "--vaults": settings.VaultCount = int.Parse(Next()); break;
                     case "--fights": return PrintFightTable(settings);
                     case "--stats": return PrintStats(settings);
+                    case "--roll": { int n = int.Parse(Next()); int lvl = int.Parse(Next()); return RollItems(n, lvl, seed); }
+                    case "--loot": { var l = DungeonGenerator.Generate(settings, seed); foreach (var r in l.Rooms.Where(r => r.Loot.Count > 0).OrderBy(r => r.LootTier)) { Console.WriteLine($"room {r.Id} {r.Type} tier {r.LootTier}:"); foreach (var it in r.Loot) Console.WriteLine("  " + it); } return 0; }
+                    case "--wear": return WearRolledSet(seed);
                     case "--seed": seed = int.Parse(Next()); break;
                     case "--width": settings.Width = int.Parse(Next()); break;
                     case "--height": settings.Height = int.Parse(Next()); break;
@@ -46,7 +49,7 @@ namespace DungeonGen.Tools
                     case "--batch": batch = int.Parse(Next()); break;
                     case "--no-legend": legend = false; break;
                     case "--help":
-                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats");
+                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear");
                         return 0;
                     default:
                         Console.Error.WriteLine("Unknown argument " + args[i]);
@@ -61,6 +64,46 @@ namespace DungeonGen.Tools
             sw.Stop();
             Console.Write(AsciiRenderer.Render(layout, legend));
             Console.WriteLine($"Generated in {sw.Elapsed.TotalMilliseconds:0.0} ms");
+            return 0;
+        }
+
+        private static int RollItems(int n, int level, int seed)
+        {
+            var rng = new DungeonRandom(seed);
+            var counts = new System.Collections.Generic.Dictionary<DungeonGen.Core.Items.Rarity, int>();
+            for (int i = 0; i < n; i++)
+            {
+                var it = DungeonGen.Core.Items.LootRoller.Roll(level, DungeonGen.Core.Items.LootSource.Chest, rng);
+                counts[it.Rarity] = counts.TryGetValue(it.Rarity, out int c) ? c + 1 : 1;
+                if (n <= 40) Console.WriteLine(it);
+            }
+            Console.WriteLine(string.Join(", ", counts.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key} {100.0 * kv.Value / n:0.0}%")));
+            return 0;
+        }
+
+        /// <summary>Dress each class in its starting set, then in a rolled tier-3 Rare set, and show both sheets.</summary>
+        private static int WearRolledSet(int seed)
+        {
+            var b = new DungeonGen.Core.Combat.CombatBaseline();
+            var rng = new DungeonRandom(seed);
+            foreach (var c in DungeonGen.Core.Combat.ClassArchetype.DefaultRoster)
+            {
+                var start = DungeonGen.Core.Items.Equipment.StandardSet(c.Armour, 0, c.Primary);
+                Console.WriteLine(DungeonGen.Core.Combat.PlayerStats.For(c, start, b));
+                var geared = DungeonGen.Core.Items.Equipment.StandardSet(c.Armour, 3, c.Primary);
+                int tries = 0;
+                while (geared.Items.Count(i => i.Rarity == DungeonGen.Core.Items.Rarity.Rare) < 9 && tries++ < 400)
+                {
+                    var it = DungeonGen.Core.Items.LootRoller.Roll(3, DungeonGen.Core.Items.LootSource.Vault, rng);
+                    if (it.Rarity != DungeonGen.Core.Items.Rarity.Rare) continue;
+                    if (it.Base.IsArmour && it.Base.Weight != c.Armour) continue;
+                    if (it.Base.IsWeapon && it.Base.ScalesWith != c.Primary) continue;
+                    geared.Equip(it);
+                }
+                Console.WriteLine(DungeonGen.Core.Combat.PlayerStats.For(c, geared, b));
+                Console.WriteLine(geared);
+                Console.WriteLine();
+            }
             return 0;
         }
 

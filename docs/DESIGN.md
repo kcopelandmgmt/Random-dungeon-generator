@@ -306,6 +306,86 @@ pack in every ordinary, loot, hub and vault room:
 `Room.Mobs` and `DungeonLayout.MobPacks` carry the result; `MobPack.TotalHealth / TotalDps`
 give absolute numbers against the baseline.
 
+## Gear
+
+The Path of Exile layer: random items with rolled affixes, rarity that scales with depth, and
+boss-themed uniques. Everything an item does is expressed through the stat system above, so a
+new affix is one line in a table and never a new formula.
+
+**Slots.** Nine: weapon, head, chest, hands, legs, feet, amulet, two rings. Armour pieces carry a
+weight (light / medium / heavy) and a share of the set's armour (chest 35%, legs 25%, head 15%,
+hands and feet 12.5% each). Anyone can wear anything; mixing weights averages the move-speed
+penalty by share. Weapons scale from one attribute (swords and axes from Strength, bows and
+daggers from Dexterity, staves from Intelligence, sceptres from Spirit) and deal one base damage
+type; a class whose primary does not match its weapon scales at 75%.
+
+**Item level.** The room's loot tier (0–4). Base armour and weapon damage scale ×(1 + 0.1 per
+level); affix *tiers* follow the level (T1 at level 0–1 up to T4 at level 4, with a 30% chance
+of one tier lower so high drops still vary).
+
+**Rarity.**
+
+| Item level | Normal | Magic | Rare |
+|-----------:|-------:|------:|-----:|
+| 0 | 70% | 28% | 2% |
+| 1 | 55% | 38% | 7% |
+| 2 | 40% | 42% | 18% |
+| 3 | 25% | 45% | 30% |
+| 4 | 10% | 40% | 50% |
+
+Sources set a floor and a unique chance: ordinary chests use the table as-is; loot rooms and
+bosses never drop Normal; vaults and the final boss never drop below Rare; bosses have an 8%
+unique chance, vaults 15%, the final boss 35%. Uniques never come from the table itself.
+
+| Rarity | Affixes | Name |
+|--------|---------|------|
+| Normal | none | base name |
+| Magic | 1–2, at most one prefix and one suffix | *Sharp Longsword of the Bear* |
+| Rare | 3–4, at most two prefixes and two suffixes | two-word name, *Grim Bane, Plate Greaves* |
+| Unique | fixed set, item level ≥ 3 | its own name and flavour |
+
+No item carries two affixes of the same family (two fire resists, two Strength rolls).
+
+**Affixes.** Prefixes are the item's core; suffixes are the extras.
+
+| Prefix | On | T1 … T4 |
+|--------|----|---------|
+| +% damage | weapon | 6–9 … 21–25 |
+| +% of damage as Fire / Frost / Lightning / Poison / Shadow | weapon | 6–8 … 17–20 (adds to the attack profile) |
+| +% armour | armour | 8–12 … 31–40 |
+| +% health | chest, legs, amulet, ring | 3–4 … 9–10 |
+| +all resistances | armour, jewellery | 4–6 … 16–20 |
+
+| Suffix | On | T1 … T4 |
+|--------|----|---------|
+| +resistance (one type) | armour, jewellery | 8–12 … 31–45 |
+| +attribute (one of five) | any | 1 … 3–4 |
+| +% crit | weapon, hands, ring | 1 … 4–5 |
+| +% attack speed | weapon, hands, ring | 3–4 … 9–10 |
+| +% move speed | feet, ring | 2 … 5–6 |
+| +kg carry | armour, jewellery | 4–6 … 13–16 |
+| +% healing | weapon, amulet, hands | 5–7 … 14–16 |
+
+**Uniques.** Eight, one per boss plus the Sovereign's, each themed on its source and 60% likely
+to drop from that boss when a unique rolls there: *Sovereign's Crown* (+3 STR/CON/SPI, +25 all
+resist), *Ashen Heart* (+60 fire resist, +30% as fire, −20 frost resist), *Matron's Carapace*,
+*Hound's Fang* (+25% damage, +10% move speed), *Glasswright's Prism*, *Choirmaster's Mantle*,
+*Herald's Censer* (+25% healing, +30% as poison), *Wraithlight Boots* (+12% move speed).
+
+**Loot per room** (`LootPlacer`, rolled from the seed, server-authoritative): ordinary rooms 1–2
+chest items; loot rooms 3 (Magic floor); boss rooms 2 plus the boss's affix bonus rolls; vaults 4
+(Rare floor); the final boss 4 (Rare floor, 35% unique each). `Room.Loot` and
+`DungeonLayout.Items` carry the result. On the 8-team sample seed that is 48 items: 8 Normal,
+17 Magic, 19 Rare, 4 Unique.
+
+**Equipment and the sheet.** `Equipment` holds nine slots; `Summarise()` folds every item into a
+`GearSummary` (weapon damage and profile, armour, resistances, attribute bonus, percentages),
+and `PlayerStats.For(class, equipment)` builds the sheet from it. The anchor still holds: a full
+Normal tier-0 set of the class's weight equals the abstract tier-0 sheet exactly (test). A full
+nine-slot Rare tier-3 set lands 10–40% above the abstract tier 3 the final boss is tuned for;
+that is the top end of luck and the margin a fully-geared trio earns. `--wear` in the preview
+tool dresses each class in a rolled set and prints both sheets.
+
 ## Classes
 
 See `docs/CLASSES.md`. The six-class roster (`ClassArchetype.DefaultRoster`) averages to exactly one
@@ -368,6 +448,7 @@ and `CandidateCount` if you go there.
 | `Room.Encounter` | Boss health, DPS, target time and enrage for Boss / FinalBoss rooms. |
 | `Room.Boss` | Archetype, rolled affixes, display name, damage profile. |
 | `Room.Mobs` | Mob pack: type, count, tier multiplier, player-equivalents. |
+| `Room.Loot` | Items rolled for the room's chests or boss drop. |
 | `Warnings` | Non-fatal generation notes; log them in the editor. |
 
 ## Determinism and multiplayer
@@ -397,6 +478,6 @@ authoritative loot/AI, and sends only the `int` to clients, which rebuild the id
 * Room interior templates (pillars, pits, cover) chosen by room role and size.
 * Locked gates on loop corridors (vault doors and keys are done; the graph already knows which edges are loops).
 * Timed extract activation (Tarkov-style) using `Danger` as the schedule.
-* Vault loot tables per key; gear items with attribute and resistance rolls on top of the stat system.
+* Consumables and crafting materials; gear is done.
 * Multi-floor dungeons: stack layouts, connect via stair rooms.
 * Mesh / Tilemap renderer and NavMesh baking in the Unity layer.
