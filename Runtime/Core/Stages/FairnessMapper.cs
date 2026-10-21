@@ -19,7 +19,8 @@ namespace DungeonGen.Core.Stages
 
             var spawns = layout.SpawnRooms.ToList();
             var extractDoors = layout.ExtractRooms.SelectMany(r => r.Doors).ToList();
-            var vaultDoors = layout.RoomsOfType(RoomType.Vault).SelectMany(r => r.Doors).ToList();
+            var finalDoors = layout.RoomsOfType(RoomType.FinalBoss).SelectMany(r => r.Doors).ToList();
+            var bossDoors = layout.BossRooms.SelectMany(r => r.Doors).ToList();
             if (spawns.Count == 0) return;
 
             var dist = new int[layout.Width, layout.Height];
@@ -46,7 +47,7 @@ namespace DungeonGen.Core.Stages
                     foreach (var d in GridPoint.Cardinals)
                     {
                         var n = p + d;
-                        if (!layout.InBounds(n) || dist[n.X, n.Y] != -1 || !layout.IsWalkable(n)) continue;
+                        if (!layout.InBounds(n) || dist[n.X, n.Y] != -1 || !layout.IsWalkable(n, ignoreLocks: true)) continue;
                         dist[n.X, n.Y] = dist[p.X, p.Y] + 1;
                         queue.Enqueue(n);
                     }
@@ -64,13 +65,14 @@ namespace DungeonGen.Core.Stages
                 }
 
                 var rivalDoors = spawns.Where(o => o.Id != spawn.Id).SelectMany(o => o.Doors);
-                fairness.Spawns.Add(new SpawnStats(spawn.Id, Nearest(extractDoors), Nearest(vaultDoors), Nearest(rivalDoors)));
+                fairness.Spawns.Add(new SpawnStats(spawn.Id, Nearest(extractDoors), Nearest(finalDoors), Nearest(rivalDoors), bossDoors.Count > 0 ? Nearest(bossDoors) : -1));
             }
 
             fairness.ExtractRatio = Ratio(fairness.Spawns.Select(s => s.ToNearestExtract));
-            fairness.VaultRatio = Ratio(fairness.Spawns.Select(s => s.ToVault));
+            fairness.FinalBossRatio = finalDoors.Count > 0 ? Ratio(fairness.Spawns.Select(s => s.ToFinalBoss)) : 1f;
             fairness.SpawnSpacingRatio = spawns.Count > 1 ? Ratio(fairness.Spawns.Select(s => s.ToNearestSpawn)) : 1f;
-            fairness.Score = Math.Min(fairness.ExtractRatio, Math.Min(fairness.VaultRatio, fairness.SpawnSpacingRatio));
+            fairness.BossRatio = bossDoors.Count > 0 ? Ratio(fairness.Spawns.Select(s => s.ToNearestBoss)) : 1f;
+            fairness.Score = Math.Min(Math.Min(fairness.ExtractRatio, fairness.FinalBossRatio), Math.Min(fairness.SpawnSpacingRatio, fairness.BossRatio));
         }
 
         private static float Ratio(IEnumerable<int> values)

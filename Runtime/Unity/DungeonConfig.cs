@@ -42,6 +42,10 @@ namespace DungeonGen.Unity
             Settings.CandidateCount = Mathf.Max(1, Settings.CandidateCount);
             Settings.RingJitter = Mathf.Clamp01(Settings.RingJitter);
             Settings.ExtractRingRadius = Mathf.Clamp(Settings.ExtractRingRadius, 0.2f, 0.9f);
+            Settings.BossRingRadius = Mathf.Clamp(Settings.BossRingRadius, 0.15f, Settings.ExtractRingRadius - 0.05f);
+            Settings.BossCount = Mathf.Max(0, Settings.BossCount);
+            Settings.VaultCount = Mathf.Max(0, Settings.VaultCount);
+            Settings.KeyFromBossChance = Mathf.Clamp01(Settings.KeyFromBossChance);
         }
     }
 }

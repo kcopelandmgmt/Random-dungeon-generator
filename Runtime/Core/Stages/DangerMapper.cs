@@ -44,7 +44,7 @@ namespace DungeonGen.Core.Stages
                 foreach (var dir in GridPoint.Cardinals)
                 {
                     var n = p + dir;
-                    if (!layout.InBounds(n) || dist[n.X, n.Y] != -1 || !layout.IsWalkable(n)) continue;
+                    if (!layout.InBounds(n) || dist[n.X, n.Y] != -1 || !layout.IsWalkable(n, ignoreLocks: true)) continue;
                     dist[n.X, n.Y] = d + 1;
                     if (d + 1 > maxDist) maxDist = d + 1;
                     queue.Enqueue(n);
@@ -72,17 +72,21 @@ namespace DungeonGen.Core.Stages
                 switch (r.Type)
                 {
                     case RoomType.Spawn: r.Danger = 0f; break;
-                    case RoomType.Vault: r.Danger = 1f; break;
+                    case RoomType.FinalBoss: r.Danger = 1f; break;
+                    case RoomType.Boss: r.Danger = Math.Max(0.6f, r.Danger); break;
+                    case RoomType.Vault: r.Danger = Math.Max(0.7f, r.Danger); break;
                     case RoomType.Loot: r.Danger = Math.Min(1f, r.Danger + 0.15f); break;
                     case RoomType.Hub: r.Danger = Math.Min(1f, r.Danger + 0.10f); break;
                 }
 
-                // Vault owns the top tier outright; everything else is graded into the tiers below it.
+                // The final boss and the vaults own the top tier; bosses sit one below;
+                // everything else is graded into the tiers beneath.
                 int gradedTiers = s.LootTiers - 1;
                 int tier = (int)Math.Floor(r.Danger * gradedTiers);
                 tier = Math.Min(gradedTiers - 1, tier);
                 if (r.Type == RoomType.Loot) tier = Math.Min(gradedTiers - 1, tier + 1);
-                if (r.Type == RoomType.Vault) tier = s.LootTiers - 1;
+                if (r.Type == RoomType.Boss) tier = Math.Max(tier, s.LootTiers - 2);
+                if (r.Type == RoomType.Vault || r.Type == RoomType.FinalBoss) tier = s.LootTiers - 1;
                 if (r.Type == RoomType.Spawn) tier = 0;
                 r.LootTier = Math.Max(0, tier);
             }

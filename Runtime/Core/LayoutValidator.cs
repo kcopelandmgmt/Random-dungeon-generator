@@ -18,9 +18,19 @@ namespace DungeonGen.Core
             int extracts = layout.ExtractRooms.Count();
             if (spawns < s.SpawnCount) { problems.Add($"Only {spawns}/{s.SpawnCount} spawn rooms."); ok = false; }
             if (extracts < s.ExtractCount) { problems.Add($"Only {extracts}/{s.ExtractCount} extract rooms."); ok = false; }
-            if (!layout.Rooms.Any(r => r.Type == RoomType.Vault)) { problems.Add("No vault room."); ok = false; }
+            if (layout.FinalBossRoom == null) { problems.Add("No final boss room."); ok = false; }
+            int bosses = layout.BossRooms.Count();
+            if (bosses < s.BossCount) { problems.Add($"Only {bosses}/{s.BossCount} boss rooms."); ok = false; }
+            foreach (var v in layout.VaultRooms)
+            {
+                if (v.RequiredKeyId < 0) { problems.Add($"Vault {v.Id} has no key."); ok = false; }
+                if (v.Doors.Any(d => layout.Tiles[d.X, d.Y] != TileType.LockedDoor)) { problems.Add($"Vault {v.Id} has an unlocked door."); ok = false; }
+            }
+            foreach (var k in layout.Keys)
+                if (layout.Rooms[k.HolderRoomId].Type == RoomType.Vault) { problems.Add($"Key {k.KeyId} is inside a vault."); ok = false; }
 
-            // Flood fill the walkable tiles from the first spawn and make sure every room is touched.
+            // Flood fill the walkable tiles from the first spawn (locked doors closed) and make
+            // sure every non-vault room is touched; then open the locks and require the vaults too.
             var origin = layout.SpawnRooms.FirstOrDefault();
             if (origin == null) return false;
 
@@ -45,11 +55,18 @@ namespace DungeonGen.Core
                 }
             }
 
-            var unreachable = layout.Rooms.Where(r => !reached.Contains(r.Id)).Select(r => r.Id).ToList();
+            var unreachable = layout.Rooms.Where(r => r.Type != RoomType.Vault && !reached.Contains(r.Id)).Select(r => r.Id).ToList();
             if (unreachable.Count > 0)
             {
-                problems.Add($"Rooms unreachable on foot from spawn {origin.Id}: {string.Join(", ", unreachable)}");
+                problems.Add($"Rooms unreachable without keys from spawn {origin.Id}: {string.Join(", ", unreachable)}");
                 ok = false;
+            }
+
+            foreach (var v in layout.VaultRooms)
+            {
+                // Each locked door must open straight onto reached territory.
+                bool adjacent = v.Doors.Any(d => GridPoint.Cardinals.Any(c => layout.InBounds(d + c) && seen[(d + c).X, (d + c).Y]));
+                if (!adjacent) { problems.Add($"Vault {v.Id} is not adjacent to reachable space."); ok = false; }
             }
 
             return ok;

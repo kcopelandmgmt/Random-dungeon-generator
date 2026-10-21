@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using DungeonGen.Core.Combat;
 using DungeonGen.Core.Stages;
 
 namespace DungeonGen.Core
@@ -7,7 +8,7 @@ namespace DungeonGen.Core
     /// <summary>
     /// Entry point. Runs the five-stage pipeline and returns a fully populated layout.
     ///
-    ///   seed ──► RoomPlacer ──► GraphBuilder ──► CorridorCarver ──► RoleAssigner ──► Rasterizer ──► DangerMapper ──► DungeonLayout
+    ///   seed ──► RoomPlacer ──► GraphBuilder ──► CorridorCarver ──► RoleAssigner ──► Rasterizer ──► DangerMapper ──► FairnessMapper ──► DungeonLayout
     ///
     /// Generation is pure and deterministic: the same (settings, seed) pair always yields the
     /// same layout on every platform. In multiplayer the server picks the seed, every client
@@ -62,7 +63,17 @@ namespace DungeonGen.Core
 
             var edges = GraphBuilder.Build(rooms, s, rng.Fork(2));
             var corridors = CorridorCarver.Carve(rooms, edges, s, layout.Warnings);
-            RoleAssigner.Assign(rooms, corridors, s, rng.Fork(3), layout.Warnings);
+            RoleAssigner.Assign(rooms, corridors, s, rng.Fork(3), layout.Warnings, layout.Keys);
+
+            foreach (var r in rooms)
+            {
+                if (r.Type == RoomType.Boss) r.Encounter = EncounterTuner.RoomBoss(s.Combat);
+                else if (r.Type == RoomType.FinalBoss)
+                {
+                    r.Encounter = EncounterTuner.FinalBoss(s.Combat);
+                    layout.BossExit = new BossGatedExit(r.Id, r.Center);
+                }
+            }
 
             layout.Rooms.AddRange(rooms);
             layout.Corridors.AddRange(corridors);

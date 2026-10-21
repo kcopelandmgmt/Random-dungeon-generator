@@ -31,6 +31,12 @@ See `docs/DESIGN.md` for the full explanation of how each stage works and why.
 `DungeonBuilder.SpawnPoints` and `ExtractPoints` give you world positions for squads and exit gates.
 `DungeonBuilder.RoomAt(worldPos)` tells you which room a player is in, with its `LootTier` and `Danger`.
 
+**Bosses, vaults, keys, classes.** Boss rooms carry an `Encounter` budget tuned for 2.5 players
+(`CombatBaseline`); the final boss at the center is tuned for a geared full party and opens a
+boss-gated exit (`Layout.BossExit`, `DungeonBuilder.OpenBossGatedExit()`). Vaults are locked
+dead-end rooms (`TileType.LockedDoor`) with a key hidden elsewhere (`Layout.Keys`). Six classes
+are in `docs/CLASSES.md` and `ClassArchetype.DefaultRoster`. Design details in `docs/DESIGN.md`.
+
 **Teams.** One spawn room per team, 1–16 supported. For more than 3–4 teams use the preset:
 `DungeonSettings.ForTeams(8)` in code, or set *Preset Teams* on the config asset and right-click ▸ **Apply Team Preset**.
 It switches to ring placement (spawns around the edge, extracts on an inner ring, vault in the center)

@@ -1,4 +1,5 @@
 using System;
+using DungeonGen.Core.Combat;
 
 namespace DungeonGen.Core
 {
@@ -45,8 +46,22 @@ namespace DungeonGen.Core
         public SpawnPlacement SpawnPlacement = SpawnPlacement.Fringe;
         /// <summary>Ring mode: how far each spawn may wander from its ideal angle, as a fraction of the slice between spawns (0 = perfectly even, 1 = may touch its neighbour's slot).</summary>
         public float RingJitter = 0.35f;
-        /// <summary>Ring mode: radius of the extract ring as a fraction of the spawn ring (0.3-0.7). Smaller = extracts closer to the vault, longer and riskier extractions.</summary>
-        public float ExtractRingRadius = 0.5f;
+        /// <summary>Ring mode: radius of the extract ring as a fraction of the spawn ring (0.3-0.7). Smaller = extracts closer to the center, longer and riskier extractions.</summary>
+        public float ExtractRingRadius = 0.6f;
+        /// <summary>Ring mode: radius of the boss-room ring as a fraction of the spawn ring. Sits between the extracts and the final boss.</summary>
+        public float BossRingRadius = 0.32f;
+
+        // --- Bosses, vaults and keys -------------------------------------------
+        /// <summary>Boss arenas tuned for RoomBossPlayerEquivalents players. 0 disables.</summary>
+        public int BossCount = 2;
+        /// <summary>Locked treasure rooms. Each gets one key hidden elsewhere. Needs dead-end rooms; the generator warns if it cannot place them all.</summary>
+        public int VaultCount = 1;
+        /// <summary>Probability that a vault key is a boss drop rather than a floor chest.</summary>
+        public float KeyFromBossChance = 0.5f;
+        /// <summary>Minimum walking distance (cells) between a key and the vault it opens, so the key is always a trip.</summary>
+        public int KeyMinWalk = 40;
+        /// <summary>Numbers every boss is tuned against.</summary>
+        public CombatBaseline Combat = new CombatBaseline();
         public int ExtractCount = 2;
         /// <summary>Minimum graph hops between any two spawn rooms.</summary>
         public int MinSpawnSeparation = 3;
@@ -66,15 +81,18 @@ namespace DungeonGen.Core
         public static DungeonSettings ForTeams(int teams)
         {
             if (teams < 1 || teams > MaxTeams) throw new ArgumentOutOfRangeException(nameof(teams));
-            int side = Math.Max(64, 48 + 13 * teams);
+            int side = Math.Max(120, 60 + 12 * teams);
             return new DungeonSettings
             {
                 Width = side,
                 Height = side,
                 TargetRoomCount = 10 + 3 * teams,
                 SpawnCount = teams,
-                ExtractCount = Math.Max(2, Math.Min(4, (teams + 1) / 2)),
+                // Up to 4 teams every team gets its own extract and boss; beyond that pairs share.
+                ExtractCount = teams <= 4 ? Math.Max(2, teams) : Math.Min(4, (teams + 1) / 2),
                 SpawnPlacement = SpawnPlacement.Ring,
+                BossCount = teams <= 4 ? Math.Max(2, teams) : Math.Min(4, (teams + 1) / 2),
+                VaultCount = Math.Max(1, teams / 4),
                 MinSpawnSeparation = 3,
                 MinExtractDepth = 2,
                 NearestNeighbours = 4,
@@ -89,6 +107,12 @@ namespace DungeonGen.Core
             if (CandidateCount < 1) throw new ArgumentException("CandidateCount must be >= 1.");
             if (RingJitter < 0f || RingJitter > 1f) throw new ArgumentException("RingJitter must be 0..1.");
             if (ExtractRingRadius < 0.2f || ExtractRingRadius > 0.9f) throw new ArgumentException("ExtractRingRadius must be 0.2..0.9.");
+            if (BossRingRadius < 0.15f || BossRingRadius >= ExtractRingRadius) throw new ArgumentException("BossRingRadius must be >= 0.15 and smaller than ExtractRingRadius.");
+            if (BossCount < 0 || VaultCount < 0) throw new ArgumentException("BossCount and VaultCount must be >= 0.");
+            if (KeyFromBossChance < 0f || KeyFromBossChance > 1f) throw new ArgumentException("KeyFromBossChance must be 0..1.");
+            if (TargetRoomCount < SpawnCount + ExtractCount + BossCount + VaultCount + 3)
+                throw new ArgumentException("Need at least SpawnCount + ExtractCount + BossCount + VaultCount + 3 rooms.");
+            Combat.Validate();
             if (Width < 24 || Height < 24) throw new ArgumentException("Canvas must be at least 24x24.");
             if (MinRoomSize < 3) throw new ArgumentException("MinRoomSize must be >= 3.");
             if (MaxRoomSize < MinRoomSize) throw new ArgumentException("MaxRoomSize must be >= MinRoomSize.");

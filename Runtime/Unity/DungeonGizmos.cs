@@ -60,6 +60,8 @@ namespace DungeonGen.Unity
                 case RoomType.Vault: return Color.magenta;
                 case RoomType.Loot: return Color.yellow;
                 case RoomType.Hub: return new Color(1f, 0.5f, 0f);
+                case RoomType.Boss: return Color.red;
+                case RoomType.FinalBoss: return new Color(0.6f, 0f, 0f);
                 default: return Color.gray;
             }
         }

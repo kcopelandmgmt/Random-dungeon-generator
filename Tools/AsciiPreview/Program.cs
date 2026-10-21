@@ -31,6 +31,9 @@ namespace DungeonGen.Tools
                     case "--ring": settings.SpawnPlacement = SpawnPlacement.Ring; break;
                     case "--fringe": settings.SpawnPlacement = SpawnPlacement.Fringe; break;
                     case "--candidates": settings.CandidateCount = int.Parse(Next()); break;
+                    case "--bosses": settings.BossCount = int.Parse(Next()); break;
+                    case "--vaults": settings.VaultCount = int.Parse(Next()); break;
+                    case "--fights": return PrintFightTable(settings);
                     case "--seed": seed = int.Parse(Next()); break;
                     case "--width": settings.Width = int.Parse(Next()); break;
                     case "--height": settings.Height = int.Parse(Next()); break;
@@ -42,7 +45,7 @@ namespace DungeonGen.Tools
                     case "--batch": batch = int.Parse(Next()); break;
                     case "--no-legend": legend = false; break;
                     case "--help":
-                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --corridor-width 1|2 --batch N --no-legend");
+                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights");
                         return 0;
                     default:
                         Console.Error.WriteLine("Unknown argument " + args[i]);
@@ -57,6 +60,23 @@ namespace DungeonGen.Tools
             sw.Stop();
             Console.Write(AsciiRenderer.Render(layout, legend));
             Console.WriteLine($"Generated in {sw.Elapsed.TotalMilliseconds:0.0} ms");
+            return 0;
+        }
+
+        private static int PrintFightTable(DungeonSettings settings)
+        {
+            var b = settings.Combat;
+            foreach (var e in new[] { DungeonGen.Core.Combat.EncounterTuner.RoomBoss(b), DungeonGen.Core.Combat.EncounterTuner.FinalBoss(b) })
+            {
+                Console.WriteLine(e);
+                Console.WriteLine("  players  gear   fight(s)   taken   capacity  margin  result");
+                foreach (float gear in new[] { 1f, b.GoodGearMultiplier })
+                    for (int k = 1; k <= b.PartySize + 1; k++)
+                    {
+                        var o = DungeonGen.Core.Combat.EncounterTuner.Simulate(e, b, k, gear);
+                        Console.WriteLine($"  {k,7}  x{gear:0.00}  {o.FightSeconds,8:0}  {o.DamageTaken,6:0}  {o.DamageCapacity,9:0}  {o.Margin,6:0.00}  {(o.Wins ? "win" : "wipe")}");
+                    }
+            }
             return 0;
         }
 

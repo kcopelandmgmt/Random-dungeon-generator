@@ -8,17 +8,20 @@ namespace DungeonGen.Core
         public readonly int RoomId;
         /// <summary>Cells to the closest extract door.</summary>
         public readonly int ToNearestExtract;
-        /// <summary>Cells to the vault door.</summary>
-        public readonly int ToVault;
+        /// <summary>Cells to the final boss room's door.</summary>
+        public readonly int ToFinalBoss;
         /// <summary>Cells to the closest other team's spawn door.</summary>
         public readonly int ToNearestSpawn;
+        /// <summary>Cells to the closest boss room door (-1 if the layout has no boss rooms).</summary>
+        public readonly int ToNearestBoss;
 
-        public SpawnStats(int roomId, int toNearestExtract, int toVault, int toNearestSpawn)
+        public SpawnStats(int roomId, int toNearestExtract, int toFinalBoss, int toNearestSpawn, int toNearestBoss)
         {
             RoomId = roomId;
             ToNearestExtract = toNearestExtract;
-            ToVault = toVault;
+            ToFinalBoss = toFinalBoss;
             ToNearestSpawn = toNearestSpawn;
+            ToNearestBoss = toNearestBoss;
         }
     }
 
@@ -32,10 +35,12 @@ namespace DungeonGen.Core
 
         public List<SpawnStats> Spawns { get; } = new List<SpawnStats>();
         public float ExtractRatio { get; set; }
-        public float VaultRatio { get; set; }
+        public float FinalBossRatio { get; set; }
         public float SpawnSpacingRatio { get; set; }
+        /// <summary>1 when the layout has no boss rooms.</summary>
+        public float BossRatio { get; set; } = 1f;
 
-        /// <summary>Overall score in [0,1]; the weakest of the three ratios, so one unlucky team drags the whole layout down.</summary>
+        /// <summary>Overall score in [0,1]; the weakest of the ratios, so one unlucky team drags the whole layout down.</summary>
         public float Score { get; set; }
     }
 }

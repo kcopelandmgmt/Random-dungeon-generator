@@ -42,11 +42,15 @@ namespace DungeonGen.Core.Stages
             if (n < 2) return new List<Edge>();
 
             // --- 1. K-nearest-neighbour candidate edges (deduplicated) -------------
+            // Vaults never appear as candidates: each gets exactly one forced edge to the
+            // nearest ordinary room (its host), which keeps every vault a dead end.
+            bool IsVault(int i) => rooms[i].Type == RoomType.Vault;
             var candidates = new Dictionary<long, Edge>();
             for (int i = 0; i < n; i++)
             {
+                if (IsVault(i)) continue;
                 var ordered = Enumerable.Range(0, n)
-                    .Where(j => j != i)
+                    .Where(j => j != i && !IsVault(j))
                     .OrderBy(j => rooms[i].Center.ManhattanDistance(rooms[j].Center))
                     .ThenBy(j => j)
                     .Take(s.NearestNeighbours);
@@ -65,11 +69,11 @@ namespace DungeonGen.Core.Stages
             var tree = new List<Edge>();
             var rejected = new List<Edge>();
 
-            // Ring mode pre-typed spawns, extracts and the vault. Force a radial spine
-            // (each spawn -> its nearest extract -> vault) into the tree first, so every
-            // team's route inward is direct and about the same length. Without this the
-            // MST can send one team the long way round the arena.
-            foreach (var e in SpineEdges(rooms))
+            // Ring mode pre-typed spawns, extracts, bosses and the final boss. Force a radial
+            // spine (spawn -> nearest extract -> nearest boss -> final boss) into the tree first,
+            // so every team's route inward is direct and about the same length. Without this
+            // the MST can send one team the long way round the arena.
+            foreach (var e in SpineEdges(rooms).Concat(VaultEdges(rooms)))
             {
                 candidates.Remove(e.Key);
                 if (uf.Union(e.A, e.B)) tree.Add(e);
@@ -90,6 +94,7 @@ namespace DungeonGen.Core.Stages
                 for (int i = 0; i < n; i++)
                     for (int j = i + 1; j < n; j++)
                     {
+                        if (IsVault(i) || IsVault(j)) continue;
                         if (uf.Find(i) == uf.Find(j)) continue;
                         int d = rooms[i].Center.ManhattanDistance(rooms[j].Center);
                         if (best == null || d < best.Value.Distance) best = new Edge(i, j, d);
@@ -110,21 +115,40 @@ namespace DungeonGen.Core.Stages
             return result;
         }
 
+        private static IEnumerable<Edge> VaultEdges(List<Room> rooms)
+        {
+            foreach (var v in rooms.Where(r => r.Type == RoomType.Vault))
+            {
+                var host = rooms
+                    .Where(r => r.Type != RoomType.Vault && r.Type != RoomType.Spawn && r.Type != RoomType.Extract)
+                    .OrderBy(r => v.Center.ManhattanDistance(r.Center)).ThenBy(r => r.Id)
+                    .FirstOrDefault();
+                if (host != null) yield return new Edge(v.Id, host.Id, v.Center.ManhattanDistance(host.Center));
+            }
+        }
+
         private static IEnumerable<Edge> SpineEdges(List<Room> rooms)
         {
             var spawns = rooms.Where(r => r.Type == RoomType.Spawn).ToList();
             var extracts = rooms.Where(r => r.Type == RoomType.Extract).ToList();
-            var vault = rooms.FirstOrDefault(r => r.Type == RoomType.Vault);
+            var bosses = rooms.Where(r => r.Type == RoomType.Boss).ToList();
+            var center = rooms.FirstOrDefault(r => r.Type == RoomType.FinalBoss);
             if (spawns.Count == 0 || extracts.Count == 0) yield break;
 
-            foreach (var sp in spawns)
+            Edge ToNearest(Room from, List<Room> targets)
             {
-                var nearest = extracts.OrderBy(e => sp.Center.ManhattanDistance(e.Center)).ThenBy(e => e.Id).First();
-                yield return new Edge(sp.Id, nearest.Id, sp.Center.ManhattanDistance(nearest.Center));
+                var t = targets.OrderBy(x => from.Center.ManhattanDistance(x.Center)).ThenBy(x => x.Id).First();
+                return new Edge(from.Id, t.Id, from.Center.ManhattanDistance(t.Center));
             }
-            if (vault != null)
-                foreach (var e in extracts)
-                    yield return new Edge(e.Id, vault.Id, e.Center.ManhattanDistance(vault.Center));
+
+            foreach (var sp in spawns) yield return ToNearest(sp, extracts);
+
+            var inner = bosses.Count > 0 ? bosses : (center != null ? new List<Room> { center } : null);
+            if (inner == null) yield break;
+            foreach (var e in extracts) yield return ToNearest(e, inner);
+            if (bosses.Count > 0 && center != null)
+                foreach (var b in bosses)
+                    yield return new Edge(b.Id, center.Id, b.Center.ManhattanDistance(center.Center));
         }
 
         private sealed class UnionFind

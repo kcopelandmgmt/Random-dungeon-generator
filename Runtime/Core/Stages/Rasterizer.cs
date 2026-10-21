@@ -30,7 +30,7 @@ namespace DungeonGen.Core.Stages
                 foreach (var d in room.Doors)
                     if (layout.InBounds(d))
                     {
-                        layout.Tiles[d.X, d.Y] = TileType.Door;
+                        layout.Tiles[d.X, d.Y] = room.Type == RoomType.Vault ? TileType.LockedDoor : TileType.Door;
                         layout.RoomIdAt[d.X, d.Y] = room.Id;
                     }
 
@@ -49,7 +49,7 @@ namespace DungeonGen.Core.Stages
                 for (int dy = -1; dy <= 1; dy++)
                 {
                     if (dx == 0 && dy == 0) continue;
-                    if (layout.IsWalkable(new GridPoint(x + dx, y + dy))) return true;
+                    if (layout.IsWalkable(new GridPoint(x + dx, y + dy), ignoreLocks: true)) return true;
                 }
             return false;
         }

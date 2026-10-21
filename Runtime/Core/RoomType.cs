@@ -1,16 +1,18 @@
 namespace DungeonGen.Core
 {
     /// <summary>
-    /// Gameplay role of a room. Assigned after the spatial layout exists, using graph
+    /// Gameplay role of a room. Assigned after the spatial layout exists, using walking
     /// distance from the spawn rooms so risk and reward scale with depth.
     /// </summary>
     public enum RoomType
     {
         Standard,   // Generic combat / filler space
-        Spawn,      // Player entry gate (one squad per spawn room)
-        Extract,    // Exit gate; may be locked until a timer/condition is met
-        Loot,       // Elevated loot table, usually 1-2 corridors off the main routes
-        Vault,      // Deepest, most dangerous room: best loot, boss or heavy guards
-        Hub,        // High-connectivity crossroads; where squads tend to collide
+        Spawn,      // Team entry gate (one team per spawn room)
+        Extract,    // Exit gate
+        Loot,       // Elevated loot table, usually a dead end off the main routes
+        Vault,      // Locked treasure room: every door is a LockedDoor tile, opened by a key found elsewhere
+        Hub,        // High-connectivity crossroads; where teams tend to collide
+        Boss,       // Boss arena tuned for ~2.5 players; guards loot and sometimes a vault key
+        FinalBoss,  // Center of the dungeon. Tuned for a full, well-geared party. Killing it opens the gated exit.
     }
 }

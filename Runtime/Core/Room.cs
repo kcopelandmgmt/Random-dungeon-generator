@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using DungeonGen.Core.Combat;
 
 namespace DungeonGen.Core
 {
@@ -16,6 +17,17 @@ namespace DungeonGen.Core
 
         /// <summary>Loot tier 0..N; higher is rarer. Mapped from Danger in RoleAssigner.</summary>
         public int LootTier { get; set; }
+
+        /// <summary>Boss tuning for Boss / FinalBoss rooms; null otherwise.</summary>
+        public EncounterBudget Encounter { get; set; }
+
+        /// <summary>Vault rooms: id of the key that opens their locked doors. -1 for everything else.</summary>
+        public int RequiredKeyId { get; set; } = -1;
+
+        /// <summary>Id of the key that spawns in this room (chest or boss drop). -1 if none.</summary>
+        public int HoldsKeyId { get; set; } = -1;
+
+        public bool IsBossRoom => Type == RoomType.Boss || Type == RoomType.FinalBoss;
 
         /// <summary>Ids of rooms reached directly by a corridor.</summary>
         public List<int> Neighbours { get; } = new List<int>();

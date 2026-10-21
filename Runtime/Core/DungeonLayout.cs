@@ -16,6 +16,12 @@ namespace DungeonGen.Core
         public List<Room> Rooms { get; } = new List<Room>();
         public List<Corridor> Corridors { get; } = new List<Corridor>();
 
+        /// <summary>One entry per vault: where its key is and what it opens.</summary>
+        public List<KeyPlacement> Keys { get; } = new List<KeyPlacement>();
+
+        /// <summary>Exit that opens when the final boss dies. Null if the layout has no final boss.</summary>
+        public BossGatedExit BossExit { get; set; }
+
         /// <summary>Per-team start fairness (walking distances from each spawn to the extracts and vault). Filled by FairnessMapper.</summary>
         public LayoutFairness Fairness { get; set; } = LayoutFairness.Empty;
 
@@ -45,15 +51,19 @@ namespace DungeonGen.Core
 
         public TileType GetTile(GridPoint p) => InBounds(p) ? Tiles[p.X, p.Y] : TileType.Void;
 
-        public bool IsWalkable(GridPoint p)
+        /// <summary>Can a player without keys stand here? Pass ignoreLocks=true to treat locked doors as open (distance / danger maths).</summary>
+        public bool IsWalkable(GridPoint p, bool ignoreLocks = false)
         {
             var t = GetTile(p);
-            return t == TileType.RoomFloor || t == TileType.Corridor || t == TileType.Door;
+            return t == TileType.RoomFloor || t == TileType.Corridor || t == TileType.Door || (ignoreLocks && t == TileType.LockedDoor);
         }
 
         public IEnumerable<Room> RoomsOfType(RoomType type) => Rooms.Where(r => r.Type == type);
         public IEnumerable<Room> SpawnRooms => RoomsOfType(RoomType.Spawn);
         public IEnumerable<Room> ExtractRooms => RoomsOfType(RoomType.Extract);
+        public IEnumerable<Room> BossRooms => RoomsOfType(RoomType.Boss);
+        public IEnumerable<Room> VaultRooms => RoomsOfType(RoomType.Vault);
+        public Room FinalBossRoom => Rooms.FirstOrDefault(r => r.Type == RoomType.FinalBoss);
 
         public Room GetRoom(int id) => Rooms[id];
     }

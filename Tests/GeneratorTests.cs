@@ -46,10 +46,10 @@ namespace DungeonGen.Tests
             var layout = DungeonGenerator.Generate(s, 2024);
             Assert.Equal(4, layout.SpawnRooms.Count());
             Assert.Equal(3, layout.ExtractRooms.Count());
-            Assert.Single(layout.Rooms, r => r.Type == RoomType.Vault);
+            Assert.Single(layout.Rooms, r => r.Type == RoomType.FinalBoss);
             Assert.All(layout.SpawnRooms, r => Assert.Equal(0, r.DepthFromSpawn));
             Assert.All(layout.SpawnRooms, r => Assert.Equal(0, r.LootTier));
-            Assert.Equal(s.LootTiers - 1, layout.Rooms.First(r => r.Type == RoomType.Vault).LootTier);
+            Assert.Equal(s.LootTiers - 1, layout.FinalBossRoom.LootTier);
         }
 
         [Fact]
@@ -122,7 +122,7 @@ namespace DungeonGen.Tests
                 var layout = DungeonGenerator.Generate(s, seed);
                 Assert.Equal(teams, layout.SpawnRooms.Count());
                 Assert.Equal(s.ExtractCount, layout.ExtractRooms.Count());
-                Assert.Single(layout.Rooms, r => r.Type == RoomType.Vault);
+                Assert.Single(layout.Rooms, r => r.Type == RoomType.FinalBoss);
                 var problems = new List<string>();
                 Assert.True(LayoutValidator.IsPlayable(layout, s, problems), $"seed {seed}: {string.Join("; ", problems)}");
             }
@@ -137,9 +137,9 @@ namespace DungeonGen.Tests
                 var layout = DungeonGenerator.Generate(s, seed);
                 var f = layout.Fairness;
                 Assert.Equal(8, f.Spawns.Count);
-                Assert.All(f.Spawns, sp => Assert.True(sp.ToNearestExtract > 0 && sp.ToVault > 0, "every team can reach an extract and the vault"));
+                Assert.All(f.Spawns, sp => Assert.True(sp.ToNearestExtract > 0 && sp.ToFinalBoss > 0, "every team can reach an extract and the final boss"));
                 // No team's walk to its nearest extract may be more than ~2x another team's.
-                Assert.True(f.Score >= 0.5f, $"seed {seed}: fairness {f.Score:0.00} (extract {f.ExtractRatio:0.00}, vault {f.VaultRatio:0.00}, spacing {f.SpawnSpacingRatio:0.00})");
+                Assert.True(f.Score >= 0.5f, $"seed {seed}: fairness {f.Score:0.00} (extract {f.ExtractRatio:0.00}, final boss {f.FinalBossRatio:0.00}, boss {f.BossRatio:0.00}, spacing {f.SpawnSpacingRatio:0.00})");
             }
         }
 
@@ -154,8 +154,7 @@ namespace DungeonGen.Tests
                 int d = spawn.Center.ManhattanDistance(center);
                 Assert.True(d > s.Width / 3, $"spawn {spawn.Id} is only {d} cells from the center");
             }
-            var vault = layout.Rooms.Single(r => r.Type == RoomType.Vault);
-            Assert.True(vault.Center.ManhattanDistance(center) < s.MaxRoomSize, "vault sits at the center");
+            Assert.True(layout.FinalBossRoom.Center.ManhattanDistance(center) < s.MaxRoomSize, "final boss sits at the center");
         }
 
         [Fact]
@@ -175,6 +174,112 @@ namespace DungeonGen.Tests
             Assert.Equal(16, layout.SpawnRooms.Count());
             var problems = new List<string>();
             Assert.True(LayoutValidator.IsPlayable(layout, s, problems), string.Join("; ", problems));
+        }
+    }
+}
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+
+    public class BossVaultKeyTests
+    {
+        [Theory]
+        [InlineData(3)]
+        [InlineData(8)]
+        public void BossesVaultsAndKeysArePlaced(int teams)
+        {
+            var s = DungeonSettings.ForTeams(teams);
+            for (int seed = 1; seed <= 15; seed++)
+            {
+                var layout = DungeonGenerator.Generate(s, seed);
+                Assert.Equal(s.BossCount, layout.BossRooms.Count());
+                Assert.Equal(s.VaultCount, layout.VaultRooms.Count());
+                Assert.Equal(s.VaultCount, layout.Keys.Count);
+                Assert.NotNull(layout.FinalBossRoom);
+                Assert.NotNull(layout.BossExit);
+                Assert.Equal(layout.FinalBossRoom.Id, layout.BossExit.RoomId);
+                Assert.All(layout.BossRooms, b => Assert.NotNull(b.Encounter));
+                Assert.NotNull(layout.FinalBossRoom.Encounter);
+            }
+        }
+
+        [Fact]
+        public void FinalBossSitsAtTheCenterAndExitIsInside()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            var layout = DungeonGenerator.Generate(s, 21);
+            var center = new GridPoint(s.Width / 2, s.Height / 2);
+            Assert.True(layout.FinalBossRoom.Bounds.Contains(center));
+            Assert.True(layout.FinalBossRoom.Bounds.Contains(layout.BossExit.Cell));
+            Assert.Equal(TileType.RoomFloor, layout.Tiles[layout.BossExit.Cell.X, layout.BossExit.Cell.Y]);
+        }
+
+        [Fact]
+        public void VaultsAreLockedDeadEndsAndKeysAreElsewhere()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            for (int seed = 1; seed <= 15; seed++)
+            {
+                var layout = DungeonGenerator.Generate(s, seed);
+                foreach (var v in layout.VaultRooms)
+                {
+                    Assert.Single(v.Neighbours);
+                    Assert.All(v.Doors, d => Assert.Equal(TileType.LockedDoor, layout.Tiles[d.X, d.Y]));
+                    Assert.True(v.RequiredKeyId >= 0);
+                    var key = layout.Keys.Single(k => k.VaultRoomId == v.Id);
+                    Assert.NotEqual(v.Id, key.HolderRoomId);
+                    Assert.NotEqual(RoomType.Spawn, layout.Rooms[key.HolderRoomId].Type);
+                    Assert.NotEqual(RoomType.Vault, layout.Rooms[key.HolderRoomId].Type);
+                    Assert.True(key.WalkToVault >= s.KeyMinWalk, $"seed {seed}: key only {key.WalkToVault} cells from its vault");
+                    Assert.Equal(key.DroppedByBoss, layout.Rooms[key.HolderRoomId].Type == RoomType.Boss);
+                    Assert.Equal(s.LootTiers - 1, v.LootTier);
+                }
+            }
+        }
+
+        [Fact]
+        public void LockedDoorsDoNotCutOffAnythingButTheVault()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            var layout = DungeonGenerator.Generate(s, 5);
+            var problems = new List<string>();
+            Assert.True(LayoutValidator.IsPlayable(layout, s, problems), string.Join("; ", problems));
+            Assert.All(layout.VaultRooms, v => Assert.False(layout.IsWalkable(v.Doors[0])));
+            Assert.All(layout.VaultRooms, v => Assert.True(layout.IsWalkable(v.Doors[0], ignoreLocks: true)));
+        }
+
+        [Fact]
+        public void RoomBossIsTunedForTwoAndAHalfPlayers()
+        {
+            var b = new CombatBaseline();
+            var boss = EncounterTuner.RoomBoss(b);
+            Assert.False(EncounterTuner.Simulate(boss, b, 1).Wins);
+            Assert.False(EncounterTuner.Simulate(boss, b, 2).Wins);
+            Assert.True(EncounterTuner.Simulate(boss, b, 3).Wins);
+            Assert.True(EncounterTuner.Simulate(boss, b, 2, b.GoodGearMultiplier).Wins, "a well-geared duo should be able to take a room boss");
+        }
+
+        [Fact]
+        public void FinalBossNeedsAGearedFullParty()
+        {
+            var b = new CombatBaseline();
+            var room = EncounterTuner.RoomBoss(b);
+            var final = EncounterTuner.FinalBoss(b);
+            Assert.True(final.Health > room.Health && final.Dps > room.Dps, "final boss is strictly harder");
+            Assert.False(EncounterTuner.Simulate(final, b, b.PartySize).Wins, "baseline-geared full party wipes");
+            Assert.True(EncounterTuner.Simulate(final, b, b.PartySize, b.GoodGearMultiplier).Wins, "geared full party wins");
+            Assert.False(EncounterTuner.Simulate(final, b, b.PartySize - 1, b.GoodGearMultiplier).Wins, "one short, even geared, wipes");
+        }
+
+        [Fact]
+        public void RosterAveragesToOneBaselinePlayer()
+        {
+            var roster = ClassArchetype.DefaultRoster;
+            Assert.Equal(6, roster.Count);
+            Assert.InRange(roster.Average(c => c.DpsMultiplier), 0.95f, 1.05f);
+            Assert.InRange(roster.Average(c => c.HealthMultiplier), 0.95f, 1.05f);
+            Assert.Equal(roster.Count, roster.Select(c => c.Role).Distinct().Count());
         }
     }
 }

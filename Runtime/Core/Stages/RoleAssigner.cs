@@ -12,8 +12,10 @@ namespace DungeonGen.Core.Stages
     /// 90-cell tunnel or a 6-cell one, and the player feels the difference.
     ///
     /// - Spawns: pre-placed on the ring (Ring mode) or farthest-point sampled from the fringe.
-    /// - Vault: the room whose *nearest* spawn is farthest away, with an even walk for all teams.
+    /// - Final boss: the room nearest the center (the gated exit spawns there).
     /// - Extracts: chosen greedily so every team's walk to its nearest extract is as even as possible.
+    /// - Bosses: deep, spread out arenas tuned for ~2.5 players.
+    /// - Vaults: locked dead ends; each gets a key hidden a real walk away, often on a boss.
     /// - Hubs: high-degree crossroads where routes converge: the natural fight locations.
     /// - Loot rooms: dead ends off the beaten path: risk/reward side objectives.
     /// Danger and loot tiers are assigned afterwards by <see cref="DangerMapper"/> from the tile grid.
@@ -22,7 +24,7 @@ namespace DungeonGen.Core.Stages
     {
         private const float Unreachable = 1e9f;
 
-        public static void Assign(List<Room> rooms, List<Corridor> corridors, DungeonSettings s, DungeonRandom rng, List<string> warnings)
+        public static void Assign(List<Room> rooms, List<Corridor> corridors, DungeonSettings s, DungeonRandom rng, List<string> warnings, List<KeyPlacement> keys)
         {
             int n = rooms.Count;
             if (n == 0) return;
@@ -37,6 +39,7 @@ namespace DungeonGen.Core.Stages
             if (spawns.Count == 0)
             {
                 int first = Enumerable.Range(0, n)
+                    .Where(i => rooms[i].Type == RoomType.Standard)
                     .OrderByDescending(i => Eccentricity(walk, i, n))
                     .ThenBy(i => rooms[i].Neighbours.Count)
                     .ThenBy(i => rng.Range(0, 1000))
@@ -46,7 +49,7 @@ namespace DungeonGen.Core.Stages
             while (spawns.Count < s.SpawnCount)
             {
                 int pick = Enumerable.Range(0, n)
-                    .Where(i => !spawns.Contains(i))
+                    .Where(i => !spawns.Contains(i) && rooms[i].Type == RoomType.Standard)
                     .OrderByDescending(i => spawns.Min(sp => walk[i, sp]))
                     .ThenBy(i => rooms[i].Neighbours.Count)
                     .ThenBy(i => rng.Range(0, 1000))
@@ -61,18 +64,19 @@ namespace DungeonGen.Core.Stages
             // ---- Depth (hops) from nearest spawn, kept for display and MinExtractDepth ------
             foreach (var r in rooms) r.DepthFromSpawn = spawns.Min(sp => hops[r.Id, sp]);
 
-            // ---- Vault: far from everyone, and about equally far ----------------------------
-            // Score = nearest-spawn distance scaled by how even the walk is across teams, so a
-            // room 300 cells from one team and 70 from another loses to one that is ~150 from all.
-            if (!rooms.Any(r => r.Type == RoomType.Vault))
+            // ---- Final boss: the room closest to the center of the canvas -------------------
+            // Ring mode placed it there already. The gated exit spawns in this room, so "as
+            // close to the center as possible" is literally the selection rule.
+            if (!rooms.Any(r => r.Type == RoomType.FinalBoss))
             {
-                int vault = Enumerable.Range(0, n)
+                var mid = new GridPoint(s.Width / 2, s.Height / 2);
+                int center = Enumerable.Range(0, n)
                     .Where(i => rooms[i].Type == RoomType.Standard)
-                    .OrderByDescending(i => FairDepth(walk, i, spawns))
-                    .ThenBy(i => rooms[i].Neighbours.Count)
+                    .OrderBy(i => rooms[i].DepthFromSpawn >= 2 ? 0 : 1)          // never next door to a team
+                    .ThenBy(i => rooms[i].Center.ManhattanDistance(mid))
                     .ThenByDescending(i => rooms[i].Bounds.Area)
                     .First();
-                rooms[vault].Type = RoomType.Vault;
+                rooms[center].Type = RoomType.FinalBoss;
             }
 
             // ---- Extracts: greedy, maximising the evenness of each team's nearest-extract walk --
@@ -85,7 +89,6 @@ namespace DungeonGen.Core.Stages
                 warnings.Add("Not enough deep rooms for extracts; relaxing MinExtractDepth.");
                 extractPool = Enumerable.Range(0, n).Where(i => rooms[i].Type == RoomType.Standard).ToList();
             }
-
             while (extracts.Count < s.ExtractCount && extractPool.Count > 0)
             {
                 int pick = extractPool
@@ -96,6 +99,67 @@ namespace DungeonGen.Core.Stages
                 extracts.Add(pick);
                 extractPool.Remove(pick);
                 rooms[pick].Type = RoomType.Extract;
+            }
+
+            // ---- Boss rooms: deep-ish, spread out, never next door to a spawn -------------
+            var bosses = rooms.Where(r => r.Type == RoomType.Boss).Select(r => r.Id).ToList(); // pre-placed by Ring mode
+            while (bosses.Count < s.BossCount)
+            {
+                var pool = Enumerable.Range(0, n)
+                    .Where(i => rooms[i].Type == RoomType.Standard && rooms[i].DepthFromSpawn >= 2)
+                    .ToList();
+                if (pool.Count == 0) pool = Enumerable.Range(0, n).Where(i => rooms[i].Type == RoomType.Standard).ToList();
+                if (pool.Count == 0) { warnings.Add("Ran out of rooms for boss arenas."); break; }
+                int pick = pool
+                    .OrderByDescending(i => FairDepth(walk, i, spawns) + (bosses.Count == 0 ? 0f : bosses.Min(b => walk[i, b]) * 0.5f))
+                    .ThenByDescending(i => rooms[i].Bounds.Area)
+                    .ThenBy(i => rng.Range(0, 1000))
+                    .First();
+                bosses.Add(pick);
+                rooms[pick].Type = RoomType.Boss;
+            }
+
+            // ---- Vaults: locked dead ends. A vault with two doors would cut the dungeon in half
+            // for anyone without the key, so only rooms with exactly one corridor qualify. ----
+            var vaults = rooms.Where(r => r.Type == RoomType.Vault).Select(r => r.Id).ToList(); // satellites from RoomPlacer
+            var deadEnds = Enumerable.Range(0, n)
+                .Where(i => rooms[i].Type == RoomType.Standard && rooms[i].Neighbours.Count == 1 && rooms[i].Doors.Count == 1)
+                .OrderByDescending(i => rooms[i].DepthFromSpawn)
+                .ThenByDescending(i => spawns.Min(sp => walk[i, sp]))
+                .ThenBy(i => rng.Range(0, 1000))
+                .ToList();
+            foreach (int i in deadEnds.Take(Math.Max(0, s.VaultCount - vaults.Count)))
+            {
+                vaults.Add(i);
+                rooms[i].Type = RoomType.Vault;
+            }
+            if (vaults.Count < s.VaultCount)
+                warnings.Add($"Only {vaults.Count}/{s.VaultCount} vaults placed: not enough dead-end rooms. Lower LoopChance or add rooms.");
+
+            // ---- Keys: one per vault, far from the vault, maybe on a boss -------------------
+            var keyHolders = new HashSet<int>();
+            foreach (int v in vaults)
+            {
+                int keyId = keys.Count;
+                bool fromBoss = bosses.Count > 0 && rng.Chance(s.KeyFromBossChance);
+                var holderPool = (fromBoss ? bosses : Enumerable.Range(0, n).Where(i =>
+                        rooms[i].Type == RoomType.Standard || rooms[i].Type == RoomType.Loot || rooms[i].Type == RoomType.Hub || rooms[i].Type == RoomType.Boss))
+                    .Where(i => !keyHolders.Contains(i) && walk[i, v] < Unreachable)
+                    .ToList();
+                if (holderPool.Count == 0) holderPool = bosses.Count > 0 ? bosses.ToList() : Enumerable.Range(0, n).Where(i => rooms[i].Type == RoomType.Standard).ToList();
+                if (holderPool.Count == 0) { warnings.Add($"No room available to hold the key for vault {v}."); continue; }
+
+                // Prefer holders at least KeyMinWalk away; among those, the closest (a key three
+                // rooms over is a trip; a key across the whole map is a chore).
+                int holder = holderPool
+                    .OrderByDescending(i => walk[i, v] >= s.KeyMinWalk ? 1 : 0)
+                    .ThenBy(i => walk[i, v] >= s.KeyMinWalk ? walk[i, v] : -walk[i, v])
+                    .ThenBy(i => rng.Range(0, 1000))
+                    .First();
+                keyHolders.Add(holder);
+                rooms[v].RequiredKeyId = keyId;
+                rooms[holder].HoldsKeyId = keyId;
+                keys.Add(new KeyPlacement(keyId, v, holder, rooms[holder].Type == RoomType.Boss, rooms[holder].Center, walk[holder, v]));
             }
 
             // ---- Hubs: top-connectivity crossroads -----------------------------------------

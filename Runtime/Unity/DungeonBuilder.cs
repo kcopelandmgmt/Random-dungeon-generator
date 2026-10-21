@@ -34,6 +34,8 @@ namespace DungeonGen.Unity
         public GameObject FloorPrefab;
         public GameObject CorridorPrefab;
         public GameObject DoorPrefab;
+        [Tooltip("Vault doors. Needs a key component on the player side to open; falls back to DoorPrefab if empty.")]
+        public GameObject LockedDoorPrefab;
         public GameObject WallPrefab;
 
         [Header("Role markers (optional)")]
@@ -41,6 +43,11 @@ namespace DungeonGen.Unity
         public GameObject ExtractMarkerPrefab;
         public GameObject LootMarkerPrefab;
         public GameObject VaultMarkerPrefab;
+        public GameObject BossMarkerPrefab;
+        public GameObject FinalBossMarkerPrefab;
+        [Tooltip("Spawned at the final boss room center, disabled. Enable it when the final boss dies.")]
+        public GameObject BossGatedExitPrefab;
+        public GameObject KeyMarkerPrefab;
 
         [Header("Events")]
         public UnityEvent<DungeonLayout> OnBuilt;
@@ -53,6 +60,12 @@ namespace DungeonGen.Unity
         /// <summary>Number of teams this layout supports (one per spawn room).</summary>
         public int TeamCount => SpawnPoints.Count;
         public List<Vector3> ExtractPoints { get; } = new List<Vector3>();
+
+        /// <summary>The disabled exit object in the final boss room. Call <see cref="OpenBossGatedExit"/> when the boss dies.</summary>
+        public GameObject BossGatedExit { get; private set; }
+
+        /// <summary>Key marker objects by key id; name them so loot code can map an item to its vault.</summary>
+        public Dictionary<int, GameObject> KeyObjects { get; } = new Dictionary<int, GameObject>();
 
         private Transform _root;
 
@@ -83,7 +96,7 @@ namespace DungeonGen.Unity
 
             foreach (var w in Layout.Warnings) Debug.LogWarning("DungeonGen: " + w, this);
             var f = Layout.Fairness;
-            Debug.Log($"DungeonGen: seed {seed}, {Layout.Rooms.Count} rooms, {Layout.SpawnRooms.Count()} teams, fairness {f.Score:0.00} (extract {f.ExtractRatio:0.00}, vault {f.VaultRatio:0.00}, spacing {f.SpawnSpacingRatio:0.00})", this);
+            Debug.Log($"DungeonGen: seed {seed}, {Layout.Rooms.Count} rooms, {Layout.SpawnRooms.Count()} teams, {Layout.BossRooms.Count()} bosses, {Layout.VaultRooms.Count()} vaults, fairness {f.Score:0.00} (extract {f.ExtractRatio:0.00}, final boss {f.FinalBossRatio:0.00}, boss {f.BossRatio:0.00}, spacing {f.SpawnSpacingRatio:0.00})", this);
 
             _root = new GameObject($"Dungeon_{seed}").transform;
             _root.SetParent(transform, false);
@@ -108,6 +121,8 @@ namespace DungeonGen.Unity
                     case RoomType.Extract: ExtractPoints.Add(pos); marker = ExtractMarkerPrefab; break;
                     case RoomType.Loot: marker = LootMarkerPrefab; break;
                     case RoomType.Vault: marker = VaultMarkerPrefab; break;
+                    case RoomType.Boss: marker = BossMarkerPrefab; break;
+                    case RoomType.FinalBoss: marker = FinalBossMarkerPrefab; break;
                 }
                 if (marker != null)
                 {
@@ -116,7 +131,30 @@ namespace DungeonGen.Unity
                 }
             }
 
+            KeyObjects.Clear();
+            if (KeyMarkerPrefab != null)
+                foreach (var key in Layout.Keys)
+                {
+                    var go = Instantiate(KeyMarkerPrefab, GridToWorld(key.Cell), Quaternion.identity, _root);
+                    go.name = $"Key_{key.KeyId}_opens_vault_{key.VaultRoomId}" + (key.DroppedByBoss ? "_bossdrop" : "");
+                    KeyObjects[key.KeyId] = go;
+                }
+
+            BossGatedExit = null;
+            if (BossGatedExitPrefab != null && Layout.BossExit != null)
+            {
+                BossGatedExit = Instantiate(BossGatedExitPrefab, GridToWorld(Layout.BossExit.Cell), Quaternion.identity, _root);
+                BossGatedExit.name = "BossGatedExit";
+                BossGatedExit.SetActive(false);
+            }
+
             OnBuilt?.Invoke(Layout);
+        }
+
+        /// <summary>Reveal the guaranteed exit. Hook this to the final boss's death event.</summary>
+        public void OpenBossGatedExit()
+        {
+            if (BossGatedExit != null) BossGatedExit.SetActive(true);
         }
 
         [ContextMenu("Clear")]
@@ -162,6 +200,7 @@ namespace DungeonGen.Unity
                 case TileType.RoomFloor: return FloorPrefab;
                 case TileType.Corridor: return CorridorPrefab != null ? CorridorPrefab : FloorPrefab;
                 case TileType.Door: return DoorPrefab != null ? DoorPrefab : FloorPrefab;
+                case TileType.LockedDoor: return LockedDoorPrefab != null ? LockedDoorPrefab : (DoorPrefab != null ? DoorPrefab : FloorPrefab);
                 case TileType.Wall: return WallPrefab;
                 default: return null;
             }
