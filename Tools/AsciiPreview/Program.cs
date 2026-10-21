@@ -38,6 +38,7 @@ namespace DungeonGen.Tools
                     case "--roll": { int n = int.Parse(Next()); int lvl = int.Parse(Next()); return RollItems(n, lvl, seed); }
                     case "--loot": { var l = DungeonGenerator.Generate(settings, seed); foreach (var r in l.Rooms.Where(r => r.Loot.Count > 0).OrderBy(r => r.LootTier)) { Console.WriteLine($"room {r.Id} {r.Type} tier {r.LootTier}:"); foreach (var it in r.Loot) Console.WriteLine("  " + it); } return 0; }
                     case "--wear": return WearRolledSet(seed);
+                    case "--lifetime": return PrintLifetimes(seed);
                     case "--seed": seed = int.Parse(Next()); break;
                     case "--width": settings.Width = int.Parse(Next()); break;
                     case "--height": settings.Height = int.Parse(Next()); break;
@@ -49,7 +50,7 @@ namespace DungeonGen.Tools
                     case "--batch": batch = int.Parse(Next()); break;
                     case "--no-legend": legend = false; break;
                     case "--help":
-                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear");
+                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear --lifetime");
                         return 0;
                     default:
                         Console.Error.WriteLine("Unknown argument " + args[i]);
@@ -64,6 +65,39 @@ namespace DungeonGen.Tools
             sw.Stop();
             Console.Write(AsciiRenderer.Render(layout, legend));
             Console.WriteLine($"Generated in {sw.Elapsed.TotalMilliseconds:0.0} ms");
+            return 0;
+        }
+
+        /// <summary>How long gear lasts under the design's reference round, and what a death does to a kit.</summary>
+        private static int PrintLifetimes(int seed)
+        {
+            const float taken = 2500f, dealt = 6000f;   // a reference round: two mob packs, one boss, one skirmish
+            Console.WriteLine($"Reference round: {taken:0} damage taken, {dealt:0} dealt. Rounds an item survives in constant use, repairing when broken:");
+            Console.WriteLine("  rarity   armour  weapon  jewellery   (first break / with all repairs)");
+            foreach (DungeonGen.Core.Items.Rarity r in Enum.GetValues(typeof(DungeonGen.Core.Items.Rarity)))
+            {
+                var armour = new DungeonGen.Core.Items.Item(DungeonGen.Core.Items.ItemBase.Armours[1], 3, r, "x", new System.Collections.Generic.List<DungeonGen.Core.Items.AffixRoll>(), new System.Collections.Generic.List<DungeonGen.Core.Items.AffixRoll>());
+                var weapon = new DungeonGen.Core.Items.Item(DungeonGen.Core.Items.ItemBase.Weapons[0], 3, r, "x", new System.Collections.Generic.List<DungeonGen.Core.Items.AffixRoll>(), new System.Collections.Generic.List<DungeonGen.Core.Items.AffixRoll>());
+                var ring = new DungeonGen.Core.Items.Item(DungeonGen.Core.Items.ItemBase.Jewellery[1], 3, r, "x", new System.Collections.Generic.List<DungeonGen.Core.Items.AffixRoll>(), new System.Collections.Generic.List<DungeonGen.Core.Items.AffixRoll>());
+                float max = DungeonGen.Core.Items.DurabilityRules.MaxFor(r);
+                float aw = DungeonGen.Core.Items.DurabilityRules.BaseWearPerRound + taken / DungeonGen.Core.Items.DurabilityRules.ArmourDamagePerPoint;
+                float ww = DungeonGen.Core.Items.DurabilityRules.BaseWearPerRound + dealt / DungeonGen.Core.Items.DurabilityRules.WeaponDamagePerPoint;
+                float jw = DungeonGen.Core.Items.DurabilityRules.BaseWearPerRound + DungeonGen.Core.Items.DurabilityRules.JewelleryWearPerRound;
+                Console.WriteLine($"  {r,-8} {max / aw,4:0.0}/{DungeonGen.Core.Items.DurabilityRules.ExpectedLifetimeRounds(armour, taken, dealt),-3}  {max / ww,4:0.0}/{DungeonGen.Core.Items.DurabilityRules.ExpectedLifetimeRounds(weapon, taken, dealt),-3}  {max / jw,4:0.0}/{DungeonGen.Core.Items.DurabilityRules.ExpectedLifetimeRounds(ring, taken, dealt),-3}");
+            }
+            Console.WriteLine();
+            var rng = new DungeonRandom(seed);
+            var c = DungeonGen.Core.Combat.ClassArchetype.DefaultRoster[1];
+            var kit = DungeonGen.Core.Items.Equipment.StandardSet(c.Armour, 2, c.Primary);
+            Console.WriteLine("A Reaver's nine-piece kit over rounds (no deaths):");
+            for (int round = 1; round <= 5; round++)
+            {
+                DungeonGen.Core.Items.DurabilityRules.WearForRound(kit, taken, dealt);
+                var st = DungeonGen.Core.Combat.PlayerStats.For(c, kit);
+                Console.WriteLine($"  after round {round}: " + string.Join(", ", kit.Items.Select(i => $"{i.Base.Slot} {i.Condition}")) + $"  → HP {st.Health:0} DPS {st.Dps:0} armour {st.ArmourRating:0}");
+            }
+            var (dropped, destroyed) = DungeonGen.Core.Items.DurabilityRules.OnDeath(kit, rng);
+            Console.WriteLine($"Then a death: {dropped.Count} items drop for the killer, {destroyed.Count} are trashed.");
             return 0;
         }
 

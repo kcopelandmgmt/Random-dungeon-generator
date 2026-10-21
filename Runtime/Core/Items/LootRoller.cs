@@ -58,7 +58,11 @@ namespace DungeonGen.Core.Items
             if (pre.Count + suf.Count < total)   // a slot with a thin prefix pool: top up from the other side
                 pre.AddRange(RollAffixes(b, level, Math.Min(cap, total - suf.Count) - pre.Count, true, rng, pre.Concat(suf).ToList()));
             string name = Name(b, rarity, pre, suf, rng);
-            return new Item(b, level, rarity, name, pre, suf);
+            var item = new Item(b, level, rarity, name, pre, suf);
+            // Found gear is used gear: ordinary chests hold items at 60-100%; bosses, vaults and the final boss hand out fresh ones.
+            if (source == LootSource.Chest || source == LootSource.LootRoom)
+                item.Condition.Wear(item.Condition.Max * (1f - (DurabilityRules.FoundMinFraction + rng.NextFloat() * (DurabilityRules.FoundMaxFraction - DurabilityRules.FoundMinFraction))));
+            return item;
         }
 
         public static Item RollUnique(int level, DungeonRandom rng, string themedSource = null)

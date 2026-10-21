@@ -102,6 +102,11 @@ namespace DungeonGen.Core.Items
             float weightSum = 0f, shareSum = 0f;
             foreach (var it in Items)
             {
+                if (it.Condition.IsBroken || it.Condition.IsDestroyed)
+                {
+                    if (it.Base.IsWeapon) s.WeaponDamage = 0.5f;   // fighting with the broken half
+                    continue;
+                }
                 if (it.Base.IsWeapon)
                 {
                     s.WeaponDamage = it.WeaponDamage;

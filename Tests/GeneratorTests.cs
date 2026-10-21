@@ -754,3 +754,115 @@ namespace DungeonGen.Tests
         }
     }
 }
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+    using DungeonGen.Core.Items;
+
+    public class DurabilityTests
+    {
+        private static Item Fresh(ItemBase b, Rarity r = Rarity.Normal) => new Item(b, 2, r, b.Name, new List<AffixRoll>(), new List<AffixRoll>());
+
+        [Fact]
+        public void RepairsRefillButLowerTheCeilingUntilNothingIsLeft()
+        {
+            var it = Fresh(ItemBase.Armours[0]);
+            float max0 = it.Condition.Max;
+            it.Condition.Wear(max0);
+            Assert.True(it.Condition.IsBroken);
+            int repairs = 0;
+            while (it.Condition.Repair()) { repairs++; it.Condition.Wear(1000f); }
+            Assert.True(it.Condition.IsDestroyed);
+            Assert.Equal((int)System.Math.Ceiling(max0 / DurabilityRules.RepairMaxLoss) - 1, repairs);
+            Assert.False(it.Condition.Repair());
+        }
+
+        [Fact]
+        public void EveryItemHasAFiniteLifeEvenIfItsOwnerNeverDies()
+        {
+            foreach (Rarity r in System.Enum.GetValues(typeof(Rarity)))
+            {
+                int armour = DurabilityRules.ExpectedLifetimeRounds(Fresh(ItemBase.Armours[1], r), 2500f, 6000f);
+                int weapon = DurabilityRules.ExpectedLifetimeRounds(Fresh(ItemBase.Weapons[0], r), 2500f, 6000f);
+                int ring = DurabilityRules.ExpectedLifetimeRounds(Fresh(ItemBase.Jewellery[1], r), 2500f, 6000f);
+                Assert.InRange(armour, 8, 50);
+                Assert.InRange(weapon, 8, 50);
+                Assert.InRange(ring, 8, 50);
+            }
+            // Uniques outlast Normals.
+            Assert.True(DurabilityRules.ExpectedLifetimeRounds(Fresh(ItemBase.Weapons[0], Rarity.Unique), 2500f, 6000f) >
+                        DurabilityRules.ExpectedLifetimeRounds(Fresh(ItemBase.Weapons[0], Rarity.Normal), 2500f, 6000f));
+        }
+
+        [Fact]
+        public void BrokenGearStopsWorking()
+        {
+            var c = ClassArchetype.DefaultRoster.First(x => x.Name == "Warden");
+            var kit = Equipment.StandardSet(c.Armour, 0, c.Primary);
+            var before = PlayerStats.For(c, kit);
+            foreach (var it in kit.Items) it.Condition.Wear(1000f);
+            var after = PlayerStats.For(c, kit);
+            Assert.Equal(0f, after.ArmourRating);
+            Assert.True(after.Dps < before.Dps * 0.6f, "a broken weapon is fists");
+            Assert.True(after.TakeHit(100f, DamageType.Physical) > before.TakeHit(100f, DamageType.Physical));
+        }
+
+        [Fact]
+        public void WearPerRoundHitsTheRightSlots()
+        {
+            var c = ClassArchetype.DefaultRoster[1];
+            var kit = Equipment.StandardSet(c.Armour, 0, c.Primary);
+            kit.Equip(Fresh(ItemBase.Jewellery[1]));
+            DurabilityRules.WearForRound(kit, 1000f, 2000f);
+            Assert.Equal(100f - DurabilityRules.BaseWearPerRound - 10f, kit.Chest.Condition.Current, 1);
+            Assert.Equal(100f - DurabilityRules.BaseWearPerRound - 10f, kit.Weapon.Condition.Current, 1);
+            Assert.Equal(100f - DurabilityRules.BaseWearPerRound - DurabilityRules.JewelleryWearPerRound, kit.Ring1.Condition.Current, 1);
+        }
+
+        [Fact]
+        public void DeathTrashesAboutHalfAndDropsTheRest()
+        {
+            var rng = new DungeonRandom(9);
+            int dropped = 0, destroyed = 0;
+            for (int i = 0; i < 300; i++)
+            {
+                var c = ClassArchetype.DefaultRoster[0];
+                var kit = Equipment.StandardSet(c.Armour, 1, c.Primary);
+                var (d, x) = DurabilityRules.OnDeath(kit, rng);
+                dropped += d.Count; destroyed += x.Count;
+                Assert.All(x, it => Assert.True(it.Condition.IsDestroyed));
+                Assert.All(d, it => Assert.False(it.Condition.IsDestroyed));
+            }
+            float frac = (float)destroyed / (dropped + destroyed);
+            Assert.InRange(frac, 0.42f, 0.58f);
+        }
+
+        [Fact]
+        public void ChestLootIsWornAndBossLootIsFresh()
+        {
+            var rng = new DungeonRandom(2);
+            bool anyWorn = false;
+            for (int i = 0; i < 200; i++)
+            {
+                var chest = LootRoller.Roll(2, LootSource.Chest, rng);
+                Assert.InRange(chest.Condition.Fraction, DurabilityRules.FoundMinFraction - 0.01f, 1f);
+                if (chest.Condition.Fraction < 0.99f) anyWorn = true;
+                var boss = LootRoller.Roll(2, LootSource.Boss, rng);
+                if (boss.Rarity != Rarity.Unique) Assert.Equal(1f, boss.Condition.Fraction, 3);
+            }
+            Assert.True(anyWorn);
+        }
+
+        [Fact]
+        public void RepairCostScalesWithValueAndDamage()
+        {
+            var cheap = Fresh(ItemBase.Armours[0]);
+            var fancy = new Item(ItemBase.Armours[0], 4, Rarity.Rare, "x", new List<AffixRoll>(), new List<AffixRoll>());
+            cheap.Condition.Wear(50f); fancy.Condition.Wear(60f);
+            Assert.True(DurabilityRules.RepairCost(fancy) > DurabilityRules.RepairCost(cheap) * 3f);
+            var intact = Fresh(ItemBase.Armours[0]);
+            Assert.True(DurabilityRules.RepairCost(intact) < DurabilityRules.RepairCost(cheap));
+        }
+    }
+}

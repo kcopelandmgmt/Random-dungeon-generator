@@ -405,6 +405,37 @@ nine-slot Rare tier-3 set lands 10–40% above the abstract tier 3 the final bos
 that is the top end of luck and the margin a fully-geared trio earns. `--wear` in the preview
 tool dresses each class in a rolled set and prints both sheets.
 
+## Durability: the gear sink
+
+Full loot alone does not shrink the amount of gear in the world; it only moves items from the
+loser to the winner. Without a sink, every player's bank fills with spare sets and the loot stops
+mattering. Three sinks make every item finite (`DurabilityRules`, one file of numbers):
+
+1. **Wear from use.** Every item has a maximum durability (Normal and Magic 100, Rare 120,
+   Unique 150) and loses points with use: armour pieces 1 per 100 raw damage taken, weapons 1 per
+   200 damage dealt, jewellery a flat 15 per round, and everything 5 per extraction for the trip.
+   At 0 the item is *broken*: an armour piece gives nothing, a broken weapon is fists (half
+   damage). Found gear is used gear: ordinary chests hold items at 60–100% durability; bosses,
+   vaults and the final boss hand out fresh ones.
+2. **Repairs cost the ceiling.** A repair refills the item but takes 15 points off its maximum.
+   A 100-point item can be repaired six times, then it is dust. Repair price scales with the
+   item's value and how much is missing, so a Rare costs real silver to keep alive.
+3. **Death trashes half.** When a player dies, each worn item is destroyed with 50% probability
+   and the rest drop for the killer. Keys always drop.
+
+Under the reference round (2,500 damage taken, 6,000 dealt: two mob packs, a boss, a skirmish),
+an item in constant use whose owner never dies lasts:
+
+| Rarity | Armour piece | Weapon | Ring / amulet |
+|--------|-------------:|-------:|--------------:|
+| Normal / Magic | 3 rounds, 16 with every repair | 3 / 14 | 5 / 22 |
+| Rare | 4 / 20 | 3 / 19 | 6 / 30 |
+| Unique | 5 / 30 | 4 / 28 | 8 / 45 |
+
+`--lifetime` in the preview tool prints this table and walks a kit through five rounds and a
+death. With deaths in the mix the real numbers are far lower: half of everything you wear is
+gone the first time you lose a fight. The bank that fills up is the one with broken junk in it.
+
 ## Classes
 
 See `docs/CLASSES.md`. The six-class roster (`ClassArchetype.DefaultRoster`) averages to exactly one

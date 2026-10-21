@@ -16,11 +16,15 @@ namespace DungeonGen.Core.Items
         public IReadOnlyList<AffixRoll> Suffixes { get; }
         /// <summary>Set when this is a unique item.</summary>
         public UniqueItem Unique { get; }
+        /// <summary>Wear state. The one mutable thing about an item.</summary>
+        public ItemCondition Condition { get; }
         public IEnumerable<AffixRoll> Affixes => Prefixes.Concat(Suffixes);
 
         public Item(ItemBase b, int level, Rarity rarity, string name, List<AffixRoll> prefixes, List<AffixRoll> suffixes, UniqueItem unique = null)
         {
             Base = b; ItemLevel = level; Rarity = rarity; Name = name; Prefixes = prefixes; Suffixes = suffixes; Unique = unique;
+            float max = DurabilityRules.MaxFor(rarity);
+            Condition = new ItemCondition(max, max);
         }
 
         public float Armour => Base.ArmourAt(ItemLevel) * (1f + Sum(AffixKind.IncreasedArmour) / 100f);
@@ -39,7 +43,7 @@ namespace DungeonGen.Core.Items
             var parts = Affixes.Select(a => a.ToString()).ToList();
             if (Unique?.Legendary != null) parts.Insert(0, "★ " + Unique.Legendary);
             string stats = Base.IsWeapon ? $"dmg x{WeaponDamage:0.00} spd x{Base.WeaponSpeed:0.00} {Base.AttackType}" : Base.IsArmour ? $"armour {Armour:0}" + (BaseResist > 0 ? $" res {BaseResist:0}" : "") : "";
-            return $"[{Rarity}] {Name} (L{ItemLevel} {Base.Slot}{(Base.IsArmour ? " " + Base.Weight : "")}) {stats}{(parts.Count > 0 ? " | " + string.Join(", ", parts) : "")}";
+            return $"[{Rarity}] {Name} (L{ItemLevel} {Base.Slot}{(Base.IsArmour ? " " + Base.Weight : "")}) {stats} dur {Condition}{(parts.Count > 0 ? " | " + string.Join(", ", parts) : "")}";
         }
     }
 
