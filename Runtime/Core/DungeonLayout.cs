@@ -16,6 +16,9 @@ namespace DungeonGen.Core
         public List<Room> Rooms { get; } = new List<Room>();
         public List<Corridor> Corridors { get; } = new List<Corridor>();
 
+        /// <summary>Per-team start fairness (walking distances from each spawn to the extracts and vault). Filled by FairnessMapper.</summary>
+        public LayoutFairness Fairness { get; set; } = LayoutFairness.Empty;
+
         /// <summary>Non-fatal issues found during generation (crowded canvas, dropped edges, relaxed constraints).</summary>
         public List<string> Warnings { get; } = new List<string>();
 

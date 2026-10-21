@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using DungeonGen.Core;
 using UnityEngine;
 using UnityEngine.Events;
@@ -46,8 +47,11 @@ namespace DungeonGen.Unity
 
         public DungeonLayout Layout { get; private set; }
 
-        /// <summary>World positions where squads should be placed, one per Spawn room.</summary>
+        /// <summary>World positions where squads should be placed, one per Spawn room. Index = team number; in Ring mode teams go clockwise around the arena.</summary>
         public List<Vector3> SpawnPoints { get; } = new List<Vector3>();
+
+        /// <summary>Number of teams this layout supports (one per spawn room).</summary>
+        public int TeamCount => SpawnPoints.Count;
         public List<Vector3> ExtractPoints { get; } = new List<Vector3>();
 
         private Transform _root;
@@ -78,6 +82,8 @@ namespace DungeonGen.Unity
             Layout = DungeonGenerator.Generate(Config.Settings, seed);
 
             foreach (var w in Layout.Warnings) Debug.LogWarning("DungeonGen: " + w, this);
+            var f = Layout.Fairness;
+            Debug.Log($"DungeonGen: seed {seed}, {Layout.Rooms.Count} rooms, {Layout.SpawnRooms.Count()} teams, fairness {f.Score:0.00} (extract {f.ExtractRatio:0.00}, vault {f.VaultRatio:0.00}, spacing {f.SpawnSpacingRatio:0.00})", this);
 
             _root = new GameObject($"Dungeon_{seed}").transform;
             _root.SetParent(transform, false);

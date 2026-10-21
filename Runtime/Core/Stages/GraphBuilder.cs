@@ -64,6 +64,18 @@ namespace DungeonGen.Core.Stages
             var uf = new UnionFind(n);
             var tree = new List<Edge>();
             var rejected = new List<Edge>();
+
+            // Ring mode pre-typed spawns, extracts and the vault. Force a radial spine
+            // (each spawn -> its nearest extract -> vault) into the tree first, so every
+            // team's route inward is direct and about the same length. Without this the
+            // MST can send one team the long way round the arena.
+            foreach (var e in SpineEdges(rooms))
+            {
+                candidates.Remove(e.Key);
+                if (uf.Union(e.A, e.B)) tree.Add(e);
+            }
+            sorted = candidates.Values.OrderBy(e => e.Distance).ThenBy(e => e.Key).ToList();
+
             foreach (var e in sorted)
             {
                 if (uf.Union(e.A, e.B)) tree.Add(e);
@@ -96,6 +108,23 @@ namespace DungeonGen.Core.Stages
             }
 
             return result;
+        }
+
+        private static IEnumerable<Edge> SpineEdges(List<Room> rooms)
+        {
+            var spawns = rooms.Where(r => r.Type == RoomType.Spawn).ToList();
+            var extracts = rooms.Where(r => r.Type == RoomType.Extract).ToList();
+            var vault = rooms.FirstOrDefault(r => r.Type == RoomType.Vault);
+            if (spawns.Count == 0 || extracts.Count == 0) yield break;
+
+            foreach (var sp in spawns)
+            {
+                var nearest = extracts.OrderBy(e => sp.Center.ManhattanDistance(e.Center)).ThenBy(e => e.Id).First();
+                yield return new Edge(sp.Id, nearest.Id, sp.Center.ManhattanDistance(nearest.Center));
+            }
+            if (vault != null)
+                foreach (var e in extracts)
+                    yield return new Edge(e.Id, vault.Id, e.Center.ManhattanDistance(vault.Center));
         }
 
         private sealed class UnionFind

@@ -105,3 +105,76 @@ namespace DungeonGen.Tests
         }
     }
 }
+
+namespace DungeonGen.Tests
+{
+    public class TeamScalingTests
+    {
+        [Theory]
+        [InlineData(2)]
+        [InlineData(4)]
+        [InlineData(8)]
+        public void TeamPresetProducesOneSpawnPerTeam(int teams)
+        {
+            var s = DungeonSettings.ForTeams(teams);
+            for (int seed = 1; seed <= 20; seed++)
+            {
+                var layout = DungeonGenerator.Generate(s, seed);
+                Assert.Equal(teams, layout.SpawnRooms.Count());
+                Assert.Equal(s.ExtractCount, layout.ExtractRooms.Count());
+                Assert.Single(layout.Rooms, r => r.Type == RoomType.Vault);
+                var problems = new List<string>();
+                Assert.True(LayoutValidator.IsPlayable(layout, s, problems), $"seed {seed}: {string.Join("; ", problems)}");
+            }
+        }
+
+        [Fact]
+        public void EightTeamsStartFair()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            for (int seed = 1; seed <= 30; seed++)
+            {
+                var layout = DungeonGenerator.Generate(s, seed);
+                var f = layout.Fairness;
+                Assert.Equal(8, f.Spawns.Count);
+                Assert.All(f.Spawns, sp => Assert.True(sp.ToNearestExtract > 0 && sp.ToVault > 0, "every team can reach an extract and the vault"));
+                // No team's walk to its nearest extract may be more than ~2x another team's.
+                Assert.True(f.Score >= 0.5f, $"seed {seed}: fairness {f.Score:0.00} (extract {f.ExtractRatio:0.00}, vault {f.VaultRatio:0.00}, spacing {f.SpawnSpacingRatio:0.00})");
+            }
+        }
+
+        [Fact]
+        public void RingSpawnsSitOnThePerimeter()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            var layout = DungeonGenerator.Generate(s, 11);
+            var center = new GridPoint(s.Width / 2, s.Height / 2);
+            foreach (var spawn in layout.SpawnRooms)
+            {
+                int d = spawn.Center.ManhattanDistance(center);
+                Assert.True(d > s.Width / 3, $"spawn {spawn.Id} is only {d} cells from the center");
+            }
+            var vault = layout.Rooms.Single(r => r.Type == RoomType.Vault);
+            Assert.True(vault.Center.ManhattanDistance(center) < s.MaxRoomSize, "vault sits at the center");
+        }
+
+        [Fact]
+        public void CandidateSelectionIsDeterministic()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            var a = AsciiRenderer.Render(DungeonGenerator.Generate(s, 4242));
+            var b = AsciiRenderer.Render(DungeonGenerator.Generate(s, 4242));
+            Assert.Equal(a, b);
+        }
+
+        [Fact]
+        public void SixteenTeamsStillPlayable()
+        {
+            var s = DungeonSettings.ForTeams(16);
+            var layout = DungeonGenerator.Generate(s, 1);
+            Assert.Equal(16, layout.SpawnRooms.Count());
+            var problems = new List<string>();
+            Assert.True(LayoutValidator.IsPlayable(layout, s, problems), string.Join("; ", problems));
+        }
+    }
+}

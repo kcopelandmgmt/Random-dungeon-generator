@@ -16,7 +16,7 @@ extraction gate to keep what they found. The layout generator has to deliver:
 ## Pipeline
 
 ```
-seed ─► 1 RoomPlacer ─► 2 GraphBuilder ─► 3 CorridorCarver ─► 4 RoleAssigner ─► 5 Rasterizer ─► 6 DangerMapper ─► DungeonLayout
+seed ─► 1 RoomPlacer ─► 2 GraphBuilder ─► 3 CorridorCarver ─► 4 RoleAssigner ─► 5 Rasterizer ─► 6 DangerMapper ─► 7 FairnessMapper ─► DungeonLayout
 ```
 
 Each stage is a static class in `Runtime/Core/Stages/` that takes the previous stage's output.
@@ -55,14 +55,15 @@ other room whose outward neighbour is open. Then run **A\*** on the cell grid fr
 * `CorridorWidth = 2` widens every step perpendicular to travel for 2-cell halls.
 
 ### 4. Role assignment (`RoleAssigner`)
-Roles come from **graph distance (hops)**, not coordinates — two rooms can be physically close yet
-far apart on foot, and the graph is what the player experiences. All-pairs BFS over 15–30 rooms is trivial.
+Roles come from **walking distance along corridors** (corridor length plus room crossings, all-pairs
+via Floyd–Warshall), never raw coordinates and never bare hop counts: two rooms can be one hop apart
+through a 90-cell tunnel or a 6-cell one, and the player feels the difference.
 
 | Role | Rule |
 |------|------|
-| **Spawn** × N | First: the most peripheral room (highest eccentricity, lowest degree). Then farthest-point sampling: each new spawn maximizes its minimum hop distance to existing spawns. Warns if below `MinSpawnSeparation`. |
-| **Vault** × 1 | The room with the greatest hop distance from its nearest spawn. Dead-end preferred. Best loot, boss / heavy guard. |
-| **Extract** × M | Rooms at least `MinExtractDepth` hops from every spawn; the first maximizes depth + total distance from all spawns, the rest maximize distance from the extracts already chosen. Every squad has a run to make, and squads converge. |
+| **Spawn** × N | Ring mode: already placed on the outer ring (see *Scaling to 8 teams*). Fringe mode: the most peripheral room first, then farthest-point sampling so each new spawn maximizes its walk to the existing ones. |
+| **Vault** × 1 | Ring mode: already placed at the center. Fringe mode: the room maximizing `minWalk × (minWalk / maxWalk)` across spawns, i.e. far from every team *and* about equally far. |
+| **Extract** × M | Ring mode: already placed on the inner ring. Fringe mode: greedy, each pick maximizing the evenness (min/max) of every team's walk to its nearest extract, at least `MinExtractDepth` hops from any spawn. |
 | **Hub** | Highest-degree remaining rooms (3+ exits). Where routes cross; the natural PvP flashpoints. |
 | **Loot** | `LootRoomFraction` of remaining rooms, dead ends first, deeper first. Side objectives worth a detour. |
 | **Standard** | Everything else. |
@@ -81,11 +82,48 @@ pinned to 0 and the vault to 1. `LootTier` buckets `Danger` into `LootTiers - 1`
 alone owns the top tier. This is the hook for the Path-of-Exile-style loot system: tier → rarity
 weights, affix pools, item level. The same field drives enemy density and ambience.
 
+### 7. Fairness (`FairnessMapper`)
+One BFS per spawn over walkable tiles measures each team's walk to its nearest extract, to the vault,
+and to the closest rival spawn. Each is summarized as a min/max ratio across teams (1.0 = identical
+walks for everyone) and the score is the weakest of the three. The generator uses the score to choose
+between candidate layouts; designers read it in the console / Inspector to judge a seed.
+
 ### Validation and retries (`LayoutValidator`, `DungeonGenerator`)
 After generation a flood fill from a spawn room confirms every room is reachable and that spawn /
 extract / vault counts were met. If not, the generator derives a new working seed from the requested
 one and tries again (up to 8 times), always reporting the *requested* seed on the result so clients
 stay in sync. In 1,300+ test seeds across four configurations no layout needed a retry.
+
+## Scaling to 8 teams
+
+A round can host 1 to 16 teams (`SpawnCount`), but past 3 or 4 teams the fringe-spawn approach
+produces flat, unfair maps: spawns land anywhere, the map is 2–3 hops deep everywhere, and one team
+can start 70 cells from the vault while another starts 388. Three changes make 8 teams work:
+
+1. **Ring placement** (`SpawnPlacement.Ring`). Before any random room exists, the placer lays out an
+   arena: the vault at the center, one compact spawn room per team on the outer ring at evenly spaced
+   angles (random phase + jitter per seed), and the extract rooms on an inner ring
+   (`ExtractRingRadius`, default 0.5) rotated half a slice so each sits *between* two teams.
+   Random rooms then fill the gaps. Every team starts the same distance from the center.
+2. **Radial spine edges.** Ring geometry alone did not help (fairness stayed ≈0.38) because the
+   spanning tree could still route one team the long way round. `GraphBuilder` now forces
+   *spawn → nearest extract → vault* edges into the tree before Kruskal runs, so every team's route
+   inward is direct and similar in length. Loops and the k-NN edges still grow around the spine.
+3. **Candidate selection** (`CandidateCount`). The generator walks a deterministic chain of derived
+   seeds, generates up to N playable layouts, and keeps the one with the best fairness score. The
+   requested seed is still what clients receive, so sync is unaffected.
+
+`DungeonSettings.ForTeams(n)` bundles these with a canvas and room count scaled to the team count.
+
+| Teams | Canvas | Rooms | Extracts | Avg fairness (worst of 200 seeds) | Time |
+|------:|-------:|------:|---------:|----------------------------------:|-----:|
+| 4 | 100² | 22 | 2 | 0.76 (0.56) | 11 ms |
+| 8 | 152² | 34 | 4 | 0.75 (0.60) | 28 ms |
+| 16 | 256² | 58 | 4 | 0.39 (0.24) | 130 ms |
+
+For comparison, 8 teams with fringe spawns and no candidates scores 0.21 (0.07). Sixteen teams
+generate and validate fine but are not tuned (four extracts for sixteen teams); raise `ExtractCount`
+and `CandidateCount` if you go there.
 
 ## Output: `DungeonLayout`
 
@@ -96,6 +134,7 @@ stay in sync. In 1,300+ test seeds across four configurations no layout needed a
 | `Corridors` | Cells, endpoints, `IsLoop` flag (for door/gate placement or debug). |
 | `RoomIdAt[x,y]` | Room lookup for triggers, loot tables, music. |
 | `DistanceFromSpawn[x,y]` | Enemy density, fog, "far from safety" UI. |
+| `Fairness` | Per-team walks to nearest extract / vault / rival, and min/max ratios. |
 | `Warnings` | Non-fatal generation notes; log them in the editor. |
 
 ## Determinism and multiplayer
@@ -115,6 +154,9 @@ authoritative loot/AI, and sends only the `int` to clients, which rebuild the id
 | Separate clean hallways | `NewCorridorCost` ↑ (6–8) |
 | Bigger, longer rounds | `Width/Height` ↑, `TargetRoomCount` ↑ |
 | Squads meet sooner | `SpawnCount` ↑ or `MinSpawnSeparation` ↓ |
+| More than 3–4 teams | `DungeonSettings.ForTeams(n)`, or `SpawnPlacement = Ring` + `CandidateCount` 4 |
+| Longer, riskier extractions | `ExtractRingRadius` ↓ (extracts closer to the vault) |
+| Fairer starts at a CPU cost | `CandidateCount` ↑ |
 | Extracts feel earned | `MinExtractDepth` ↑ |
 
 ## Not in v0.1 (next steps)

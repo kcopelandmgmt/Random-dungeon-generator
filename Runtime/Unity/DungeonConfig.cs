@@ -12,6 +12,20 @@ namespace DungeonGen.Unity
     {
         public DungeonSettings Settings = new DungeonSettings();
 
+        [Header("Preset")]
+        [Tooltip("Number of teams to size the dungeon for. Right-click the component header > Apply Team Preset to overwrite Settings with DungeonSettings.ForTeams(PresetTeams).")]
+        [Range(1, DungeonSettings.MaxTeams)]
+        public int PresetTeams = 8;
+
+        [ContextMenu("Apply Team Preset")]
+        public void ApplyTeamPreset()
+        {
+            Settings = DungeonSettings.ForTeams(PresetTeams);
+#if UNITY_EDITOR
+            UnityEditor.EditorUtility.SetDirty(this);
+#endif
+        }
+
         private void OnValidate()
         {
             Settings.Width = Mathf.Max(24, Settings.Width);
@@ -24,6 +38,10 @@ namespace DungeonGen.Unity
             Settings.LoopChance = Mathf.Clamp01(Settings.LoopChance);
             Settings.LootRoomFraction = Mathf.Clamp01(Settings.LootRoomFraction);
             Settings.LootTiers = Mathf.Max(2, Settings.LootTiers);
+            Settings.SpawnCount = Mathf.Clamp(Settings.SpawnCount, 1, DungeonSettings.MaxTeams);
+            Settings.CandidateCount = Mathf.Max(1, Settings.CandidateCount);
+            Settings.RingJitter = Mathf.Clamp01(Settings.RingJitter);
+            Settings.ExtractRingRadius = Mathf.Clamp(Settings.ExtractRingRadius, 0.2f, 0.9f);
         }
     }
 }

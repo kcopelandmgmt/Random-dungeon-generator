@@ -39,7 +39,14 @@ namespace DungeonGen.Core
         public int CorridorWidth = 1;
 
         // --- Roles --------------------------------------------------------------
+        /// <summary>One spawn room per team. 1-16 supported; use <see cref="ForTeams"/> for a canvas sized to match.</summary>
         public int SpawnCount = 3;
+        /// <summary>Fringe = pick spawns after placing rooms; Ring = place spawn rooms around the edge first (recommended for 4+ teams).</summary>
+        public SpawnPlacement SpawnPlacement = SpawnPlacement.Fringe;
+        /// <summary>Ring mode: how far each spawn may wander from its ideal angle, as a fraction of the slice between spawns (0 = perfectly even, 1 = may touch its neighbour's slot).</summary>
+        public float RingJitter = 0.35f;
+        /// <summary>Ring mode: radius of the extract ring as a fraction of the spawn ring (0.3-0.7). Smaller = extracts closer to the vault, longer and riskier extractions.</summary>
+        public float ExtractRingRadius = 0.5f;
         public int ExtractCount = 2;
         /// <summary>Minimum graph hops between any two spawn rooms.</summary>
         public int MinSpawnSeparation = 3;
@@ -49,8 +56,39 @@ namespace DungeonGen.Core
         /// <summary>Fraction of non-special rooms promoted to Loot rooms (dead ends preferred).</summary>
         public float LootRoomFraction = 0.25f;
 
+        // --- Fairness -----------------------------------------------------------
+        /// <summary>Generate this many playable layouts (from seeds derived from the requested one) and keep the fairest. 1 = take the first. Still deterministic.</summary>
+        public int CandidateCount = 1;
+
+        public const int MaxTeams = 16;
+
+        /// <summary>A preset scaled for a given number of teams: ring spawns, enough rooms for depth, and candidate selection for fairness.</summary>
+        public static DungeonSettings ForTeams(int teams)
+        {
+            if (teams < 1 || teams > MaxTeams) throw new ArgumentOutOfRangeException(nameof(teams));
+            int side = Math.Max(64, 48 + 13 * teams);
+            return new DungeonSettings
+            {
+                Width = side,
+                Height = side,
+                TargetRoomCount = 10 + 3 * teams,
+                SpawnCount = teams,
+                ExtractCount = Math.Max(2, Math.Min(4, (teams + 1) / 2)),
+                SpawnPlacement = SpawnPlacement.Ring,
+                MinSpawnSeparation = 3,
+                MinExtractDepth = 2,
+                NearestNeighbours = 4,
+                LoopChance = 0.2f,
+                CandidateCount = 4,
+            };
+        }
+
         public void Validate()
         {
+            if (SpawnCount < 1 || SpawnCount > MaxTeams) throw new ArgumentException($"SpawnCount must be 1..{MaxTeams}.");
+            if (CandidateCount < 1) throw new ArgumentException("CandidateCount must be >= 1.");
+            if (RingJitter < 0f || RingJitter > 1f) throw new ArgumentException("RingJitter must be 0..1.");
+            if (ExtractRingRadius < 0.2f || ExtractRingRadius > 0.9f) throw new ArgumentException("ExtractRingRadius must be 0.2..0.9.");
             if (Width < 24 || Height < 24) throw new ArgumentException("Canvas must be at least 24x24.");
             if (MinRoomSize < 3) throw new ArgumentException("MinRoomSize must be >= 3.");
             if (MaxRoomSize < MinRoomSize) throw new ArgumentException("MaxRoomSize must be >= MinRoomSize.");

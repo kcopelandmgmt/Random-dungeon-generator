@@ -18,11 +18,19 @@ namespace DungeonGen.Tools
             int batch = 0;
             bool legend = true;
 
+            // --teams applies a whole preset, so it must be read before any individual overrides.
+            for (int i = 0; i + 1 < args.Length; i++)
+                if (args[i] == "--teams") settings = DungeonSettings.ForTeams(int.Parse(args[i + 1]));
+
             for (int i = 0; i < args.Length; i++)
             {
                 string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"{args[i]} needs a value");
                 switch (args[i])
                 {
+                    case "--teams": Next(); break;
+                    case "--ring": settings.SpawnPlacement = SpawnPlacement.Ring; break;
+                    case "--fringe": settings.SpawnPlacement = SpawnPlacement.Fringe; break;
+                    case "--candidates": settings.CandidateCount = int.Parse(Next()); break;
                     case "--seed": seed = int.Parse(Next()); break;
                     case "--width": settings.Width = int.Parse(Next()); break;
                     case "--height": settings.Height = int.Parse(Next()); break;
@@ -34,7 +42,7 @@ namespace DungeonGen.Tools
                     case "--batch": batch = int.Parse(Next()); break;
                     case "--no-legend": legend = false; break;
                     case "--help":
-                        Console.WriteLine("--seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --corridor-width 1|2 --batch N --no-legend");
+                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --corridor-width 1|2 --batch N --no-legend");
                         return 0;
                     default:
                         Console.Error.WriteLine("Unknown argument " + args[i]);
@@ -56,6 +64,7 @@ namespace DungeonGen.Tools
         {
             int withWarnings = 0, failed = 0;
             int totalRooms = 0, totalLoops = 0, maxDepthSum = 0;
+            double fairnessSum = 0; float fairnessMin = 1f;
             var warningKinds = new System.Collections.Generic.Dictionary<string, int>();
             var sw = Stopwatch.StartNew();
             for (int i = 0; i < count; i++)
@@ -72,6 +81,8 @@ namespace DungeonGen.Tools
                 totalRooms += layout.Rooms.Count;
                 totalLoops += layout.Corridors.Count(c => c.IsLoop);
                 maxDepthSum += layout.Rooms.Max(r => r.DepthFromSpawn);
+                fairnessSum += layout.Fairness.Score;
+                if (layout.Fairness.Score < fairnessMin) fairnessMin = layout.Fairness.Score;
             }
             sw.Stop();
             Console.WriteLine($"Batch of {count} seeds starting at {startSeed}");
@@ -80,6 +91,7 @@ namespace DungeonGen.Tools
             Console.WriteLine($"  avg rooms                : {(double)totalRooms / count:0.0}");
             Console.WriteLine($"  avg loop corridors       : {(double)totalLoops / count:0.0}");
             Console.WriteLine($"  avg max depth (hops)     : {(double)maxDepthSum / count:0.0}");
+            Console.WriteLine($"  avg fairness (min)       : {fairnessSum / count:0.00} ({fairnessMin:0.00})");
             Console.WriteLine($"  avg time per dungeon     : {sw.Elapsed.TotalMilliseconds / count:0.00} ms");
             foreach (var kv in warningKinds.OrderByDescending(kv => kv.Value))
                 Console.WriteLine($"  warning x{kv.Value,-4}: {kv.Key}");
