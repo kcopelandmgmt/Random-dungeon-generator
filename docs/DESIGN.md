@@ -367,10 +367,29 @@ No item carries two affixes of the same family (two fire resists, two Strength r
 | +% healing | weapon, amulet, hands | 5–7 … 14–16 |
 
 **Uniques.** Eight, one per boss plus the Sovereign's, each themed on its source and 60% likely
-to drop from that boss when a unique rolls there: *Sovereign's Crown* (+3 STR/CON/SPI, +25 all
-resist), *Ashen Heart* (+60 fire resist, +30% as fire, −20 frost resist), *Matron's Carapace*,
-*Hound's Fang* (+25% damage, +10% move speed), *Glasswright's Prism*, *Choirmaster's Mantle*,
-*Herald's Censer* (+25% healing, +30% as poison), *Wraithlight Boots* (+12% move speed).
+to drop from that boss when a unique rolls there. Every unique carries two or three ordinary
+fixed affixes *and one legendary affix*: a behaviour that no Magic or Rare item can roll.
+
+Legendary affixes (`LegendaryAffix`) are a separate type from the affix pool, not a low-weight
+entry in it, so they are unique-only by construction. Each has a kind, a trigger (passive, on hit,
+on kill, on taking a hit, on heal, on lethal hit), a chance, a magnitude and a cooldown. The three
+numeric kinds (lifesteal, thorns, resistance cap) fold straight into the character sheet; the
+rest are handed to the game as a list of triggers on `PlayerStats.Legendaries`.
+
+| Unique | Slot | Legendary | Fixed affixes |
+|--------|------|-----------|---------------|
+| Sovereign's Crown | heavy head | **Unyielding**: resistance cap 85% instead of 75%, every type | +3 STR, +3 CON, +3 SPI, +25 all resist |
+| Ashen Heart | amulet | **Cinder Pulse**: 15% on hit, burst of 50% weapon damage as Fire in 3 m | +60 fire resist, +30% as fire, −20 frost resist |
+| Matron's Carapace | medium chest | **Brood Mother**: 10% when hit, a Skitterer fights for you for 10 s | +35% armour, +45 poison resist, +8% health |
+| Hound's Fang | twin daggers | **Bloodhound**: 8% lifesteal | +25% damage, +10% move speed, +4 DEX |
+| Glasswright's Prism | ring | **Refraction**: 20% of damage taken reflected as Lightning | +15 all resist, +20% as lightning, +3% crit |
+| Choirmaster's Mantle | light chest | **Last Verse**: survive a killing blow at 1 health, once per 120 s | +15% health, +50 shadow resist, +15% healing |
+| Herald's Censer | censer | **Miasma**: heals you cast also deal 30% as Poison to enemies near the target | +25% healing, +30% as poison, +3 SPI |
+| Wraithlight Boots | light feet | **Phase Step**: enemies cannot body-block you; +15% speed while passing through one | +12% move speed, +35 shadow and frost resist |
+
+In full-loot PvP every one of these is a target call: a Reaver with Bloodhound is the one to
+focus, a Choirmaster's Mantle means the first kill shot does not count, a Sovereign's Crown on
+the ground is why teams fight over the center.
 
 **Loot per room** (`LootPlacer`, rolled from the seed, server-authoritative): ordinary rooms 1–2
 chest items; loot rooms 3 (Magic floor); boss rooms 2 plus the boss's affix bonus rolls; vaults 4

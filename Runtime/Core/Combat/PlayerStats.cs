@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using DungeonGen.Core.Items;
 
 namespace DungeonGen.Core.Combat
@@ -32,8 +33,15 @@ namespace DungeonGen.Core.Combat
         public float CarryKg { get; }
         public float ArmourRating { get; }
         public Resistances Resistances { get; }
+        /// <summary>Fraction of damage dealt returned as health (unique-only).</summary>
+        public float Lifesteal { get; }
+        /// <summary>Fraction of damage taken reflected, and as what (unique-only).</summary>
+        public float Thorns { get; }
+        public DamageType ThornsType { get; }
+        /// <summary>Triggered legendary effects for the game to run: procs, summons, second wind, phasing.</summary>
+        public System.Collections.Generic.IReadOnlyList<LegendaryAffix> Legendaries => Gear.Legendaries;
 
-        public float PhysicalMitigation => StatFormulas.Mitigation(ArmourRating);
+        public float PhysicalMitigation => StatFormulas.Mitigation(ArmourRating, StatFormulas.MitigationCap + Gear.ResistCapBonus / 100f);
 
         private PlayerStats(ClassArchetype cls, GearSummary gear, int tier, CombatBaseline baseline)
         {
@@ -58,9 +66,12 @@ namespace DungeonGen.Core.Combat
             CarryKg = StatFormulas.BaseCarryKg + StatFormulas.CarryPerStr * attrs.Strength + gear.CarryKg;
             ArmourRating = gear.ArmourRating;
 
-            Resistances = new Resistances();
+            Resistances = new Resistances { CapBonus = gear.ResistCapBonus };
             foreach (DamageType t in Enum.GetValues(typeof(DamageType))) Resistances.Set(t, gear.Resistances.Rating(t));
             Resistances.AddAllMagic(StatFormulas.MagicResistPerSpirit * (attrs.Spirit - StatFormulas.AverageAttribute));
+            Lifesteal = gear.LifestealPct / 100f;
+            Thorns = gear.ThornsPct / 100f;
+            ThornsType = gear.ThornsType;
         }
 
         /// <summary>Sheet for a class at an abstract gear tier (0 = starting gear, 4 = vault / final boss drops). What the boss tuning assumes.</summary>
@@ -83,6 +94,6 @@ namespace DungeonGen.Core.Combat
         }
 
         public override string ToString() =>
-            $"{Class.Name} [{Attributes}] HP {Health:0} DPS {Dps:0} ({AttackProfile}) heal x{HealingMultiplier:0.00} crit {CritChance * 100:0}% spd x{MoveSpeed:0.00} armour {ArmourRating:0} ({PhysicalMitigation * 100:0}%) carry {CarryKg:0}kg | {Resistances}";
+            $"{Class.Name} [{Attributes}] HP {Health:0} DPS {Dps:0} ({AttackProfile}) heal x{HealingMultiplier:0.00} crit {CritChance * 100:0}% spd x{MoveSpeed:0.00} armour {ArmourRating:0} ({PhysicalMitigation * 100:0}%) carry {CarryKg:0}kg | {Resistances}{(Lifesteal > 0 ? $" | lifesteal {Lifesteal * 100:0}%" : "")}{(Thorns > 0 ? $" | thorns {Thorns * 100:0}% {ThornsType}" : "")}{(Legendaries.Count > 0 ? " | ★ " + string.Join("; ", Legendaries.Select(l => l.Name)) : "")}";
     }
 }

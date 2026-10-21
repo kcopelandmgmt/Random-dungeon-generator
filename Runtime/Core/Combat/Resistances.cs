@@ -21,8 +21,11 @@ namespace DungeonGen.Core.Combat
         public void Add(DamageType t, float delta) => _rating[t] += delta;
         public void AddAllMagic(float delta) { foreach (DamageType t in Enum.GetValues(typeof(DamageType))) if (t != DamageType.Physical) _rating[t] += delta; }
 
+        /// <summary>Points added to the mitigation cap (only a unique can grant this).</summary>
+        public float CapBonus { get; set; }
+
         /// <summary>Fraction of incoming damage of this type that is removed. Negative when the rating is negative.</summary>
-        public float Mitigation(DamageType t) => StatFormulas.Mitigation(_rating[t]);
+        public float Mitigation(DamageType t) => StatFormulas.Mitigation(_rating[t], StatFormulas.MitigationCap + CapBonus / 100f);
 
         public float DamageTaken(float amount, DamageType t) => amount * (1f - Mitigation(t));
 

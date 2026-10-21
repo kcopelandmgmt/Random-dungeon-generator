@@ -20,6 +20,11 @@ namespace DungeonGen.Core.Items
         /// <summary>0 light .. 2 heavy, weighted by slot share; sets the move-speed penalty.</summary>
         public float AverageWeight = 1f;
 
+        // Legendary (unique-only) effects. Numeric ones fold into the sheet; the rest are handed to the game as triggers.
+        public float LifestealPct, ThornsPct, ResistCapBonus;
+        public DamageType ThornsType = DamageType.Physical;
+        public List<LegendaryAffix> Legendaries = new List<LegendaryAffix>();
+
         public float MoveSpeedFactor => AverageWeight <= 0.5f ? 1f : AverageWeight < 1.5f ? 0.95f : 0.90f;
 
         /// <summary>The abstract "a tier-t set" used by boss tuning: tier-t Normal bases plus the attribute points gear is expected to carry at that tier.</summary>
@@ -115,6 +120,17 @@ namespace DungeonGen.Core.Items
                     float share = ItemBase.SlotShare(it.Base.Slot);
                     weightSum += (int)it.Base.Weight * share;
                     shareSum += share;
+                }
+                var leg = it.Unique?.Legendary;
+                if (leg != null)
+                {
+                    s.Legendaries.Add(leg);
+                    switch (leg.Kind)
+                    {
+                        case LegendaryKind.Lifesteal: s.LifestealPct += leg.Magnitude; break;
+                        case LegendaryKind.Thorns: s.ThornsPct += leg.Magnitude; s.ThornsType = leg.Type; break;
+                        case LegendaryKind.ResistCap: s.ResistCapBonus += leg.Magnitude; break;
+                    }
                 }
                 foreach (var a in it.Affixes)
                 {

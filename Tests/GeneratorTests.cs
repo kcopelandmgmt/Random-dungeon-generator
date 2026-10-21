@@ -680,3 +680,77 @@ namespace DungeonGen.Tests
         }
     }
 }
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+    using DungeonGen.Core.Items;
+
+    public class LegendaryAffixTests
+    {
+        [Fact]
+        public void EveryUniqueHasExactlyOneLegendaryAndTheyAreAllDifferent()
+        {
+            Assert.All(UniqueItem.All, u => Assert.NotNull(u.Legendary));
+            Assert.Equal(UniqueItem.All.Count, UniqueItem.All.Select(u => u.Legendary.Name).Distinct().Count());
+            Assert.Equal(UniqueItem.All.Count, UniqueItem.All.Select(u => u.Legendary.Kind).Distinct().Count());
+        }
+
+        [Fact]
+        public void LegendaryEffectsNeverAppearOnRolledItems()
+        {
+            var rng = new DungeonRandom(5);
+            for (int i = 0; i < 1000; i++)
+            {
+                var it = LootRoller.Roll(4, LootSource.Chest, rng);
+                Assert.Null(it.Unique);
+                Assert.Empty(PlayerStats.For(ClassArchetype.DefaultRoster[0], Wear(it), null).Legendaries);
+            }
+        }
+
+        private static Equipment Wear(Item it) { var e = new Equipment(); e.Equip(it); return e; }
+
+        [Fact]
+        public void NumericLegendariesReachTheSheet()
+        {
+            var rng = new DungeonRandom(1);
+            var hound = LootRoller.RollUnique(4, rng, "Hound of Vesh");
+            while (hound.Name != "Hound's Fang") hound = LootRoller.RollUnique(4, rng, "Hound of Vesh");
+            var reaver = ClassArchetype.DefaultRoster.First(c => c.Name == "Reaver");
+            var st = PlayerStats.For(reaver, Wear(hound));
+            Assert.Equal(0.08f, st.Lifesteal, 3);
+
+            var prism = UniqueItem.All.First(u => u.Name == "Glasswright's Prism");
+            var item = new Item(prism.Base, 4, Rarity.Unique, prism.Name, new List<AffixRoll>(), new List<AffixRoll>(), prism);
+            var st2 = PlayerStats.For(reaver, Wear(item));
+            Assert.Equal(0.20f, st2.Thorns, 3);
+            Assert.Equal(DamageType.Lightning, st2.ThornsType);
+        }
+
+        [Fact]
+        public void SovereignsCrownRaisesTheResistCap()
+        {
+            var crown = UniqueItem.All.First(u => u.Name == "Sovereign's Crown");
+            var item = new Item(crown.Base, 4, Rarity.Unique, crown.Name, new List<AffixRoll>(), new List<AffixRoll>(), crown);
+            var e = Wear(item);
+            var st = PlayerStats.For(ClassArchetype.DefaultRoster[0], e);
+            st.Resistances.Set(DamageType.Fire, 100000f);
+            Assert.Equal(0.85f, st.Resistances.Mitigation(DamageType.Fire), 3);
+            var plain = new Resistances(); plain.Set(DamageType.Fire, 100000f);
+            Assert.Equal(0.75f, plain.Mitigation(DamageType.Fire), 3);
+        }
+
+        [Fact]
+        public void TriggeredLegendariesAreHandedToTheGame()
+        {
+            var heart = UniqueItem.All.First(u => u.Name == "Ashen Heart");
+            var item = new Item(heart.Base, 4, Rarity.Unique, heart.Name, new List<AffixRoll>(), new List<AffixRoll>(), heart);
+            var st = PlayerStats.For(ClassArchetype.DefaultRoster[3], Wear(item));
+            var leg = Assert.Single(st.Legendaries);
+            Assert.Equal(LegendaryKind.ProcDamage, leg.Kind);
+            Assert.Equal(LegendaryTrigger.OnHit, leg.Trigger);
+            Assert.Equal(0.15f, leg.Chance, 3);
+            Assert.Equal(DamageType.Fire, leg.Type);
+        }
+    }
+}

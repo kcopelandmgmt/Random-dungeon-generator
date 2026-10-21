@@ -35,9 +35,11 @@ namespace DungeonGen.Core.Combat
         public const float MitigationConstant = 100f;
         public const float MitigationCap = 0.75f;
 
-        public static float Mitigation(float rating)
+        public static float Mitigation(float rating) => Mitigation(rating, MitigationCap);
+
+        public static float Mitigation(float rating, float cap)
         {
-            if (rating >= 0f) return Math.Min(MitigationCap, rating / (rating + MitigationConstant));
+            if (rating >= 0f) return Math.Min(cap, rating / (rating + MitigationConstant));
             float r = -rating;                                   // negative rating: take extra damage, uncapped symmetric curve
             return -(r / (r + MitigationConstant));
         }
