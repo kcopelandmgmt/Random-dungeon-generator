@@ -27,6 +27,14 @@ namespace DungeonGen.Core.Net
         ExtractInterrupted,// playerId: took damage, channel resets
         RoomSeen,          // team, roomId: the team's minimap gains the room (server derives from LineOfSight)
         ShrinePurchase,    // playerId, consumableIndex, shrineRoomId: one soul from the team for a consumable
+        PlayerDowned,      // playerId, byPlayerId (-1 mob), roomId: zero health; 60 s to be revived or finished, else dies
+        ReviveStarted,     // reviverId, downedId: 8 s channel, broken by damage to the reviver
+        ReviveInterrupted, // reviverId
+        PlayerRevived,     // downedId, reviverId: channel complete, stands up at 30% health
+        PlayerFinished,    // downedId, byPlayerId: took 50% of max health while downed → dead (then PlayerDied semantics apply)
+        LootStarted,       // playerId, roomId or corpse playerId (B), kind (C: 0 chest, 1 corpse, 2 key): the channel begins
+        LootInterrupted,   // playerId
+        DoorsOpened,       // t: the 10 s countdown ended; spawn doors unseal for everyone
         PlayerDisconnected,// playerId: the character stands still, killable; the reconnect window starts
         PlayerReconnected, // playerId: within the window; the client replays the log
         RoundEnded,        // t: anyone still inside dies and drops everything
@@ -96,6 +104,13 @@ namespace DungeonGen.Core.Net
         public Dictionary<int, (int room, float started)> Channels { get; } = new Dictionary<int, (int, float)>();
         /// <summary>team → rooms on its minimap.</summary>
         public Dictionary<int, HashSet<int>> Explored { get; } = new Dictionary<int, HashSet<int>>();
+        /// <summary>playerId → time they went down. Alive-but-helpless until revived, finished, or the timer runs out.</summary>
+        public Dictionary<int, float> Downed { get; } = new Dictionary<int, float>();
+        /// <summary>reviverId → (downedId, started).</summary>
+        public Dictionary<int, (int downed, float started)> Revives { get; } = new Dictionary<int, (int, float)>();
+        /// <summary>playerId → (target, kind, started) for a loot channel in progress.</summary>
+        public Dictionary<int, (int target, int kind, float started)> Loots { get; } = new Dictionary<int, (int, int, float)>();
+        public bool DoorsOpen { get; private set; }
         /// <summary>playerId → time the connection dropped. The server kills the character when the window passes.</summary>
         public Dictionary<int, float> Disconnected { get; } = new Dictionary<int, float>();
         /// <summary>playerId → total value walked out with.</summary>
@@ -137,12 +152,20 @@ namespace DungeonGen.Core.Net
                     foreach (var c in Corpses.Values) c.Remove(e.A);
                     DestroyedItems.Add(e.A); break;
                 case MatchEventKind.CorpseOpened:
-                    if (!Corpses.ContainsKey(e.A)) { rejection = "no corpse"; return false; }
-                    if (DeadPlayers.Contains(e.B)) { rejection = "player is dead"; return false; }
-                    OpenedCorpses.Add(e.A); break;
+                    {
+                        if (!Corpses.ContainsKey(e.A)) { rejection = "no corpse"; return false; }
+                        if (DeadPlayers.Contains(e.B)) { rejection = "player is dead"; return false; }
+                        if (!OpenedCorpses.Contains(e.A))
+                        {
+                            if (!Loots.TryGetValue(e.B, out var lc) || lc.kind != 1 || lc.target != e.A) { rejection = "no corpse channel"; return false; }
+                            if (e.Time - lc.started < Combat.FightRules.CorpseLootSeconds - 0.01f) { rejection = $"corpse takes {Combat.FightRules.CorpseLootSeconds:0} s"; return false; }
+                            Loots.Remove(e.B);
+                        }
+                        OpenedCorpses.Add(e.A); break;
+                    }
                 case MatchEventKind.ExtractStarted:
                     {
-                        if (DeadPlayers.Contains(e.A) || ExtractedPlayers.Contains(e.A)) { rejection = "player already out"; return false; }
+                        if (DeadPlayers.Contains(e.A) || ExtractedPlayers.Contains(e.A) || Downed.ContainsKey(e.A)) { rejection = "player cannot extract"; return false; }
                         var room = Layout.Rooms[e.B];
                         bool viaBoss = Layout.BossExit != null && room.Id == Layout.BossExit.RoomId;
                         if (!viaBoss && room.Type != RoomType.Extract) { rejection = "not an extract"; return false; }
@@ -169,8 +192,16 @@ namespace DungeonGen.Core.Net
                     if (!Started) { rejection = "not started"; return false; }
                     ExtractsOpen = true; break;
                 case MatchEventKind.ContainerOpened:
-                    if (e.A < 0 || e.A >= Layout.Rooms.Count) { rejection = "no such room"; return false; }
-                    OpenedContainers.Add(e.A); break;
+                    {
+                        if (e.A < 0 || e.A >= Layout.Rooms.Count) { rejection = "no such room"; return false; }
+                        if (!OpenedContainers.Contains(e.A))
+                        {
+                            if (!Loots.TryGetValue(e.B, out var lc) || lc.kind != 0 || lc.target != e.A) { rejection = "no chest channel"; return false; }
+                            if (e.Time - lc.started < Combat.FightRules.ChestOpenSeconds - 0.01f) { rejection = $"chest takes {Combat.FightRules.ChestOpenSeconds:0} s"; return false; }
+                            Loots.Remove(e.B);
+                        }
+                        OpenedContainers.Add(e.A); break;
+                    }
                 case MatchEventKind.ItemTaken:
                     {
                         if (DeadPlayers.Contains(e.B)) { rejection = "player is dead"; return false; }
@@ -194,6 +225,9 @@ namespace DungeonGen.Core.Net
                         var key = Layout.Keys.FirstOrDefault(k => k.KeyId == e.A);
                         if (key == null) { rejection = "no such key"; return false; }
                         if (DestroyedKeys.Contains(e.A)) { rejection = "key was destroyed"; return false; }
+                        if (!Loots.TryGetValue(e.B, out var kc) || kc.kind != 2) { rejection = "no key pickup channel"; return false; }
+                        if (e.Time - kc.started < Combat.FightRules.KeyPickupSeconds - 0.01f) { rejection = $"key takes {Combat.FightRules.KeyPickupSeconds:0} s"; return false; }
+                        Loots.Remove(e.B);
                         if (key.DroppedByBoss && !DeadBosses.Contains(key.HolderRoomId)) { rejection = "boss still alive"; return false; }
                         KeyHolder[e.A] = e.B; break;
                     }
@@ -222,7 +256,7 @@ namespace DungeonGen.Core.Net
                 case MatchEventKind.PlayerDied:
                     if (DeadPlayers.Contains(e.A) || ExtractedPlayers.Contains(e.A)) { rejection = "player already out"; return false; }
                     DeadPlayers.Add(e.A);
-                    Channels.Remove(e.A);
+                    Channels.Remove(e.A); Loots.Remove(e.A); Downed.Remove(e.A); Revives.Remove(e.A);
                     Disconnected.Remove(e.A);
                     // Everything they held goes onto their corpse, open to anyone; the server then rolls which half of the worn gear is destroyed.
                     {
@@ -274,6 +308,47 @@ namespace DungeonGen.Core.Net
                         ResurrectedOnce.Add(e.A);
                         break;
                     }
+                case MatchEventKind.DoorsOpened:
+                    if (!Started) { rejection = "not started"; return false; }
+                    if (e.Time < Combat.FightRules.StartCountdownSeconds - 0.01f) { rejection = $"countdown is {Combat.FightRules.StartCountdownSeconds} s"; return false; }
+                    DoorsOpen = true; break;
+                case MatchEventKind.PlayerDowned:
+                    if (!PlayerTeam.ContainsKey(e.A) || DeadPlayers.Contains(e.A) || ExtractedPlayers.Contains(e.A)) { rejection = "player not in play"; return false; }
+                    if (Downed.ContainsKey(e.A)) { rejection = "already downed"; return false; }
+                    Downed[e.A] = e.Time; Channels.Remove(e.A); Loots.Remove(e.A);
+                    foreach (var r in Revives.Where(kv => kv.Key == e.A).Select(kv => kv.Key).ToList()) Revives.Remove(r);   // a downed reviver stops reviving
+                    break;
+                case MatchEventKind.ReviveStarted:
+                    {
+                        if (!Downed.ContainsKey(e.B)) { rejection = "target is not downed"; return false; }
+                        if (!PlayerTeam.TryGetValue(e.A, out int rt) || !PlayerTeam.TryGetValue(e.B, out int dt) || rt != dt) { rejection = "only a teammate can revive"; return false; }
+                        if (DeadPlayers.Contains(e.A) || Downed.ContainsKey(e.A) || ExtractedPlayers.Contains(e.A)) { rejection = "reviver is not standing"; return false; }
+                        Revives[e.A] = (e.B, e.Time); break;
+                    }
+                case MatchEventKind.ReviveInterrupted:
+                    if (!Revives.Remove(e.A)) { rejection = "not reviving"; return false; }
+                    break;
+                case MatchEventKind.PlayerRevived:
+                    {
+                        if (!Downed.ContainsKey(e.A)) { rejection = "not downed"; return false; }
+                        if (!Revives.TryGetValue(e.B, out var rv) || rv.downed != e.A) { rejection = "no revive channel"; return false; }
+                        if (e.Time - rv.started < Combat.FightRules.ReviveChannelSeconds - 0.01f) { rejection = $"revive needs {Combat.FightRules.ReviveChannelSeconds:0} s"; return false; }
+                        Revives.Remove(e.B); Downed.Remove(e.A); break;
+                    }
+                case MatchEventKind.PlayerFinished:
+                    if (!Downed.ContainsKey(e.A)) { rejection = "not downed"; return false; }
+                    Downed.Remove(e.A);
+                    goto case MatchEventKind.PlayerDied;
+                case MatchEventKind.LootStarted:
+                    {
+                        if (DeadPlayers.Contains(e.A) || Downed.ContainsKey(e.A) || ExtractedPlayers.Contains(e.A)) { rejection = "player cannot loot"; return false; }
+                        if (e.C == 1 && !Corpses.ContainsKey(e.B)) { rejection = "no corpse"; return false; }
+                        if (e.C != 1 && (e.B < 0 || e.B >= Layout.Rooms.Count)) { rejection = "no such room"; return false; }
+                        Loots[e.A] = (e.B, e.C, e.Time); break;
+                    }
+                case MatchEventKind.LootInterrupted:
+                    if (!Loots.Remove(e.A)) { rejection = "not looting"; return false; }
+                    break;
                 case MatchEventKind.PlayerDisconnected:
                     if (!PlayerTeam.ContainsKey(e.A) || DeadPlayers.Contains(e.A) || ExtractedPlayers.Contains(e.A)) { rejection = "player not in play"; return false; }
                     Disconnected[e.A] = e.Time; Channels.Remove(e.A); break;
@@ -297,6 +372,10 @@ namespace DungeonGen.Core.Net
             Log.Add(e);
             return true;
         }
+
+        /// <summary>Downed players whose 60 s ran out: the server should kill them (PlayerDied with killer -1).</summary>
+        public IEnumerable<int> DownedExpired(float now) =>
+            Downed.Where(kv => now - kv.Value > Combat.FightRules.DownedSeconds).Select(kv => kv.Key).ToList();
 
         /// <summary>Disconnected players whose window has passed: the server should kill them (PlayerDied with killer -1).</summary>
         public IEnumerable<int> ReconnectExpired(float now) =>

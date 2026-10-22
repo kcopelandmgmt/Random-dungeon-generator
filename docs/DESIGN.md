@@ -612,6 +612,17 @@ which worn half is destroyed; extraction needs a channel started at that gate, u
 enough ago; the round end destroys whatever was left inside; a team's minimap is the rooms the
 server has told it it saw; a shrine sells a consumable for one of the team's souls.
 
+## Fight rules (locked, built)
+
+`FightRules` holds them; `docs/DECISIONS.md` has the list. Abilities cost Stamina (physical
+classes) or Mana (casters) and have cooldowns, basic attacks are free. Zero health is a 60-second
+downed state: an 8-second friendly revive channel, or 50% of max health from an enemy to finish.
+Chests, corpses and keys are 2 / 3 / 1-second channels broken by damage. Mobs hit the nearest,
+taunts override. Hard control on players diminishes full / half / quarter / immune within 10 s.
+No sprint. One of each unique. A new account is the free kit, 200 silver and two potions. The
+round opens with a 10-second sealed countdown. `MatchState` validates all of it; `RoundClock`
+raises `DoorsOpened`.
+
 ## Technical stack and the vertical slice (locked)
 
 `TechStack` states them: Unity 6 + URP, Fishnet over `IMatchTransport`, managed dedicated

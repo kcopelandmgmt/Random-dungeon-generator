@@ -67,9 +67,14 @@ namespace DungeonGen.Core.Items
         /// <summary>Kilograms worn. Carried loot is on top of this against the sheet's CarryKg.</summary>
         public float WornWeightKg => Items.Sum(i => i.WeightKg);
 
-        /// <summary>Put an item in its slot (second ring slot if the first is taken, else replaces the first). Returns what was displaced.</summary>
+        /// <summary>True if wearing this would break the one-of-each-unique rule.</summary>
+        public bool WouldDuplicateUnique(Item item) =>
+            item.Unique != null && Items.Any(i => i.Unique == item.Unique && !ReferenceEquals(i, item));
+
+        /// <summary>Put an item in its slot (second ring slot if the first is taken, else replaces the first). Returns what was displaced. Throws on a second copy of a unique.</summary>
         public Item Equip(Item item)
         {
+            if (WouldDuplicateUnique(item)) throw new InvalidOperationException($"Already wearing {item.Unique.Name}: one of each unique.");
             Item old;
             switch (item.Base.Slot)
             {

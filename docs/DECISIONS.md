@@ -3,6 +3,30 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-22 · Fight rules — LOCKED AND BUILT (`FightRules`)
+
+1. **Abilities cost a resource and have a cooldown.** Physical classes (Warden, Reaver, Marksman,
+   Shade) spend **Stamina**; casters (Elementalist, Mender) spend **Mana**; basic attacks are free.
+   Bolt 10% of the pool, zone 30%, mobility 25%; the pool regenerates 5%/s scaled by Spirit.
+2. **Zero health is downed, not dead.** Downed for **60 s**; any friendly player revives with an
+   **8 s channel** broken by damage to the reviver; the revived stand up at 30% health. An enemy
+   who deals **50% of the downed player's max health** finishes them: then only a shrine and two
+   souls bring them back. The timer running out is death. Solos cannot be revived.
+   (`PlayerDowned`, `ReviveStarted` / `ReviveInterrupted` / `PlayerRevived`, `PlayerFinished`.)
+3. **Looting is a channel, broken by damage:** chest 2 s, corpse 3 s, key 1 s. The player looting
+   the boss chest is the easiest kill in the dungeon. (`LootStarted` / `LootInterrupted`; opening
+   and key pickup are validated against the channel.)
+4. **Mobs attack the nearest player; a taunt overrides.** Bosses keep their own targeting.
+5. **Enemy players show a health bar, a class icon and ally/enemy colour.** No name, no gear:
+   uniques are a surprise until the corpse.
+6. **Hard control has diminishing returns:** full, half, quarter, then immune, within 10 s.
+   Players only; mobs and bosses take it in full. (`ControlResistance`, wired into `StatusTracker`.)
+7. **No sprint.** Speed is build and class.
+8. **One of each unique.** `Equipment.Equip` refuses a second copy.
+9. **A new account:** one character in the free kit, 200 silver, two health potions. (`PlayerProfile.NewAccount`.)
+10. **Round start: a 10-second countdown** with the doors sealed and the spawn room on the minimap;
+    then every door opens at once (`DoorsOpened` from the `RoundClock`). No protection after.
+
 ## 2026-10-22 · Technical and production decisions — LOCKED
 
 Stated in code as `TechStack` and `VerticalSlice`; the rules with behaviour are built.

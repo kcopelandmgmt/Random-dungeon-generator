@@ -42,6 +42,16 @@ namespace DungeonGen.Core.Profile
 
         public PlayerProfile(string accountId) { AccountId = accountId; }
 
+        /// <summary>A brand-new account: one character of the chosen class in the free kit, 200 silver, two health potions.</summary>
+        public static PlayerProfile NewAccount(string accountId, string characterName, ClassArchetype cls)
+        {
+            var p = new PlayerProfile(accountId) { Silver = FightRules.StartingSilver };
+            var ch = p.CreateCharacter(characterName, cls);
+            Vendor.ClaimStarterKit(ch);
+            p.AddConsumable(Consumable.All.First(c => c.Name == "Health Potion"), FightRules.StartingHealthPotions);
+            return p;
+        }
+
         public Character CreateCharacter(string name, ClassArchetype cls)
         {
             if (Characters.Count >= MaxCharacters) throw new System.InvalidOperationException($"All {MaxCharacters} character slots are used.");

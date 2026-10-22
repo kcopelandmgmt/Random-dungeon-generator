@@ -182,16 +182,22 @@ namespace DungeonGen.Tools
             void Try(DungeonGen.Core.Net.MatchEvent e) { bool ok = state.Apply(e, out string why); Console.WriteLine($"  {(ok ? "ok      " : "REJECT  ")}{e}{(ok ? "" : "  ← " + why)}"); }
             Console.WriteLine("EVENTS (server validates, clients mirror):");
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.RoundStarted, 0));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.PlayerSpawned, 0, 1, 0));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.PlayerSpawned, 0, 2, 1));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.DoorsOpened, 10));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.PlayerExtracted, 30, 1, serverLayout.ExtractRooms.First().Id, 0));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.VaultOpened, 60, vault.Id, 1));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.KeyPickedUp, 90, key.KeyId, 1));
             if (key.DroppedByBoss) Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.BossKilled, 95, key.HolderRoomId, 0));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.LootStarted, 99, 1, 0, 2));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.KeyPickedUp, 100, key.KeyId, 1));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.VaultOpened, 160, vault.Id, 1));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ItemTaken, 161, firstItem, 1));
-            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ContainerOpened, 162, vault.Id, 0));
-            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ItemTaken, 163, firstItem, 1));
-            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ItemTaken, 164, firstItem, 2));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ContainerOpened, 162, vault.Id, 1));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.LootStarted, 162, 1, vault.Id, 0));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ContainerOpened, 164, vault.Id, 1));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ItemTaken, 165, firstItem, 1));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ItemTaken, 166, firstItem, 2));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ExtractsOpened, 240));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ExtractStarted, 290, 1, serverLayout.ExtractRooms.First().Id));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.PlayerExtracted, 293, 1, serverLayout.ExtractRooms.First().Id, 0));

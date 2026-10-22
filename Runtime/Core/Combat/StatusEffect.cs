@@ -91,6 +91,10 @@ namespace DungeonGen.Core.Combat
     {
         private readonly List<StatusInstance> _active = new List<StatusInstance>();
         public IReadOnlyList<StatusInstance> Active => _active;
+        /// <summary>Set for player targets: hard control goes through diminishing returns. Null for mobs and bosses.</summary>
+        public ControlResistance Resistance { get; set; }
+        /// <summary>Game time, advanced by Tick; used for the diminishing window.</summary>
+        public float Now { get; private set; }
 
         public bool Has(StatusKind k) => _active.Any(s => s.Definition.Kind == k);
         public StatusInstance Get(StatusKind k) => _active.FirstOrDefault(s => s.Definition.Kind == k);
@@ -131,6 +135,11 @@ namespace DungeonGen.Core.Combat
 
         private StatusInstance Add(StatusEffectDefinition d, float duration)
         {
+            if (d.IsHardControl && Resistance != null)
+            {
+                duration *= Resistance.Apply(Now);
+                if (duration <= 0.05f) return null;
+            }
             var inst = new StatusInstance(d, duration);
             _active.Add(inst);
             return inst;
@@ -138,6 +147,7 @@ namespace DungeonGen.Core.Combat
 
         public void Tick(float seconds)
         {
+            Now += seconds;
             foreach (var s in _active) s.RemainingSeconds -= seconds;
             _active.RemoveAll(s => s.RemainingSeconds <= 0f);
         }

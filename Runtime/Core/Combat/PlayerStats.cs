@@ -47,6 +47,10 @@ namespace DungeonGen.Core.Combat
         /// <summary>The kit actually in play: the weapon spec, the Elementalist's element kit, or the class's fixed list.</summary>
         public System.Collections.Generic.IReadOnlyList<string> Abilities => Spec?.Abilities ?? Class.AbilitiesFor(Element);
         public ElementKit ElementKit => Class.IsElementalist ? ElementKit.For(Element) : null;
+        /// <summary>Which pool this class's abilities spend. Basic attacks are free.</summary>
+        public ResourceKind Resource => FightRules.ResourceFor(Class);
+        /// <summary>The size of that pool: Stamina for physical classes, Mana for casters.</summary>
+        public float ResourcePool => Resource == ResourceKind.Mana ? Mana : Stamina;
         /// <summary>Spec name for the HUD: "Breaker", "Cryomancy", or the class name when fighting with fists.</summary>
         public string SpecName => Spec?.Name ?? ElementKit?.Name ?? Class.Name;
 
