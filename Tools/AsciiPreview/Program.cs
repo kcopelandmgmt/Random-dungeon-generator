@@ -263,6 +263,13 @@ namespace DungeonGen.Tools
                 foreach (var a in k.Abilities) Console.WriteLine($"      {a}");
             }
             Console.WriteLine();
+            Console.WriteLine("WEAPON SPECS (the weapon in hand is the spec)");
+            foreach (var sp in DungeonGen.Core.Combat.WeaponSpec.All)
+            {
+                Console.WriteLine($"  {sp.ClassName,-9} {sp.WeaponBase,-13} {sp.Name,-13} {sp.Tagline}");
+                foreach (var a in sp.Abilities) Console.WriteLine($"      {a}");
+            }
+            Console.WriteLine();
             Console.WriteLine("STATUS EFFECTS");
             foreach (var d in DungeonGen.Core.Combat.StatusEffectDefinition.All.Values)
                 Console.WriteLine($"  {d.Kind,-9} {d.Element,-9} {d.Description}");

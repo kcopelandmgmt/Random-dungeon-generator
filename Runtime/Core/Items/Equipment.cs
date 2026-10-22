@@ -12,6 +12,7 @@ namespace DungeonGen.Core.Items
         public float WeaponDamage = 1f;          // multiplier on baseline DPS
         public float WeaponSpeed = 1f;
         public Attribute? WeaponScalesWith;      // null = use the class primary
+        public ItemBase WeaponBase;              // what is in hand; decides the spec
         public DamageProfile AttackProfile = DamageProfile.Pure(DamageType.Physical);
         public float ArmourRating;
         public Resistances Resistances = new Resistances();
@@ -115,6 +116,7 @@ namespace DungeonGen.Core.Items
                     s.WeaponDamage = it.WeaponDamage;
                     s.WeaponSpeed = it.Base.WeaponSpeed;
                     s.WeaponScalesWith = it.Base.ScalesWith;
+                    s.WeaponBase = it.Base;
                     var parts = new List<(DamageType, float)> { (it.Base.AttackType, 1f) };
                     foreach (var a in it.Affixes.Where(a => a.Definition.Kind == AffixKind.AddedDamage))
                         parts.Add((a.Definition.Type.Value, a.Value / 100f));

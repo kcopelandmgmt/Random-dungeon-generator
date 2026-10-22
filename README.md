@@ -49,6 +49,10 @@ It switches to ring placement (spawns around the edge, extracts on an inner ring
 and keeps the fairest of four candidate layouts per seed. `Layout.Fairness` reports every team's walk
 to its nearest extract and the vault.
 
+**Persistence and economy (locked).** `Runtime/Core/Profile`: flat characters, a profile with
+stash, silver and materials, a weight-only `Inventory`, the `Vendor`; `Net/Matchmaker` (teams of
+1–3, no brackets) and `Net/RoundClock`. `Combat/WeaponSpec`: two specs per class by weapon.
+
 **Presentation (locked).** Top-down camera over a 3D scene, fixed yaw, 2 m cells, mouse-aimed
 skillshots, line-of-sight fog computed in the core (`LineOfSight`) and a `TopDownCamera` rig.
 Decisions and reasoning live in `docs/DECISIONS.md`.

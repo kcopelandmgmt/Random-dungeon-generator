@@ -42,9 +42,13 @@ namespace DungeonGen.Core.Combat
         public DamageType Element => Gear.AttackProfile.Dominant;
         /// <summary>Status a basic hit applies (Burn / Chill / Stagger / Poisoned / Weaken), or null for plain physical.</summary>
         public StatusEffectDefinition OnHitEffect => StatusEffectDefinition.OnHitFor(Element);
-        /// <summary>The class kit with the element resolved from the weapon in hand.</summary>
-        public System.Collections.Generic.IReadOnlyList<string> Abilities => Class.AbilitiesFor(Element);
+        /// <summary>The spec the weapon in hand gives this class, or null (fists, or a weapon the class has no spec for).</summary>
+        public WeaponSpec Spec => WeaponSpec.For(Class.Name, Gear.WeaponBase);
+        /// <summary>The kit actually in play: the weapon spec, the Elementalist's element kit, or the class's fixed list.</summary>
+        public System.Collections.Generic.IReadOnlyList<string> Abilities => Spec?.Abilities ?? Class.AbilitiesFor(Element);
         public ElementKit ElementKit => Class.IsElementalist ? ElementKit.For(Element) : null;
+        /// <summary>Spec name for the HUD: "Breaker", "Cryomancy", or the class name when fighting with fists.</summary>
+        public string SpecName => Spec?.Name ?? ElementKit?.Name ?? Class.Name;
 
         /// <summary>Triggered legendary effects for the game to run: procs, summons, second wind, phasing.</summary>
         public System.Collections.Generic.IReadOnlyList<LegendaryAffix> Legendaries => Gear.Legendaries;
@@ -102,6 +106,6 @@ namespace DungeonGen.Core.Combat
         }
 
         public override string ToString() =>
-            $"{Class.Name}{(ElementKit != null ? " (" + ElementKit.Name + ")" : "")} [{Attributes}] HP {Health:0} DPS {Dps:0} ({AttackProfile}) heal x{HealingMultiplier:0.00} crit {CritChance * 100:0}% spd x{MoveSpeed:0.00} armour {ArmourRating:0} ({PhysicalMitigation * 100:0}%) carry {CarryKg:0}kg | {Resistances}{(Lifesteal > 0 ? $" | lifesteal {Lifesteal * 100:0}%" : "")}{(Thorns > 0 ? $" | thorns {Thorns * 100:0}% {ThornsType}" : "")}{(Legendaries.Count > 0 ? " | ★ " + string.Join("; ", Legendaries.Select(l => l.Name)) : "")}";
+            $"{Class.Name}{(SpecName != Class.Name ? " (" + SpecName + ")" : "")} [{Attributes}] HP {Health:0} DPS {Dps:0} ({AttackProfile}) heal x{HealingMultiplier:0.00} crit {CritChance * 100:0}% spd x{MoveSpeed:0.00} armour {ArmourRating:0} ({PhysicalMitigation * 100:0}%) carry {CarryKg:0}kg | {Resistances}{(Lifesteal > 0 ? $" | lifesteal {Lifesteal * 100:0}%" : "")}{(Thorns > 0 ? $" | thorns {Thorns * 100:0}% {ThornsType}" : "")}{(Legendaries.Count > 0 ? " | ★ " + string.Join("; ", Legendaries.Select(l => l.Name)) : "")}";
     }
 }

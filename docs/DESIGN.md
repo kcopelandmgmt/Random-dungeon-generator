@@ -576,6 +576,29 @@ and `CandidateCount` if you go there.
   found in ordinary chests (`Room.Consumables`).
 * **Teams of 1–3**, one queue; **no spawn protection**; **no brackets**; **vendor only**.
 
+## Persistence, inventory, vendor, matchmaking (locked, built)
+
+* **Flat characters** (`Profile/Character`): a name, a class, the class's attributes (a read-only
+  property so nothing can grow it), and equipment. No level, no XP. A test asserts the properties
+  do not exist. **`PlayerProfile`** holds what persists: silver, materials, the stash, consumables,
+  characters, cosmetic/recipe unlocks.
+* **Weight-only inventory** (`Profile/Inventory`): worn kilograms plus a bag of loot and
+  consumables against `CarryKg`; overload slows (`CarryRules`), never refuses. Death drops the bag
+  and half the worn gear (the other half destroyed), keys always; extraction stashes the bag, wears
+  the worn gear for the trip, and destroys keys.
+* **Vendor** (`Profile/Vendor`): the only trade. Sells the three consumables and 20-silver Normal
+  starter pieces (how a naked character re-equips); buys any item; salvages and crafts into the
+  profile's materials and stash.
+* **Matchmaker** (`Net/Matchmaker`): one queue, groups of 1–3 become teams, eight teams per match,
+  or at least four after the oldest group has waited 90 s. No gear brackets. Seeds from a server counter.
+* **Round clock** (`Net/RoundClock`): fires `RoundStarted`, `ExtractsOpened` (4:00) and
+  `RoundEnded` (20:00) once each from the rules.
+* **Weapon specs** (`Combat/WeaponSpec`): two per class by weapon base, the Elementalist's three
+  by element; `PlayerStats.Spec` / `SpecName` / `Abilities` resolve from the weapon in hand. The
+  Breaker is a bruiser and never breaks a lock. Table in `docs/CLASSES.md`.
+* **Theme and palettes** (`Presentation.cs`): `DungeonTheme.Default` is the one launch look;
+  `ElementPalette.Standard` and `.ColourBlind` give every effect its colour.
+
 ## Presentation: top-down, 3D, line-of-sight (locked)
 
 See `docs/DECISIONS.md` for the reasoning. The short form: a 3D scene viewed from a fixed-yaw

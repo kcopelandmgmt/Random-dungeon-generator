@@ -993,7 +993,8 @@ namespace DungeonGen.Tests
             var r = PlayerStats.For(reaver, Equipment.StandardSet(reaver.Armour, 0, reaver.Primary));
             Assert.Null(r.ElementKit);
             Assert.Null(r.OnHitEffect);
-            Assert.Equal(reaver.Abilities, r.Abilities);
+            Assert.Equal("Duelist", r.SpecName);                       // starter Longsword → Duelist
+            Assert.Equal(r.Spec.Abilities, r.Abilities);
         }
 
         [Fact]
@@ -1423,6 +1424,173 @@ namespace DungeonGen.Tests
             Assert.Equal(st.DeadPlayers, replay.DeadPlayers);
             Assert.Equal(st.ResurrectedOnce, replay.ResurrectedOnce);
             Assert.Equal(st.Descriptor.Rules.SpawnGraceSeconds, replay.Descriptor.Rules.SpawnGraceSeconds);
+        }
+    }
+}
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+    using DungeonGen.Core.Items;
+    using DungeonGen.Core.Net;
+    using DungeonGen.Core.Profile;
+
+    public class LockedSystemsTests
+    {
+        private static Item Plain(ItemBase b, int level = 0) => new Item(b, level, Rarity.Normal, b.Name, new List<AffixRoll>(), new List<AffixRoll>());
+        private static ClassArchetype Cls(string n) => ClassArchetype.DefaultRoster.First(c => c.Name == n);
+
+        [Fact]
+        public void EveryNonCasterClassHasTwoSpecsOnDistinctWeaponsOfItsPrimary()
+        {
+            foreach (var c in ClassArchetype.DefaultRoster.Where(c => !c.IsElementalist))
+            {
+                var specs = WeaponSpec.ForClass(c.Name).ToList();
+                Assert.Equal(2, specs.Count);
+                Assert.Equal(2, specs.Select(s => s.WeaponBase).Distinct().Count());
+                Assert.All(specs, s => Assert.Equal(c.Primary, ItemBase.Weapons.First(w => w.Name == s.WeaponBase).ScalesWith));
+                Assert.All(specs, s => Assert.Equal(4, s.Abilities.Count));
+            }
+            foreach (var staff in new[] { "Fire Staff", "Frost Rod", "Storm Wand" })
+                Assert.NotNull(WeaponSpec.For("Elementalist", ItemBase.Weapons.First(w => w.Name == staff)));
+            Assert.Equal(10, WeaponSpec.All.Count);
+        }
+
+        [Fact]
+        public void TheWeaponInHandIsTheSpec()
+        {
+            var warden = Cls("Warden");
+            var kit = Equipment.StandardSet(warden.Armour, 0, warden.Primary);
+            Assert.Equal("Sentinel", PlayerStats.For(warden, kit).SpecName);
+            kit.Equip(Plain(ItemBase.Weapons.First(w => w.Name == "Warhammer")));
+            var breaker = PlayerStats.For(warden, kit);
+            Assert.Equal("Breaker", breaker.SpecName);
+            Assert.Contains(breaker.Abilities, a => a.StartsWith("Shockwave"));
+            Assert.DoesNotContain(breaker.Abilities, a => a.Contains("lock") || a.Contains("vault door"));
+            kit.Equip(Plain(ItemBase.Weapons.First(w => w.Name == "Twin Daggers")));
+            var fists = PlayerStats.For(warden, kit);
+            Assert.Null(fists.Spec);
+            Assert.Equal("Warden", fists.SpecName);
+            Assert.True(fists.Dps < breaker.Dps, "a weapon with no spec is the off-stat penalty");
+        }
+
+        [Fact]
+        public void CharactersAreFlat()
+        {
+            var ch = new Character("Ash", Cls("Reaver"));
+            Assert.Equal(Cls("Reaver").BaseAttributes, ch.Attributes);
+            Assert.Null(typeof(Character).GetProperty("Level"));
+            Assert.Null(typeof(Character).GetProperty("Experience"));
+            Assert.Null(typeof(PlayerProfile).GetProperty("Level"));
+        }
+
+        [Fact]
+        public void InventoryIsWeightOnlyAndOverloadSlows()
+        {
+            var ch = new Character("Ash", Cls("Shade"));
+            foreach (var it in Equipment.StandardSet(ch.Class.Armour, 0, ch.Class.Primary).Items) ch.Equipment.Equip(it);
+            var inv = new Inventory(ch);
+            float cap = inv.CapacityKg();
+            Assert.False(inv.Overloaded());
+            float normalSpeed = inv.EffectiveMoveSpeed();
+            var plate = ItemBase.Armours.First(a => a.Name == "Plate Cuirass");
+            while (!inv.Overloaded()) inv.Take(Plain(plate, 3));
+            Assert.True(inv.TotalWeightKg > cap);
+            Assert.True(inv.EffectiveMoveSpeed() < normalSpeed);
+            Assert.True(inv.Bag.Count > 1, "it took several cuirasses to overload a Shade");
+        }
+
+        [Fact]
+        public void DeathDropsEverythingAndExtractionDestroysKeys()
+        {
+            var ch = new Character("Ash", Cls("Warden"));
+            foreach (var it in Equipment.StandardSet(ch.Class.Armour, 1, ch.Class.Primary).Items) ch.Equipment.Equip(it);
+            var inv = new Inventory(ch) { Keys = 2 };
+            inv.Take(Plain(ItemBase.Jewellery[0], 2));
+            var (dropped, destroyed, keys) = inv.OnDeath(new DungeonRandom(1));
+            Assert.Equal(2, keys);
+            Assert.Equal(7, dropped.Count + destroyed.Count);     // 6 worn + 1 bagged
+            Assert.Empty(ch.Equipment.Items);
+            Assert.Empty(inv.Bag);
+
+            var ch2 = new Character("Bo", Cls("Mender"));
+            foreach (var it in Equipment.StandardSet(ch2.Class.Armour, 0, ch2.Class.Primary).Items) ch2.Equipment.Equip(it);
+            var inv2 = new Inventory(ch2) { Keys = 1 };
+            inv2.Take(Plain(ItemBase.Jewellery[1], 3));
+            inv2.Add(Consumable.All[0], 2);
+            var profile = new PlayerProfile("acct");
+            inv2.Extract(profile, 2500, 6000);
+            Assert.Equal(0, inv2.Keys);
+            Assert.Single(profile.Stash);
+            Assert.Equal(2, profile.ConsumableCount(Consumable.All[0]));
+            Assert.All(ch2.Equipment.Items, i => Assert.True(i.Condition.Current < i.Condition.Max));
+        }
+
+        [Fact]
+        public void VendorBuysSellsAndRestocksANakedCharacter()
+        {
+            var p = new PlayerProfile("acct") { Silver = 100 };
+            Assert.True(Vendor.Buy(p, Consumable.All[0]));                  // 40 → 60 left
+            Assert.True(Vendor.Buy(p, Consumable.All[1]));                  // 60 → 0 left
+            Assert.False(Vendor.Buy(p, Consumable.All[2]));                 // broke
+            p.Silver = 40;
+            Assert.NotNull(Vendor.BuyStarter(p, ItemBase.Weapons[0]));
+            Assert.NotNull(Vendor.BuyStarter(p, ItemBase.Armours[0]));
+            Assert.Null(Vendor.BuyStarter(p, ItemBase.Armours[1]));          // out of silver
+            Assert.Equal(2, p.Stash.Count);
+            var item = p.Stash[0];
+            float price = Vendor.Sell(p, item);
+            Assert.True(price > 0 && !p.Stash.Contains(item));
+            var bag = Vendor.Salvage(p, p.Stash[0]);
+            Assert.True(bag.Scrap > 0 && p.Materials.Scrap == bag.Scrap);
+        }
+
+        [Fact]
+        public void MatchmakerFormsEightTeamsOfOneToThreeWithNoBrackets()
+        {
+            var mm = new Matchmaker(teamsPerMatch: 8, minTeamsAfterWait: 4, maxWaitSeconds: 90f);
+            int pid = 1;
+            for (int g = 0; g < 7; g++) { mm.Enqueue(new QueuedGroup(g, Enumerable.Range(pid, 1 + g % 3).ToList(), g)); pid += 3; }
+            Assert.Null(mm.TryForm(10f));
+            mm.Enqueue(new QueuedGroup(7, new[] { 99 }, 10f));
+            var match = mm.TryForm(11f);
+            Assert.NotNull(match);
+            Assert.Equal(8, match.Teams.Count);
+            Assert.All(match.Teams, t => Assert.InRange(t.PlayerIds.Count, 1, 3));
+            Assert.Empty(mm.Queue);
+            mm.Enqueue(new QueuedGroup(20, new[] { 1 }, 100f)); mm.Enqueue(new QueuedGroup(21, new[] { 2, 3 }, 101f));
+            mm.Enqueue(new QueuedGroup(22, new[] { 4 }, 102f)); mm.Enqueue(new QueuedGroup(23, new[] { 5, 6, 7 }, 103f));
+            Assert.Null(mm.TryForm(150f));
+            var small = mm.TryForm(195f);
+            Assert.NotNull(small);
+            Assert.Equal(4, small.Teams.Count);
+            Assert.Throws<System.ArgumentException>(() => new QueuedGroup(1, new[] { 1, 2, 3, 4 }, 0f));
+        }
+
+        [Fact]
+        public void RoundClockFiresEachTimedEventOnce()
+        {
+            var clock = new RoundClock(new MatchRules());
+            var fired = new List<MatchEvent>();
+            foreach (float t in new[] { 0f, 1f, 239f, 240f, 241f, 1199f, 1200f, 1300f }) fired.AddRange(clock.Tick(t));
+            Assert.Equal(new[] { MatchEventKind.RoundStarted, MatchEventKind.ExtractsOpened, MatchEventKind.RoundEnded }, fired.Select(e => e.Kind).ToArray());
+            Assert.Equal(240f, fired[1].Time);
+            Assert.Equal(1200f, fired[2].Time);
+        }
+
+        [Fact]
+        public void OneThemeAndTwoPalettesCoverEveryDamageType()
+        {
+            Assert.Single(DungeonTheme.All);
+            Assert.Same(DungeonTheme.Default, DungeonTheme.All[0]);
+            foreach (DamageType t in System.Enum.GetValues(typeof(DamageType)))
+            {
+                Assert.True(ElementPalette.Standard.ContainsKey(t));
+                Assert.True(ElementPalette.ColourBlind.ContainsKey(t));
+            }
+            // Fire and Poison must not both be red/green-ish in the colour-blind palette.
+            var fire = ElementPalette.ColourBlind[DamageType.Fire]; var poison = ElementPalette.ColourBlind[DamageType.Poison];
+            Assert.True(System.Math.Abs(fire.b - poison.b) > 0.4f, "fire and poison separate on blue");
         }
     }
 }

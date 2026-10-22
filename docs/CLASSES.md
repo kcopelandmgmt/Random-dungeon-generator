@@ -58,6 +58,28 @@ walking into the Plague Herald's room wants a Mender more than anyone.
 **Shade** — Veil (invisible 5s while moving slowly) · Keen Sense (reveals keys, locked doors and the gated exit on the map for 10s) · Hamstring (slow + silence 2s) · Smoke Step (smoke cloud, dash through it).
 *Dungeon use:* the extraction specialist: scouts vaults, sees who holds a key, gets a loaded team out of a contested extract.
 
+## Weapon specs
+
+Every class has two specs chosen by the weapon in hand (the Elementalist has three, one per
+element). Same kit coefficient and attributes, so a spec changes *how* you fight, never how much.
+A class holding a weapon it has no spec for fights with basic attacks at the off-stat penalty.
+
+| Class | Weapon | Spec | Bolt | Zone | Mobility | Passive | Job |
+|-------|--------|------|------|------|----------|---------|-----|
+| Warden | Longsword | **Sentinel** | Shield Bash (Stagger) | Shield Wall | Hold the Line | Bastion | Holds the door; makes a vault defensible |
+| Warden | Warhammer | **Breaker** | Crush (Stagger) | Shockwave: cone knockback + Stagger, long cooldown | Charge: knockback, interrupt | Momentum: +5% DR per hit while swinging, to 30% | Bruiser tank: clears a door from the other side, shoves a team off an extract. **Never breaks a lock.** |
+| Reaver | Greataxe | **Berserker** | Cleave (Bleed) | Whirlwind | Lunge | Frenzy; kills refresh Lunge | Boss and add killer |
+| Reaver | Longsword | **Duelist** | Thrust (Bleed) | Riposte: parry, reflect, interrupt | Lunge | Execute | The PvP killer |
+| Marksman | Longbow | **Sharpshooter** | Piercing Shot | Caltrops | Vault Back | Deadeye | Corridor control |
+| Marksman | Shortbow | **Volleyer** | Rapid Shot | Rain of Arrows | Tumble | Quickdraw | Anti-swarm, anti-rush |
+| Shade | Twin Daggers | **Assassin** | Backstab | Smoke Step | Veil | Hamstring | Kills the key holder |
+| Shade | Shortbow | **Trapper** | Snare Shot | Tripwire on a doorway | Smoke Step | Keen Sense (+ players through walls, 3 s) | Controls the extract |
+| Mender | Holy Sceptre | **Warder** | Mend | Sanctuary | Purge | Last Rites | The reference healer |
+| Mender | Censer | **Plaguebearer** | Smouldering Bolt (Poison) | Miasma: HoT cloud that Poisons enemies | Purge | Contagion: heals also Poison nearby enemies; −25% raw healing | The healer that fights |
+
+Shortbow is shared by Marksman and Shade: the drop is contested and the class decides the kit.
+Every weapon drop in the dungeon is a potential build change for someone.
+
 ## Composition notes
 
 * Party size is 3. Warden / Reaver / Mender is the reference trio the boss numbers were checked against.

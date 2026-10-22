@@ -3,9 +3,11 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
-## 2026-10-22 · Round, progression and economy rules — LOCKED
+## 2026-10-22 · Round, progression and economy rules — LOCKED AND BUILT
 
-Answered in one sitting; each line is a decision, not a default.
+Answered in one sitting; each line is a decision, not a default. Code: `PlayerProfile` /
+`Character` (flat), `Inventory` (weight), `Vendor`, `Matchmaker` (1–3, no brackets), `RoundClock`,
+`DungeonTheme.Default`, `ElementPalette` (standard + colour-blind), `MatchState` (souls, res, keys, wipe).
 
 1. **Flat characters.** Attributes never change; gear tiers are the only vertical progression.
    Account-level unlocks are cosmetic or recipes. Boss tuning stays true forever.
@@ -56,7 +58,7 @@ adjacent enemies); the dungeon is a flat grid with small arenas; eight teams nee
 immersion; and a fixed camera is a fraction of the art, animation and camera-code cost. What full
 3D offered (fear of the corner) comes back through LoS vision.
 
-## 2026-10-22 · Weapon specs for every class — AGREED, NOT YET BUILT
+## 2026-10-22 · Weapon specs for every class — BUILT (`WeaponSpec`)
 
 The Elementalist's "the weapon in hand is the spec" generalises: every class gets **two** specs
 chosen by weapon base, on the same bolt / zone / mobility / passive skeleton, same kit coefficient
