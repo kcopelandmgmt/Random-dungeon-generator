@@ -206,13 +206,24 @@ namespace DungeonGen.Tools
                 Console.WriteLine($"  {DungeonGen.Core.Combat.PlayerStats.For(c, 3, b)}");
             }
             Console.WriteLine();
+            Console.WriteLine("ELEMENTALIST KITS (element = weapon in hand)");
+            foreach (var k in DungeonGen.Core.Combat.ElementKit.All)
+            {
+                Console.WriteLine($"  {k.Name} ({k.Element}) - {k.Tagline}  on hit: {k.OnHit.Kind}");
+                foreach (var a in k.Abilities) Console.WriteLine($"      {a}");
+            }
+            Console.WriteLine();
+            Console.WriteLine("STATUS EFFECTS");
+            foreach (var d in DungeonGen.Core.Combat.StatusEffectDefinition.All.Values)
+                Console.WriteLine($"  {d.Kind,-9} {d.Element,-9} {d.Description}");
+            Console.WriteLine();
             Console.WriteLine("BOSS DAMAGE");
             foreach (var a in DungeonGen.Core.Combat.BossArchetype.DefaultPool.Append(DungeonGen.Core.Combat.BossArchetype.FinalBoss))
-                Console.WriteLine($"  {a.Name,-20} {a.Damage}   retinue: {a.RetinueMob ?? "-"}");
+                Console.WriteLine($"  {a.Name,-20} {a.Damage,-40} on hit: {a.OnHit?.Kind.ToString() ?? "-",-9} retinue: {a.RetinueMob ?? "-"}");
             Console.WriteLine();
             Console.WriteLine("MOBS");
             foreach (var m in DungeonGen.Core.Combat.MobArchetype.DefaultRoster)
-                Console.WriteLine($"  {m.Name,-16} deals {m.Damage,-28} resists {m.Resists,-9} weak to {m.WeakTo,-9} hp {m.HealthFraction:0.00} dps {m.DpsFraction:0.00}");
+                Console.WriteLine($"  {m.Name,-16} deals {m.Damage,-28} on hit {m.OnHit?.Kind.ToString() ?? "-",-9} resists {m.Resists,-9} weak to {m.WeakTo,-9} hp {m.HealthFraction:0.00} dps {m.DpsFraction:0.00}");
             Console.WriteLine();
             Console.WriteLine("A 100-damage hit of each type, taken by each class in tier-0 gear:");
             Console.Write("  class        ");

@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Collections.Generic;
 
 namespace DungeonGen.Core.Combat
@@ -28,7 +29,20 @@ namespace DungeonGen.Core.Combat
         /// <summary>Effective health relative to one baseline player. Derived from Constitution.</summary>
         public float HealthMultiplier => StatFormulas.Linear(StatFormulas.HealthPerCon, BaseAttributes.Constitution);
         public string Tagline { get; }
+        /// <summary>The fixed kit. For the Elementalist this is the shared skeleton; use <see cref="AbilitiesFor"/> for the element in hand.</summary>
         public IReadOnlyList<string> Abilities { get; }
+        /// <summary>True for the class whose kit is decided by the element of the weapon it holds.</summary>
+        public bool IsElementalist => Name == "Elementalist";
+
+        /// <summary>Abilities with the element resolved: the Elementalist's kit for Fire / Frost / Lightning, everyone else's fixed kit.</summary>
+        public IReadOnlyList<string> AbilitiesFor(DamageType element)
+        {
+            if (!IsElementalist) return Abilities;
+            return ElementKit.For(element)?.Abilities ?? Abilities;
+        }
+
+        /// <summary>Elements this class can specialise in by weapon choice. Empty for non-casters.</summary>
+        public IReadOnlyList<DamageType> Elements => IsElementalist ? ElementKit.All.Select(k => k.Element).ToList() : new List<DamageType>();
         /// <summary>What this class brings to the dungeon layer specifically (doors, keys, bosses, extraction).</summary>
         public string DungeonUtility { get; }
 
@@ -60,10 +74,10 @@ namespace DungeonGen.Core.Combat
                 "Controls sightlines down long corridors.",
                 new[] { "Piercing Shot: hits everything in a line, corridor-length range", "Caltrops: slow field on a doorway for 8s", "Vault Back: leap backwards, brief invulnerability", "Deadeye: passive, +30% damage to targets further than 12m" },
                 "Punishes teams pushing through spine corridors; traps turn a hub room into a kill box."),
-            new ClassArchetype("Pyromancer", ClassRole.Caster, new Attributes(4, 8, 18, 6, 14), Attribute.Intelligence, 0.97f, ArmourWeight.Light,
-                "Area denial. Burns rooms, not people.",
-                new[] { "Firewall: 6m line of fire for 6s, blocks movement to anyone unwilling to burn", "Meteor: delayed AoE, huge damage, telegraphed", "Ignite: damage over time that spreads between adjacent enemies", "Cinder Step: short teleport, leaves fire behind" },
-                "Firewall closes a door without a Warden; Meteor is the answer to a team turtling in a vault."),
+            new ClassArchetype("Elementalist", ClassRole.Caster, new Attributes(4, 8, 18, 6, 14), Attribute.Intelligence, 0.97f, ArmourWeight.Light,
+                "One class, three elements. The staff in hand decides which.",
+                new[] { "Bolt: single-target hit that applies the element's status", "Zone: a 5-6 m area that applies it to anyone inside", "Mobility: a short teleport or dash", "Passive: what the element's status does when it stacks" },
+                "Fire closes a door without a Warden and clears adds. Frost stops a chase or a retreat. Lightning ends a channel. Which one you are is whichever staff you have not lost yet."),
             new ClassArchetype("Mender", ClassRole.Support, new Attributes(6, 8, 10, 12, 14), Attribute.Spirit, 0.58f, ArmourWeight.Medium,
                 "Keeps the trio alive long enough for the math to work.",
                 new[] { "Mend: heal over time, stacks twice", "Sanctuary: ground circle, allies inside take 25% less damage", "Purge: remove bleeds, burns and slows from an ally", "Last Rites: stabilise a downed ally in 3s (no mid-fight resurrection: full loot means dead is dead)" },

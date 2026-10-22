@@ -464,6 +464,34 @@ and will get it, but not which tier, not what else is on it, and not the second 
 affix. Uniques never come from the forge; a salvaged unique is three shards and its essences.
 `--craft` in the preview tool salvages a whole dungeon's loot and crafts from the bag.
 
+## Status effects and elements
+
+Every element has an on-hit status, and players, mobs and bosses all apply from the same list
+(`StatusEffectDefinition`, `StatusTracker`). A status is data: kind, element, duration,
+magnitude, stack cap, what it becomes at the cap, whether it spreads or chains, and what it
+combos into.
+
+| Status | Element | Effect | Stacks |
+|--------|---------|--------|--------|
+| **Burn** | Fire | 15% of the hit per second for 4 s; spreads to enemies within 2 m | 3 |
+| **Chill** | Frost | 15% slower per stack for 3 s | 3 → **Freeze** (rooted, 1 s) |
+| **Stagger** | Lightning | 0.5 s interrupt; chains to two enemies within 4 m | on a Chilled target → **Stun** (1.5 s) |
+| **Poisoned** | Poison | 5% of the hit per second per stack for 8 s, refreshed by hits; Purge clears | 5 |
+| **Weaken** | Shadow | heals received and damage dealt −25% for 5 s; marked | 1 |
+| **Bleed** | Physical (abilities and brawlers only) | 8% of the hit per second per stack for 5 s | 3 |
+
+Rules the tracker enforces: resistance shortens a status of its element by the same fraction
+it mitigates damage (50% fire resist is a 2 s burn; the Sovereign's Crown's 85% cap is 0.6 s);
+Stagger consumes the Chill it stuns through; the only hard controls are Freeze (three Chills)
+and Stun (Stagger on Chill), and both need two steps, so nobody is stun-locked from range by
+one button. Mobs apply their dominant element's status (Frostbound Chill, Skitterers Poison,
+Bandits Bleed); bosses likewise (the Colossus Burns, the Hound Bleeds, the Herald Poisons).
+
+**The Elementalist** is the class built on this: its element is the weapon in hand, and each of
+Fire, Frost and Lightning has a kit on the same skeleton (bolt, zone, mobility, passive). See
+`docs/CLASSES.md`. Because mobs resist their own element, a specialised caster has rooms that
+punish them, and because the element is a staff, full loot can take it away.
+
 ## Classes
 
 See `docs/CLASSES.md`. The six-class roster (`ClassArchetype.DefaultRoster`) averages to exactly one

@@ -10,7 +10,7 @@ Full loot PvP shapes every kit: no mid-fight resurrection, and every ability has
 | **Warden** | Tank | Heavy | 14 | 6 | 4 | 20 | 6 | STR | 0.625 | 0.70 | 1.50 | Holds the doorway so the team decides where the fight happens. |
 | **Reaver** | Melee DPS | Medium | 16 | 12 | 4 | 10 | 8 | STR | 1.10 | 1.30 | 1.00 | Burst and mobility. Opens fights and ends them. |
 | **Marksman** | Ranged DPS | Light | 8 | 17 | 8 | 7 | 10 | DEX | 0.95 | 1.15 | 0.85 | Controls sightlines down long corridors. |
-| **Pyromancer** | Caster | Light | 4 | 8 | 18 | 6 | 14 | INT | 0.97 | 1.20 | 0.80 | Area denial. Burns rooms, not people. |
+| **Elementalist** | Caster | Light | 4 | 8 | 18 | 6 | 14 | INT | 0.97 | 1.20 | 0.80 | One class, three elements. The staff in hand decides which. |
 | **Mender** | Support | Medium | 6 | 8 | 10 | 12 | 14 | SPI | 0.58 | 0.65 | 1.10 | Keeps the trio alive long enough for the math to work. |
 | **Shade** | Skirmisher | Light | 8 | 16 | 8 | 5 | 13 | DEX | 0.85 | 1.00 | 0.75 | Finds the key, picks the moment, leaves with the loot. |
 
@@ -24,7 +24,7 @@ Starting sheets (tier-0 gear), 100-damage hit taken by type:
 | Warden | 1500 | 70 | 3% | 100 (50%) | 58 kg | 50 | 107 |
 | Reaver | 1000 | 130 | 6% | 60 (38%) | 62 kg | 63 | 94 |
 | Marksman | 850 | 115 | 9% | 30 (23%) | 46 kg | 77 | 80 |
-| Pyromancer | 800 | 120 | 4% | 30 (23%) | 38 kg | 77 | 75 |
+| Elementalist | 800 | 120 | 4% | 30 (23%) | 38 kg | 77 | 75 |
 | Mender | 1100 | 65 | 4% | 60 (38%) | 42 kg | 63 | 85 |
 | Shade | 750 | 100 | 8% | 30 (23%) | 46 kg | 77 | 76 |
 
@@ -42,8 +42,15 @@ walking into the Plague Herald's room wants a Mender more than anyone.
 **Marksman** — Piercing Shot (line, corridor-length range) · Caltrops (slow field on a doorway, 8s) · Vault Back (backwards leap, brief invulnerability) · Deadeye (passive: +30% beyond 12m).
 *Dungeon use:* punishes teams pushing through spine corridors; traps turn a hub room into a kill box.
 
-**Pyromancer** — Firewall (6m line of fire 6s, blocks movement) · Meteor (delayed AoE, telegraphed) · Ignite (DoT that spreads between adjacent enemies) · Cinder Step (short teleport, leaves fire).
-*Dungeon use:* Firewall closes a door without a Warden; Meteor answers a team turtling in a vault.
+**Elementalist** — the element is whatever weapon is held (Fire Staff, Frost Rod, Storm Wand), so losing the staff loses the specialisation and a crafted staff with a pinned element is a build. All three kits share one skeleton: a **bolt** (single target, applies the element's status), a **zone** (5–6 m area that applies it to anyone inside), a **mobility** move, and a **passive** that decides what the status does when it stacks.
+
+| Element | Kit | On hit | Bolt | Zone | Mobility | Passive |
+|---------|-----|--------|------|------|----------|---------|
+| Fire | **Pyromancy** | Burn (DoT, spreads) | Firebolt | Firewall: 6 m line, 6 s, blocks movement | Cinder Step: teleport, leaves fire | Kindling: Burn spreads within 2 m, stacks to 3 |
+| Frost | **Cryomancy** | Chill (slow, stacks) | Frost Shard | Glacial Field: 5 m circle, 6 s, Chills each second | Ice Slide: dash leaving ice that Chills | Deep Chill: 3 Chills Freeze for 1 s; hitting a frozen target shatters for +30% |
+| Lightning | **Stormcalling** | Stagger (interrupt, chains) | Arc: chains to 2 within 4 m | Static Field: 5 m circle, 5 s, Staggers on entry | Blink: teleport | Conduction: Stagger on a Chilled target is a 1.5 s Stun |
+
+*Dungeon use:* Fire closes a door without a Warden and clears adds (Hive Matron, Bone Choir corpses). Frost stops a chase (Hound of Vesh) or a retreat. Lightning ends a channel (Dirge, Overdrive) and is the only hard stun in the game, and only on a target someone has already chilled. Every room's mobs resist their own element, so a fire mage in an Ember Wisp room does 40% damage: specialising has a cost the dungeon collects.
 
 **Mender** — Mend (HoT, stacks twice) · Sanctuary (circle, allies take 25% less) · Purge (cleanse bleeds, burns, slows) · Last Rites (stabilise a downed ally in 3s; no resurrection).
 *Dungeon use:* the PartySustain factor (1.5) assumes a Mender; without one a trio fights a room boss at roughly duo odds.
@@ -54,6 +61,7 @@ walking into the Plague Herald's room wants a Mender more than anyone.
 ## Composition notes
 
 * Party size is 3. Warden / Reaver / Mender is the reference trio the boss numbers were checked against.
-* Every trio should have an answer to a doorway (Warden, Pyromancer, Marksman caltrops) and a way to disengage (Reaver, Shade, Marksman).
+* Every trio should have an answer to a doorway (Warden, Pyromancy Firewall, Marksman caltrops) and a way to disengage (Reaver, Shade, Marksman, Blink).
+* Two Elementalists on a team have a combo: Cryomancer Chills, Stormcaller Staggers, the target is Stunned. A Frost Rod drop is worth more to a team that already has a Storm Wand.
 * Gear is the progression. Classes change *how* you fight, loot tier changes *how hard* you hit; the final boss expects tier-3/4 gear (×1.4) on all three.
 * Keys are items in the inventory and drop on death like everything else. A Shade seeing who holds a key is a PvP target call, not a UI nicety.

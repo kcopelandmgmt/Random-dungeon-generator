@@ -5,7 +5,7 @@ namespace DungeonGen.Core.Combat
     /// <summary>
     /// An ordinary enemy type. Each mob deals one dominant damage type and resists it, and is weak
     /// to the type that opposes it, so a team's resistance choices matter room by room and a
-    /// Pyromancer is not the answer to everything.
+    /// Elementalist is not the answer to everything.
     /// </summary>
     public sealed class MobArchetype
     {
@@ -17,10 +17,14 @@ namespace DungeonGen.Core.Combat
         public float HealthFraction { get; }
         public float DpsFraction { get; }
         public string Behaviour { get; }
+        /// <summary>Status its hits apply: the dominant element's effect, or Bleed for a physical brawler. Null = none.</summary>
+        public StatusEffectDefinition OnHit { get; }
 
-        public MobArchetype(string name, DamageProfile damage, DamageType resists, DamageType weakTo, float health, float dps, string behaviour)
+        public MobArchetype(string name, DamageProfile damage, DamageType resists, DamageType weakTo, float health, float dps, string behaviour, StatusKind? onHit = null)
         {
             Name = name; Damage = damage; Resists = resists; WeakTo = weakTo; HealthFraction = health; DpsFraction = dps; Behaviour = behaviour;
+            OnHit = onHit.HasValue ? StatusEffectDefinition.All[onHit.Value]
+                  : StatusEffectDefinition.OnHitFor(damage.Dominant) ?? StatusEffectDefinition.All[StatusKind.Bleed];   // physical brawlers bleed
         }
 
         public Resistances BuildResistances()
@@ -35,7 +39,7 @@ namespace DungeonGen.Core.Combat
         public static readonly IReadOnlyList<MobArchetype> DefaultRoster = new[]
         {
             new MobArchetype("Bandit", DamageProfile.Pure(DamageType.Physical), DamageType.Physical, DamageType.Shadow, 0.30f, 0.20f,
-                "Humanoid; uses doors and corridors like a player and loots corpses if left alone."),
+                "Humanoid; uses doors and corridors like a player and loots corpses if left alone.", StatusKind.Bleed),
             new MobArchetype("Hollow Knight", new DamageProfile((DamageType.Physical, 0.8f), (DamageType.Shadow, 0.2f)), DamageType.Physical, DamageType.Fire, 0.45f, 0.25f,
                 "Slow, armoured, blocks a doorway as well as a Warden does."),
             new MobArchetype("Skitterer", new DamageProfile((DamageType.Poison, 0.7f), (DamageType.Physical, 0.3f)), DamageType.Poison, DamageType.Fire, 0.12f, 0.12f,

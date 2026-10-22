@@ -451,7 +451,7 @@ namespace DungeonGen.Tests
         {
             var b = new CombatBaseline();
             var warden = PlayerStats.For(ClassArchetype.DefaultRoster.First(c => c.Name == "Warden"), 0, b);
-            var pyro = PlayerStats.For(ClassArchetype.DefaultRoster.First(c => c.Name == "Pyromancer"), 0, b);
+            var pyro = PlayerStats.For(ClassArchetype.DefaultRoster.First(c => c.Name == "Elementalist"), 0, b);
             Assert.True(warden.TakeHit(100f, DamageType.Physical) < pyro.TakeHit(100f, DamageType.Physical));
             Assert.True(warden.TakeHit(100f, DamageType.Fire) > pyro.TakeHit(100f, DamageType.Fire));
             Assert.True(warden.MoveSpeed < pyro.MoveSpeed);
@@ -961,6 +961,126 @@ namespace DungeonGen.Tests
             var bag = CraftingRules.Salvage(rare);
             Assert.True(bag.Scrap > CraftingRules.Salvage(plain).Scrap * 4);
             Assert.True(bag.PrimeShards >= 1 && bag.Essences.Count >= 3);
+        }
+    }
+}
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+    using DungeonGen.Core.Items;
+
+    public class ElementAndStatusTests
+    {
+        private static ClassArchetype Ele => ClassArchetype.DefaultRoster.First(c => c.IsElementalist);
+
+        [Fact]
+        public void ElementalistElementComesFromTheWeaponInHand()
+        {
+            foreach (var staff in new[] { "Fire Staff", "Frost Rod", "Storm Wand" })
+            {
+                var kit = Equipment.StandardSet(Ele.Armour, 0, Ele.Primary);
+                var w = ItemBase.Weapons.First(x => x.Name == staff);
+                kit.Equip(new Item(w, 0, Rarity.Normal, w.Name, new List<AffixRoll>(), new List<AffixRoll>()));
+                var st = PlayerStats.For(Ele, kit);
+                Assert.Equal(w.AttackType, st.Element);
+                Assert.NotNull(st.ElementKit);
+                Assert.Equal(w.AttackType, st.ElementKit.Element);
+                Assert.Equal(4, st.Abilities.Count);
+                Assert.Equal(StatusEffectDefinition.OnHitFor(w.AttackType).Kind, st.OnHitEffect.Kind);
+            }
+            var reaver = ClassArchetype.DefaultRoster.First(c => c.Name == "Reaver");
+            var r = PlayerStats.For(reaver, Equipment.StandardSet(reaver.Armour, 0, reaver.Primary));
+            Assert.Null(r.ElementKit);
+            Assert.Null(r.OnHitEffect);
+            Assert.Equal(reaver.Abilities, r.Abilities);
+        }
+
+        [Fact]
+        public void ThreeKitsShareASkeletonAndCoverThreeElements()
+        {
+            Assert.Equal(3, ElementKit.All.Count);
+            Assert.Equal(new[] { DamageType.Fire, DamageType.Frost, DamageType.Lightning }, ElementKit.All.Select(k => k.Element).ToArray());
+            Assert.All(ElementKit.All, k => Assert.Equal(4, k.Abilities.Count));
+            Assert.All(ElementKit.All, k => Assert.NotNull(k.OnHit));
+            Assert.Equal(3, Ele.Elements.Count);
+        }
+
+        [Fact]
+        public void ThreeChillsFreeze()
+        {
+            var t = new StatusTracker();
+            var chill = StatusEffectDefinition.All[StatusKind.Chill];
+            t.Apply(chill); t.Apply(chill);
+            Assert.Equal(2, t.Get(StatusKind.Chill).Stacks);
+            Assert.Equal(0.30f, t.SlowFraction, 2);
+            var result = t.Apply(chill);
+            Assert.Equal(StatusKind.Freeze, result.Definition.Kind);
+            Assert.False(t.Has(StatusKind.Chill));
+            Assert.True(t.IsHardControlled);
+        }
+
+        [Fact]
+        public void StaggerOnAChilledTargetStuns()
+        {
+            var t = new StatusTracker();
+            t.Apply(StatusEffectDefinition.All[StatusKind.Chill]);
+            var landed = t.Apply(StatusEffectDefinition.All[StatusKind.Stagger]);
+            Assert.Equal(StatusKind.Stun, landed.Definition.Kind);
+            Assert.False(t.Has(StatusKind.Chill));
+            var plain = new StatusTracker();
+            Assert.Equal(StatusKind.Stagger, plain.Apply(StatusEffectDefinition.All[StatusKind.Stagger]).Definition.Kind);
+            Assert.False(plain.IsHardControlled);
+        }
+
+        [Fact]
+        public void ResistanceShortensAndCanNegateAStatus()
+        {
+            var r = new Resistances(); r.Set(DamageType.Fire, 100f);   // 50%
+            var t = new StatusTracker();
+            var burn = t.Apply(StatusEffectDefinition.All[StatusKind.Burn], r);
+            Assert.Equal(2f, burn.RemainingSeconds, 1);
+            var capped = new Resistances(); capped.Set(DamageType.Fire, 100000f);
+            Assert.Equal(1f, new StatusTracker().Apply(StatusEffectDefinition.All[StatusKind.Burn], capped).RemainingSeconds, 1);
+            var crown = new Resistances { CapBonus = 10f }; crown.Set(DamageType.Fire, 100000f);
+            Assert.Equal(0.6f, new StatusTracker().Apply(StatusEffectDefinition.All[StatusKind.Burn], crown).RemainingSeconds, 1);
+        }
+
+        [Fact]
+        public void DotsStackAndTickAndPurgeClears()
+        {
+            var t = new StatusTracker();
+            var poison = StatusEffectDefinition.All[StatusKind.Poisoned];
+            for (int i = 0; i < 7; i++) t.Apply(poison);
+            Assert.Equal(5, t.Get(StatusKind.Poisoned).Stacks);
+            Assert.Equal(0.25f, t.DotFractionPerSecond, 2);
+            t.Tick(9f);
+            Assert.Empty(t.Active);
+            t.Apply(poison); t.Apply(StatusEffectDefinition.All[StatusKind.Burn]);
+            t.Cleanse();
+            Assert.Empty(t.Active);
+        }
+
+        [Fact]
+        public void MobsAndBossesApplyTheirElementsStatus()
+        {
+            Assert.Equal(StatusKind.Chill, MobArchetype.DefaultRoster.First(m => m.Name == "Frostbound").OnHit.Kind);
+            Assert.Equal(StatusKind.Poisoned, MobArchetype.DefaultRoster.First(m => m.Name == "Skitterer").OnHit.Kind);
+            Assert.Equal(StatusKind.Bleed, MobArchetype.DefaultRoster.First(m => m.Name == "Bandit").OnHit.Kind);
+            Assert.Equal(StatusKind.Burn, BossArchetype.DefaultPool.First(b => b.Name == "Ashen Colossus").OnHit.Kind);
+            Assert.Equal(StatusKind.Bleed, BossArchetype.DefaultPool.First(b => b.Name == "Hound of Vesh").OnHit.Kind);
+            Assert.Equal(StatusKind.Poisoned, BossArchetype.DefaultPool.First(b => b.Name == "Plague Herald").OnHit.Kind);
+            Assert.All(MobArchetype.DefaultRoster, m => Assert.NotNull(m.OnHit));
+        }
+
+        [Fact]
+        public void RosterStillAveragesToOneAfterTheRename()
+        {
+            var roster = ClassArchetype.DefaultRoster;
+            Assert.Contains(roster, c => c.Name == "Elementalist");
+            Assert.DoesNotContain(roster, c => c.Name == "Pyromancer");
+            Assert.InRange(roster.Average(c => c.DpsMultiplier), 0.97f, 1.03f);
+            Assert.InRange(roster.Average(c => c.HealthMultiplier), 0.97f, 1.03f);
         }
     }
 }

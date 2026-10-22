@@ -38,6 +38,14 @@ namespace DungeonGen.Core.Combat
         /// <summary>Fraction of damage taken reflected, and as what (unique-only).</summary>
         public float Thorns { get; }
         public DamageType ThornsType { get; }
+        /// <summary>The element of basic attacks: the weapon's base type. For the Elementalist this is the specialisation.</summary>
+        public DamageType Element => Gear.AttackProfile.Dominant;
+        /// <summary>Status a basic hit applies (Burn / Chill / Stagger / Poisoned / Weaken), or null for plain physical.</summary>
+        public StatusEffectDefinition OnHitEffect => StatusEffectDefinition.OnHitFor(Element);
+        /// <summary>The class kit with the element resolved from the weapon in hand.</summary>
+        public System.Collections.Generic.IReadOnlyList<string> Abilities => Class.AbilitiesFor(Element);
+        public ElementKit ElementKit => Class.IsElementalist ? ElementKit.For(Element) : null;
+
         /// <summary>Triggered legendary effects for the game to run: procs, summons, second wind, phasing.</summary>
         public System.Collections.Generic.IReadOnlyList<LegendaryAffix> Legendaries => Gear.Legendaries;
 
@@ -94,6 +102,6 @@ namespace DungeonGen.Core.Combat
         }
 
         public override string ToString() =>
-            $"{Class.Name} [{Attributes}] HP {Health:0} DPS {Dps:0} ({AttackProfile}) heal x{HealingMultiplier:0.00} crit {CritChance * 100:0}% spd x{MoveSpeed:0.00} armour {ArmourRating:0} ({PhysicalMitigation * 100:0}%) carry {CarryKg:0}kg | {Resistances}{(Lifesteal > 0 ? $" | lifesteal {Lifesteal * 100:0}%" : "")}{(Thorns > 0 ? $" | thorns {Thorns * 100:0}% {ThornsType}" : "")}{(Legendaries.Count > 0 ? " | ★ " + string.Join("; ", Legendaries.Select(l => l.Name)) : "")}";
+            $"{Class.Name}{(ElementKit != null ? " (" + ElementKit.Name + ")" : "")} [{Attributes}] HP {Health:0} DPS {Dps:0} ({AttackProfile}) heal x{HealingMultiplier:0.00} crit {CritChance * 100:0}% spd x{MoveSpeed:0.00} armour {ArmourRating:0} ({PhysicalMitigation * 100:0}%) carry {CarryKg:0}kg | {Resistances}{(Lifesteal > 0 ? $" | lifesteal {Lifesteal * 100:0}%" : "")}{(Thorns > 0 ? $" | thorns {Thorns * 100:0}% {ThornsType}" : "")}{(Legendaries.Count > 0 ? " | ★ " + string.Join("; ", Legendaries.Select(l => l.Name)) : "")}";
     }
 }
