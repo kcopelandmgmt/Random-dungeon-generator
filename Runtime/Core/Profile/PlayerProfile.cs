@@ -37,7 +37,18 @@ namespace DungeonGen.Core.Profile
         /// <summary>Account-level unlocks: cosmetics and recipes only, never power.</summary>
         public HashSet<string> Unlocks { get; } = new HashSet<string>();
 
+        /// <summary>Eight character slots per account; the stash, silver and materials are one shared bank between them.</summary>
+        public const int MaxCharacters = 8;
+
         public PlayerProfile(string accountId) { AccountId = accountId; }
+
+        public Character CreateCharacter(string name, ClassArchetype cls)
+        {
+            if (Characters.Count >= MaxCharacters) throw new System.InvalidOperationException($"All {MaxCharacters} character slots are used.");
+            var ch = new Character(name, cls);
+            Characters.Add(ch);
+            return ch;
+        }
 
         public int ConsumableCount(Consumable c) => Consumables.TryGetValue(c.Name, out int n) ? n : 0;
         public void AddConsumable(Consumable c, int n) => Consumables[c.Name] = ConsumableCount(c) + n;

@@ -1807,3 +1807,98 @@ namespace DungeonGen.Tests
         }
     }
 }
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+    using DungeonGen.Core.Net;
+    using DungeonGen.Core.Profile;
+
+    public class ProductionDecisionTests
+    {
+        [Fact]
+        public void VerticalSliceDrawsOnlyItsBossesAndItsClassesExist()
+        {
+            var s = VerticalSlice.Settings();
+            for (int seed = 1; seed <= 20; seed++)
+            {
+                var layout = DungeonGenerator.Generate(s, seed);
+                Assert.Equal(4, layout.SpawnRooms.Count());
+                Assert.Equal(2, layout.BossRooms.Count());
+                Assert.All(layout.BossRooms, b => Assert.Contains(b.Boss.Archetype.Name, VerticalSlice.Bosses));
+                Assert.Equal(2, layout.BossRooms.Select(b => b.Boss.Archetype.Name).Distinct().Count());
+            }
+            Assert.All(VerticalSlice.Classes, c => Assert.Contains(ClassArchetype.DefaultRoster, r => r.Name == c));
+            Assert.All(VerticalSlice.Specs, sp => Assert.True(WeaponSpec.All.Any(w => w.Name == sp) || ElementKit.All.Any(k => k.Name == sp)));
+            var back = SettingsCodec.FromBytes(SettingsCodec.ToBytes(s));
+            Assert.Equal(VerticalSlice.Bosses, back.AllowedBosses);
+        }
+
+        [Fact]
+        public void GridPathsStayWalkableRespectLocksAndLeashes()
+        {
+            var layout = DungeonGenerator.Generate(DungeonSettings.ForTeams(8), 7);
+            var spawn = layout.SpawnRooms.First();
+            var extract = layout.ExtractRooms.First();
+            var path = GridPath.Find(layout, spawn.Center, extract.Center);
+            Assert.NotNull(path);
+            Assert.Equal(spawn.Center, path[0]);
+            Assert.Equal(extract.Center, path[^1]);
+            for (int i = 1; i < path.Count; i++) Assert.Equal(1, path[i].ManhattanDistance(path[i - 1]));
+            Assert.All(path, p => Assert.True(layout.IsWalkable(p)));
+            var vault = layout.VaultRooms.First();
+            Assert.Null(GridPath.Find(layout, spawn.Center, vault.Center));                        // locked door blocks mobs too
+            var mobRoom = layout.Rooms.First(r => r.Mobs != null && r.Neighbours.Count > 0);
+            var neighbour = layout.Rooms[mobRoom.Neighbours[0]];
+            Assert.Null(GridPath.Find(layout, mobRoom.Center, neighbour.Center, leashRoom: mobRoom.Id, leashCells: MobRules.LeashCells));
+            Assert.NotNull(GridPath.Find(layout, mobRoom.Center, mobRoom.Doors[0], leashRoom: mobRoom.Id, leashCells: MobRules.LeashCells));
+            Assert.True(GridPath.WithinLeash(layout, mobRoom.Id, mobRoom.Doors[0], MobRules.LeashCells));
+            Assert.False(GridPath.WithinLeash(layout, mobRoom.Id, neighbour.Center, MobRules.LeashCells));
+        }
+
+        [Fact]
+        public void EightCharacterSlotsShareOneBank()
+        {
+            var p = new PlayerProfile("acct");
+            for (int i = 0; i < 8; i++) p.CreateCharacter("c" + i, ClassArchetype.DefaultRoster[i % 6]);
+            Assert.Throws<System.InvalidOperationException>(() => p.CreateCharacter("c9", ClassArchetype.DefaultRoster[0]));
+            Assert.Equal(8, PlayerProfile.MaxCharacters);
+            Assert.Null(typeof(Character).GetProperty("Stash"));   // the bank is on the profile, shared
+            Assert.NotNull(typeof(PlayerProfile).GetProperty("Stash"));
+        }
+
+        [Fact]
+        public void DisconnectedCharactersStandThereAndCanComeBackWithinTheWindow()
+        {
+            var d = MatchDescriptor.Create(7, DungeonSettings.ForTeams(8), new MatchRules(), out var layout);
+            var st = new MatchState(d, layout);
+            st.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out _);
+            st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, 1, 0), out _);
+            st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, 4, 1), out _);
+            string why;
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDisconnected, 100, 1), out why));
+            Assert.Contains(1, st.PlayersInside);                                                   // still in the world
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 120, 1, 4, 0), out why));   // and killable
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerReconnected, 130, 1), out why));
+            st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, 2, 0), out _);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDisconnected, 200, 2), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerReconnected, 250, 2), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDisconnected, 300, 2), out why));
+            Assert.Empty(st.ReconnectExpired(350));
+            Assert.Contains(2, st.ReconnectExpired(361));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerReconnected, 365, 2), out why));
+            Assert.Contains("window", why);
+            Assert.Equal(60, MatchDescriptor.FromBytes(d.ToBytes()).Rules.ReconnectWindowSeconds);
+        }
+
+        [Fact]
+        public void TechStackIsStated()
+        {
+            Assert.Equal("Fishnet", TechStack.Netcode);
+            Assert.Contains("PlayFab", TechStack.Backend);
+            Assert.Contains("Unity 6", TechStack.Engine);
+            Assert.Contains("Grid", TechStack.Pathfinding);
+            Assert.Equal("Menus only", TechStack.Hub);
+        }
+    }
+}

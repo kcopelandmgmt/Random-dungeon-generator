@@ -162,7 +162,7 @@ namespace DungeonGen.Core.Stages
                 var usedArchetypes = new HashSet<BossArchetype>();
                 for (int j = 0; j < bCount; j++)
                 {
-                    var archetype = BossRoller.PickArchetype(usedArchetypes, null, rng) ?? rng.Pick(BossArchetype.DefaultPool);
+                    var archetype = BossRoller.PickArchetype(usedArchetypes, null, rng, s.AllowedBosses) ?? rng.Pick(BossArchetype.DefaultPool);
                     usedArchetypes.Add(archetype);
                     int bossMin = Math.Max(s.MinRoomSize, Math.Min(s.MaxRoomSize, archetype.ArenaMin));
                     int bossMax = Math.Max(bossMin, Math.Min(s.MaxRoomSize, archetype.ArenaMax));

@@ -27,6 +27,8 @@ namespace DungeonGen.Core.Net
             w.Write(s.BossAffixesEnabled); w.Write(s.MaxAffixesPerBoss);
             w.Write(s.ExtractCount); w.Write(s.MinSpawnSeparation); w.Write(s.MinExtractDepth); w.Write(s.LootTiers); w.Write(s.LootRoomFraction);
             w.Write(s.CandidateCount);
+            w.Write(s.AllowedBosses?.Count ?? -1);
+            if (s.AllowedBosses != null) foreach (var n in s.AllowedBosses) w.Write(n);
             var c = s.Combat;
             w.Write(c.PlayerDps); w.Write(c.PlayerHealth); w.Write(c.PartySustain); w.Write(c.GoodGearMultiplier); w.Write(c.PartySize); w.Write(c.TuningMargin);
             w.Write(c.RoomBossPlayerEquivalents); w.Write(c.RoomBossFightSeconds); w.Write(c.FinalBossFightSeconds); w.Write(c.EnrageAfterMultiple);
@@ -50,6 +52,8 @@ namespace DungeonGen.Core.Net
                 ExtractCount = r.ReadInt32(), MinSpawnSeparation = r.ReadInt32(), MinExtractDepth = r.ReadInt32(), LootTiers = r.ReadInt32(), LootRoomFraction = r.ReadSingle(),
                 CandidateCount = r.ReadInt32(),
             };
+            int nb = r.ReadInt32();
+            if (nb >= 0) { var names = new System.Collections.Generic.List<string>(nb); for (int i = 0; i < nb; i++) names.Add(r.ReadString()); s.AllowedBosses = names; }
             var c = s.Combat;
             c.PlayerDps = r.ReadSingle(); c.PlayerHealth = r.ReadSingle(); c.PartySustain = r.ReadSingle(); c.GoodGearMultiplier = r.ReadSingle(); c.PartySize = r.ReadInt32(); c.TuningMargin = r.ReadSingle();
             c.RoomBossPlayerEquivalents = r.ReadSingle(); c.RoomBossFightSeconds = r.ReadSingle(); c.FinalBossFightSeconds = r.ReadSingle(); c.EnrageAfterMultiple = r.ReadSingle();

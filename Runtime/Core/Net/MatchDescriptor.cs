@@ -22,11 +22,13 @@ namespace DungeonGen.Core.Net
         public float ExtractChannelSeconds = Combat.CombatRules.ExtractChannelSeconds;
         /// <summary>Tutorial: one team, a long clock, extracts open at once.</summary>
         public bool IsTutorial = false;
+        /// <summary>A disconnected character stands where it was, killable, for this long; reconnecting replays the log. After it, the server kills it.</summary>
+        public int ReconnectWindowSeconds = 60;
 
         public static MatchRules Tutorial() => new MatchRules { RoundSeconds = 45 * 60, ExtractsOpenAfterSeconds = 0, TeamSize = 1, IsTutorial = true };
 
-        public void Write(BinaryWriter w) { w.Write(RoundSeconds); w.Write(ExtractsOpenAfterSeconds); w.Write(BossExitStaysOpen); w.Write(TeamSize); w.Write(SpawnGraceSeconds); w.Write(ExtractChannelSeconds); w.Write(IsTutorial); }
-        public static MatchRules Read(BinaryReader r) => new MatchRules { RoundSeconds = r.ReadInt32(), ExtractsOpenAfterSeconds = r.ReadInt32(), BossExitStaysOpen = r.ReadBoolean(), TeamSize = r.ReadInt32(), SpawnGraceSeconds = r.ReadInt32(), ExtractChannelSeconds = r.ReadSingle(), IsTutorial = r.ReadBoolean() };
+        public void Write(BinaryWriter w) { w.Write(RoundSeconds); w.Write(ExtractsOpenAfterSeconds); w.Write(BossExitStaysOpen); w.Write(TeamSize); w.Write(SpawnGraceSeconds); w.Write(ExtractChannelSeconds); w.Write(IsTutorial); w.Write(ReconnectWindowSeconds); }
+        public static MatchRules Read(BinaryReader r) => new MatchRules { RoundSeconds = r.ReadInt32(), ExtractsOpenAfterSeconds = r.ReadInt32(), BossExitStaysOpen = r.ReadBoolean(), TeamSize = r.ReadInt32(), SpawnGraceSeconds = r.ReadInt32(), ExtractChannelSeconds = r.ReadSingle(), IsTutorial = r.ReadBoolean(), ReconnectWindowSeconds = r.ReadInt32() };
     }
 
     /// <summary>

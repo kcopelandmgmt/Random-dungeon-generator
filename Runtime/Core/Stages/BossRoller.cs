@@ -20,11 +20,11 @@ namespace DungeonGen.Core.Stages
             var used = new HashSet<BossArchetype>(bossRooms.Where(r => r.Boss != null).Select(r => r.Boss.Archetype));
             foreach (var room in bossRooms.Where(r => r.Boss == null))
             {
-                var pick = PickArchetype(used, room, rng);
+                var pick = PickArchetype(used, room, rng, s.AllowedBosses);
                 if (pick == null)
                 {
-                    warnings.Add($"More boss rooms ({bossRooms.Count}) than archetypes ({BossArchetype.DefaultPool.Count}); repeating one.");
-                    pick = rng.Pick(BossArchetype.DefaultPool);
+                    warnings.Add($"More boss rooms ({bossRooms.Count}) than allowed archetypes; repeating one.");
+                    pick = rng.Pick(s.AllowedBosses == null ? BossArchetype.DefaultPool : BossArchetype.DefaultPool.Where(a => s.AllowedBosses.Contains(a.Name)).ToList());
                 }
                 used.Add(pick);
                 room.Boss = new BossInstance(pick);
@@ -50,9 +50,10 @@ namespace DungeonGen.Core.Stages
         }
 
         /// <summary>Draw an archetype the dungeon has not used, preferring a family not yet present, then one whose arena fits the room.</summary>
-        public static BossArchetype PickArchetype(HashSet<BossArchetype> used, Room room, DungeonRandom rng)
+        public static BossArchetype PickArchetype(HashSet<BossArchetype> used, Room room, DungeonRandom rng, IReadOnlyList<string> allowed = null)
         {
-            var unused = BossArchetype.DefaultPool.Where(a => !used.Contains(a)).ToList();
+            var pool0 = allowed == null ? BossArchetype.DefaultPool : BossArchetype.DefaultPool.Where(a => allowed.Contains(a.Name)).ToList();
+            var unused = pool0.Where(a => !used.Contains(a)).ToList();
             if (unused.Count == 0) return null;
             var usedFamilies = new HashSet<BossFamily>(used.Select(a => a.Family));
             var freshFamily = unused.Where(a => !usedFamilies.Contains(a.Family)).ToList();

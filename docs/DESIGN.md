@@ -612,6 +612,15 @@ which worn half is destroyed; extraction needs a channel started at that gate, u
 enough ago; the round end destroys whatever was left inside; a team's minimap is the rooms the
 server has told it it saw; a shrine sells a consumable for one of the team's souls.
 
+## Technical stack and the vertical slice (locked)
+
+`TechStack` states them: Unity 6 + URP, Fishnet over `IMatchTransport`, managed dedicated
+servers, PlayFab, grid A\* on the server (`GridPath`), stylized low-poly, PC first, menus for a
+hub, one developer. `VerticalSlice` is the first build: 4 teams, Warden / Reaver / Elementalist
+(Pyromancy), Iron Juggernaut and Hive Matron, the 4-team preset with `AllowedBosses` restricting
+the draw. Disconnected characters stand in the world for 60 s and reconnect by replaying the log.
+Eight character slots share one bank.
+
 ## Presentation: top-down, 3D, line-of-sight (locked)
 
 See `docs/DECISIONS.md` for the reasoning. The short form: a 3D scene viewed from a fixed-yaw

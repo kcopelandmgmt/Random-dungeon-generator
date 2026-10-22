@@ -76,6 +76,8 @@ namespace DungeonGen.Core
         public bool LootEnabled = true;
         /// <summary>Scales item counts per room. 1 = 1-2 per ordinary room, 3 in loot rooms, 4 in vaults and the final boss.</summary>
         public float LootDensity = 1f;
+        /// <summary>Restrict boss archetypes to these names (null = the whole pool). The vertical slice uses it.</summary>
+        public System.Collections.Generic.IReadOnlyList<string> AllowedBosses = null;
         /// <summary>Roll 0-2 affixes per room boss from the seed.</summary>
         public bool BossAffixesEnabled = true;
         public int MaxAffixesPerBoss = 2;

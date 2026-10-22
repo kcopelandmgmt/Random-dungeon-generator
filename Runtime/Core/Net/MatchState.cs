@@ -27,6 +27,8 @@ namespace DungeonGen.Core.Net
         ExtractInterrupted,// playerId: took damage, channel resets
         RoomSeen,          // team, roomId: the team's minimap gains the room (server derives from LineOfSight)
         ShrinePurchase,    // playerId, consumableIndex, shrineRoomId: one soul from the team for a consumable
+        PlayerDisconnected,// playerId: the character stands still, killable; the reconnect window starts
+        PlayerReconnected, // playerId: within the window; the client replays the log
         RoundEnded,        // t: anyone still inside dies and drops everything
     }
 
@@ -94,6 +96,8 @@ namespace DungeonGen.Core.Net
         public Dictionary<int, (int room, float started)> Channels { get; } = new Dictionary<int, (int, float)>();
         /// <summary>team → rooms on its minimap.</summary>
         public Dictionary<int, HashSet<int>> Explored { get; } = new Dictionary<int, HashSet<int>>();
+        /// <summary>playerId → time the connection dropped. The server kills the character when the window passes.</summary>
+        public Dictionary<int, float> Disconnected { get; } = new Dictionary<int, float>();
         /// <summary>playerId → total value walked out with.</summary>
         public Dictionary<int, long> ExtractedValue { get; } = new Dictionary<int, long>();
         public int? FinalBossKillerTeam { get; private set; }
@@ -219,6 +223,7 @@ namespace DungeonGen.Core.Net
                     if (DeadPlayers.Contains(e.A) || ExtractedPlayers.Contains(e.A)) { rejection = "player already out"; return false; }
                     DeadPlayers.Add(e.A);
                     Channels.Remove(e.A);
+                    Disconnected.Remove(e.A);
                     // Everything they held goes onto their corpse, open to anyone; the server then rolls which half of the worn gear is destroyed.
                     {
                         var held = ItemOwner.Where(kv => kv.Value == e.A).Select(kv => kv.Key).ToList();
@@ -269,6 +274,13 @@ namespace DungeonGen.Core.Net
                         ResurrectedOnce.Add(e.A);
                         break;
                     }
+                case MatchEventKind.PlayerDisconnected:
+                    if (!PlayerTeam.ContainsKey(e.A) || DeadPlayers.Contains(e.A) || ExtractedPlayers.Contains(e.A)) { rejection = "player not in play"; return false; }
+                    Disconnected[e.A] = e.Time; Channels.Remove(e.A); break;
+                case MatchEventKind.PlayerReconnected:
+                    if (!Disconnected.TryGetValue(e.A, out float dropped)) { rejection = "was not disconnected"; return false; }
+                    if (e.Time - dropped > Descriptor.Rules.ReconnectWindowSeconds) { rejection = "reconnect window passed"; return false; }
+                    Disconnected.Remove(e.A); break;
                 case MatchEventKind.RoundEnded:
                     // The clock is a weapon: anyone still inside dies and drops everything.
                     foreach (int p in PlayerTeam.Keys.Where(p => !DeadPlayers.Contains(p) && !ExtractedPlayers.Contains(p)).ToList())
@@ -285,6 +297,10 @@ namespace DungeonGen.Core.Net
             Log.Add(e);
             return true;
         }
+
+        /// <summary>Disconnected players whose window has passed: the server should kill them (PlayerDied with killer -1).</summary>
+        public IEnumerable<int> ReconnectExpired(float now) =>
+            Disconnected.Where(kv => now - kv.Value > Descriptor.Rules.ReconnectWindowSeconds).Select(kv => kv.Key).ToList();
 
         /// <summary>Players still alive and inside.</summary>
         public IEnumerable<int> PlayersInside => PlayerTeam.Keys.Where(p => !DeadPlayers.Contains(p) && !ExtractedPlayers.Contains(p));

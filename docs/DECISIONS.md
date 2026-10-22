@@ -3,6 +3,35 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-22 · Technical and production decisions — LOCKED
+
+Stated in code as `TechStack` and `VerticalSlice`; the rules with behaviour are built.
+
+1. **Netcode: Fishnet.** Free, fast, client-side prediction built in, which a 5 m/s skillshot
+   game needs. Implements `IMatchTransport`.
+2. **Hosting: managed dedicated servers** (Edgegap or Hathora): upload the server build, instances
+   per match by region, billed per hour. Full loot plus server authority rules out player hosts.
+3. **Backend: PlayFab** for accounts, profiles, the shared bank and season leaderboards.
+4. **Engine: Unity 6 with URP** (Forward+ for the dynamic lights the design leans on).
+5. **Pathfinding: grid A\* on the server** on the layout's own tiles (`GridPath`); no NavMesh.
+   Locked doors block mobs as they block players; leashes are a rectangle around the room.
+6. **Art direction: stylized low-poly**, flat-shaded or hand-painted. Reads from 22 m, cheapest to
+   keep consistent across bought packs, lights well.
+7. **Vertical slice: 4 teams, 3 classes (Warden, Reaver, Elementalist with Pyromancy), 2 bosses
+   (Iron Juggernaut, Hive Matron), one preset.** `VerticalSlice.Settings()`; the generator draws
+   only the slice's bosses (`DungeonSettings.AllowedBosses`). Every system once, half the content.
+8. **Platform: PC (Steam) first, controller supported, console later.**
+9. **Team: solo, with bought assets.** The systems are sized for it; the art load is the
+   constraint the slice cut addresses.
+10. **Disconnects: the character stands where it was, killable, for a 60-second window.**
+    Reconnecting replays the log; after the window the server kills it (`PlayerDisconnected`,
+    `PlayerReconnected`, `MatchRules.ReconnectWindowSeconds`, `MatchState.ReconnectExpired`).
+11. **Eight character slots per account, one class each, one shared bank** (stash, silver,
+    materials on the profile; `PlayerProfile.MaxCharacters`).
+12. **Hub: menus only.**
+13. **Name: open.** Candidates proposed; see the conversation record. The working name stays
+    until one is chosen; then package, namespace, docs and artifact rename in one commit.
+
 ## 2026-10-22 · Movement: WASD with mouse aim — LOCKED
 
 WASD, screen-relative under the fixed-yaw camera (W is up the screen, which is grid north), the
