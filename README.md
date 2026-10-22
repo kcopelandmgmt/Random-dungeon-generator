@@ -15,7 +15,7 @@ See `docs/DESIGN.md` for the full explanation of how each stage works and why.
 | Path | What it is |
 |------|------------|
 | `Runtime/Core/` | Pure C# generator. No `UnityEngine` references, so it runs on a dedicated server, in unit tests and in the CLI. |
-| `Runtime/Unity/` | Unity glue: `DungeonConfig` (ScriptableObject), `DungeonBuilder` (spawns prefabs), `DungeonGizmos` (scene-view debug). |
+| `Runtime/Unity/` | Unity glue: `DungeonConfig` (ScriptableObject), `DungeonBuilder` (spawns prefabs), `DungeonGizmos` (scene-view debug), `DungeonMatchBootstrap` + `IMatchTransport` (networked match). |
 | `Tools/AsciiPreview/` | Console app that prints a dungeon as ASCII and batch-validates thousands of seeds. |
 | `Tests/` | xUnit tests: determinism, connectivity, role counts, wall enclosure, 8-team fairness. |
 | `package.json` | Unity Package Manager manifest so the repo can be installed straight into a project. |
@@ -48,6 +48,13 @@ are in `docs/CLASSES.md` and `ClassArchetype.DefaultRoster`. Design details in `
 It switches to ring placement (spawns around the edge, extracts on an inner ring, vault in the center)
 and keeps the fairest of four candidate layouts per seed. `Layout.Fairness` reports every team's walk
 to its nearest extract and the vault.
+
+**Multiplayer.** `Runtime/Core/Net`: `MatchDescriptor` (seed + settings + team spawns + rules +
+fingerprint, ~250 bytes), `LayoutFingerprint` and `SettingsCodec` for desync detection,
+`LayoutIndex` for stable network ids and interest management, `ClientView` to strip loot from what
+clients generate, and `MatchState` + `MatchEvent` as the server-validated, replayable round state.
+Unity: implement `IMatchTransport` over your netcode and attach it to `DungeonMatchBootstrap`.
+`dotnet run -- --net --seed 7 --teams 8` walks through a server/client round in the console.
 
 For multiplayer: the server calls `DungeonGenerator.Generate(settings, seed)`, sends only the `int` seed to clients,
 and every client calls `DungeonBuilder.Build(seed)` to reproduce the identical map.

@@ -41,6 +41,7 @@ namespace DungeonGen.Tools
                     case "--wear": command = "--wear"; break;
                     case "--lifetime": command = "--lifetime"; break;
                     case "--craft": command = "--craft"; break;
+                    case "--net": command = "--net"; break;
                     case "--seed": seed = int.Parse(Next()); break;
                     case "--width": settings.Width = int.Parse(Next()); break;
                     case "--height": settings.Height = int.Parse(Next()); break;
@@ -52,7 +53,7 @@ namespace DungeonGen.Tools
                     case "--batch": batch = int.Parse(Next()); break;
                     case "--no-legend": legend = false; break;
                     case "--help":
-                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear --lifetime --craft");
+                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear --lifetime --craft --net");
                         return 0;
                     default:
                         Console.Error.WriteLine("Unknown argument " + args[i]);
@@ -67,6 +68,7 @@ namespace DungeonGen.Tools
                 case "--wear": return WearRolledSet(seed);
                 case "--lifetime": return PrintLifetimes(seed);
                 case "--craft": return CraftDemo(settings, seed);
+                case "--net": return NetDemo(settings, seed);
                 case "--roll": return RollItems(rollN, rollLevel, seed);
                 case "--loot":
                     {
@@ -153,6 +155,54 @@ namespace DungeonGen.Tools
                 Console.WriteLine($"    → {item}");
             }
             Console.WriteLine("Bag after: " + bag);
+            return 0;
+        }
+
+        /// <summary>Server builds a match, a client rebuilds from the descriptor, fingerprints compared, events replayed.</summary>
+        private static int NetDemo(DungeonSettings settings, int seed)
+        {
+            var sw = Stopwatch.StartNew();
+            var d = DungeonGen.Core.Net.MatchDescriptor.Create(seed, settings, new DungeonGen.Core.Net.MatchRules(), out var serverLayout);
+            var bytes = d.ToBytes();
+            Console.WriteLine($"SERVER  seed {seed}: generated in {sw.Elapsed.TotalMilliseconds:0} ms; descriptor {bytes.Length} bytes; settings hash {d.SettingsHash:x16}; fingerprint {d.ExpectedFingerprint:x16}");
+            Console.WriteLine($"        teams → spawn rooms: {string.Join(", ", d.TeamSpawnRooms.Select((r, t) => $"T{t}→room {r}"))}");
+            sw.Restart();
+            var clientDesc = DungeonGen.Core.Net.MatchDescriptor.FromBytes(bytes);
+            var clientLayout = clientDesc.BuildAndVerify();
+            Console.WriteLine($"CLIENT  rebuilt and verified in {sw.Elapsed.TotalMilliseconds:0} ms; fingerprint {DungeonGen.Core.Net.LayoutFingerprint.Compute(clientLayout):x16} ✓");
+            var view = DungeonGen.Core.Net.ClientView.Redact(serverLayout);
+            Console.WriteLine($"        client view: {view.Items.Count} items visible (server has {serverLayout.Items.Count}); public fingerprint {DungeonGen.Core.Net.ClientView.PublicFingerprint(view):x16} == server public {DungeonGen.Core.Net.ClientView.PublicFingerprint(serverLayout):x16}");
+
+            var state = new DungeonGen.Core.Net.MatchState(d, serverLayout);
+            var idx = state.Index;
+            var vault = serverLayout.VaultRooms.First();
+            var key = serverLayout.Keys.First(k => k.VaultRoomId == vault.Id);
+            var firstItem = idx.Items.First(kv => idx.ItemRoom[kv.Key] == vault.Id).Key;
+            var E = DungeonGen.Core.Net.MatchEventKind.RoundStarted;
+            void Try(DungeonGen.Core.Net.MatchEvent e) { bool ok = state.Apply(e, out string why); Console.WriteLine($"  {(ok ? "ok      " : "REJECT  ")}{e}{(ok ? "" : "  ← " + why)}"); }
+            Console.WriteLine("EVENTS (server validates, clients mirror):");
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.RoundStarted, 0));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.PlayerExtracted, 30, 1, serverLayout.ExtractRooms.First().Id, 0));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.VaultOpened, 60, vault.Id, 1));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.KeyPickedUp, 90, key.KeyId, 1));
+            if (key.DroppedByBoss) Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.BossKilled, 95, key.HolderRoomId, 0));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.KeyPickedUp, 100, key.KeyId, 1));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.VaultOpened, 160, vault.Id, 1));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ItemTaken, 161, firstItem, 1));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ContainerOpened, 162, vault.Id, 0));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ItemTaken, 163, firstItem, 1));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ItemTaken, 164, firstItem, 2));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ExtractsOpened, 240));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.PlayerExtracted, 300, 1, serverLayout.ExtractRooms.First().Id, 0));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.PlayerExtracted, 310, 2, serverLayout.FinalBossRoom.Id, 1));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.BossKilled, 400, serverLayout.FinalBossRoom.Id, 1));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.BossExitOpened, 401));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.PlayerExtracted, 410, 2, serverLayout.FinalBossRoom.Id, 1));
+            var logBytes = state.LogToBytes();
+            var replayed = DungeonGen.Core.Net.MatchState.Replay(clientDesc, clientLayout, DungeonGen.Core.Net.MatchState.LogFromBytes(logBytes));
+            Console.WriteLine($"LATE JOINER replayed {replayed.Log.Count} events from {logBytes.Length} bytes: {replayed.ExtractedPlayers.Count} extracted, vault open: {replayed.OpenVaults.Count > 0}, boss exit open: {replayed.BossExitOpen}");
+            var near = idx.RoomsWithin(serverLayout.SpawnRooms.First().Id, 2);
+            Console.WriteLine($"INTEREST: a player in spawn room {serverLayout.SpawnRooms.First().Id} needs updates from {near.Count} of {serverLayout.Rooms.Count} rooms (2 hops).");
             return 0;
         }
 

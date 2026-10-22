@@ -10,6 +10,8 @@ namespace DungeonGen.Core
     public sealed class DungeonLayout
     {
         public int Seed { get; }
+        /// <summary>The settings this layout was generated with (needed to regenerate a redacted client view).</summary>
+        public DungeonSettings Settings { get; internal set; }
         public int Width { get; }
         public int Height { get; }
         public TileType[,] Tiles { get; }

@@ -1084,3 +1084,140 @@ namespace DungeonGen.Tests
         }
     }
 }
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Net;
+
+    public class MultiplayerTests
+    {
+        [Fact]
+        public void DescriptorRoundTripsAndClientBuildsTheSameDungeon()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            var d = MatchDescriptor.Create(4242, s, new MatchRules { RoundSeconds = 900 }, out var serverLayout);
+            var bytes = d.ToBytes();
+            Assert.True(bytes.Length < 400, $"descriptor is {bytes.Length} bytes");
+            var client = MatchDescriptor.FromBytes(bytes);
+            Assert.Equal(d.Seed, client.Seed);
+            Assert.Equal(d.SettingsHash, client.SettingsHash);
+            Assert.Equal(d.TeamSpawnRooms, client.TeamSpawnRooms);
+            Assert.Equal(900, client.Rules.RoundSeconds);
+            var clientLayout = client.BuildAndVerify();
+            Assert.Equal(LayoutFingerprint.Compute(serverLayout), LayoutFingerprint.Compute(clientLayout));
+            Assert.Equal(AsciiRenderer.Render(serverLayout), AsciiRenderer.Render(clientLayout));
+        }
+
+        [Fact]
+        public void TeamsGetDistinctSpawnRoomsInShuffledOrder()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            var d = MatchDescriptor.Create(1, s, null, out var layout);
+            Assert.Equal(8, d.TeamSpawnRooms.Count);
+            Assert.Equal(8, d.TeamSpawnRooms.Distinct().Count());
+            Assert.All(d.TeamSpawnRooms, id => Assert.Equal(RoomType.Spawn, layout.Rooms[id].Type));
+            var d2 = MatchDescriptor.Create(2, s, null, out _);
+            Assert.NotEqual(d.TeamSpawnRooms, d2.TeamSpawnRooms);
+        }
+
+        [Fact]
+        public void FingerprintMismatchRefusesToStart()
+        {
+            var s = DungeonSettings.ForTeams(4);
+            var d = MatchDescriptor.Create(99, s, null, out _);
+            var tampered = new MatchDescriptor(d.Seed, d.Settings, d.TeamSpawnRooms, d.Rules, d.ExpectedFingerprint ^ 1UL);
+            Assert.Throws<System.InvalidOperationException>(() => tampered.BuildAndVerify());
+            // Different settings → different fingerprint even on the same seed.
+            var other = SettingsCodec.FromBytes(SettingsCodec.ToBytes(s)); other.LoopChance += 0.1f;
+            Assert.NotEqual(SettingsCodec.Hash(s), SettingsCodec.Hash(other));
+            Assert.NotEqual(d.ExpectedFingerprint, LayoutFingerprint.Compute(DungeonGenerator.Generate(other, 99)));
+        }
+
+        [Fact]
+        public void StableHashIsStableAndSettingsCodecIsLossless()
+        {
+            var s = DungeonSettings.ForTeams(8); s.Combat.PlayerDps = 123.5f; s.LootDensity = 1.5f;
+            var back = SettingsCodec.FromBytes(SettingsCodec.ToBytes(s));
+            Assert.Equal(SettingsCodec.ToBytes(s), SettingsCodec.ToBytes(back));
+            Assert.Equal(123.5f, back.Combat.PlayerDps);
+            Assert.Equal(SettingsCodec.Hash(s), SettingsCodec.Hash(back));
+            Assert.Equal(StableHash.Start().Add("dungeon").Add(7).Value, StableHash.Start().Add("dungeon").Add(7).Value);
+            Assert.NotEqual(StableHash.Start().Add("dungeon").Value, StableHash.Start().Add("Dungeon").Value);
+        }
+
+        [Fact]
+        public void ClientViewHidesLootButNothingElse()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            var server = DungeonGenerator.Generate(s, 7);
+            var view = ClientView.Redact(server);
+            Assert.Empty(view.Items);
+            Assert.NotEmpty(server.Items);
+            Assert.Equal(ClientView.PublicFingerprint(server), ClientView.PublicFingerprint(view));
+            Assert.Equal(server.Keys.Select(k => (k.KeyId, k.HolderRoomId, k.VaultRoomId)), view.Keys.Select(k => (k.KeyId, k.HolderRoomId, k.VaultRoomId)));
+            Assert.Equal(server.Rooms.Select(r => r.Boss?.DisplayName), view.Rooms.Select(r => r.Boss?.DisplayName));
+            Assert.Equal(server.Rooms.Select(r => r.Mobs?.ToString()), view.Rooms.Select(r => r.Mobs?.ToString()));
+        }
+
+        [Fact]
+        public void NetworkIdsAreStableAndCoverEverything()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            var a = new LayoutIndex(DungeonGenerator.Generate(s, 11));
+            var b = new LayoutIndex(DungeonGenerator.Generate(s, 11));
+            Assert.Equal(a.Items.Count, b.Items.Count);
+            Assert.Equal(a.Layout.Items.Count, a.Items.Count);
+            foreach (var kv in a.Items) Assert.Equal(kv.Value.ToString(), b.Items[kv.Key].ToString());
+            Assert.Equal(a.Layout.MobPacks.Count, a.MobPacks.Count);
+            Assert.All(a.Items.Keys, id => Assert.True(id < LayoutIndex.MobPackIdBase));
+            var near = a.RoomsWithin(a.Layout.SpawnRooms.First().Id, 2);
+            Assert.True(near.Count > 1 && near.Count < a.Layout.Rooms.Count);
+            Assert.Equal(a.Layout.Rooms.Count, a.RoomsWithin(0, 50).Count);
+        }
+
+        [Fact]
+        public void MatchStateRejectsIllegalEventsAndReplaysIdentically()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            var d = MatchDescriptor.Create(7, s, new MatchRules { BossExitStaysOpen = false }, out var layout);
+            var st = new MatchState(d, layout);
+            var vault = layout.VaultRooms.First();
+            var key = layout.Keys.First(k => k.VaultRoomId == vault.Id);
+            int item = st.Index.Items.First(kv => st.Index.ItemRoom[kv.Key] == vault.Id).Key;
+            string why;
+
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerExtracted, 1, 1, layout.ExtractRooms.First().Id), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.VaultOpened, 2, vault.Id, 1), out why));
+            if (key.DroppedByBoss)
+            {
+                Assert.False(st.Apply(new MatchEvent(MatchEventKind.KeyPickedUp, 3, key.KeyId, 1), out why));
+                Assert.True(st.Apply(new MatchEvent(MatchEventKind.BossKilled, 4, key.HolderRoomId, 0), out why));
+            }
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.KeyPickedUp, 5, key.KeyId, 1), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.VaultOpened, 6, vault.Id, 2), out why), "wrong player");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.VaultOpened, 6, vault.Id, 1), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 7, item, 1), out why), "container not opened");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ContainerOpened, 8, vault.Id, 0), out why));
+            Assert.Contains(item, st.VisibleItemsIn(vault.Id));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 9, item, 1), out why));
+            Assert.DoesNotContain(item, st.VisibleItemsIn(vault.Id));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 10, item, 2), out why), "already taken");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 11, 1, 2, vault.Id), out why));
+            Assert.False(st.KeyHolder.ContainsKey(key.KeyId), "dead player drops the key");
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 12, st.Index.Items.Keys.Last(), 1), out why), "dead player cannot loot");
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.BossExitOpened, 13), out why), "final boss alive");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.BossKilled, 14, layout.FinalBossRoom.Id, 3), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.BossExitOpened, 15), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerExtracted, 16, 5, layout.FinalBossRoom.Id, 0), out why), "exit belongs to team 3");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerExtracted, 17, 6, layout.FinalBossRoom.Id, 3), out why));
+
+            var replay = MatchState.Replay(MatchDescriptor.FromBytes(d.ToBytes()), d.BuildAndVerify(), MatchState.LogFromBytes(st.LogToBytes()));
+            Assert.Equal(st.Log.Count, replay.Log.Count);
+            Assert.Equal(st.ExtractedPlayers, replay.ExtractedPlayers);
+            Assert.Equal(st.ItemOwner, replay.ItemOwner);
+            Assert.Equal(st.OpenVaults, replay.OpenVaults);
+            Assert.Equal(st.BossExitOpen, replay.BossExitOpen);
+        }
+    }
+}

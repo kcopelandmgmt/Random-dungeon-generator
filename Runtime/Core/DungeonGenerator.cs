@@ -54,7 +54,7 @@ namespace DungeonGen.Core
 
         private static DungeonLayout GenerateOnce(DungeonSettings s, int workingSeed, int requestedSeed)
         {
-            var layout = new DungeonLayout(requestedSeed, s.Width, s.Height);
+            var layout = new DungeonLayout(requestedSeed, s.Width, s.Height) { Settings = s };
             var rng = new DungeonRandom(workingSeed);
 
             var rooms = RoomPlacer.Place(s, rng.Fork(1), layout.Warnings);

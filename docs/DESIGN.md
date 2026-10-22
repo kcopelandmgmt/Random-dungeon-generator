@@ -556,6 +556,53 @@ and `CandidateCount` if you go there.
 | `Room.Mobs` | Mob pack: type, count, tier multiplier, player-equivalents. |
 | `Room.Loot` | Items rolled for the room's chests or boss drop. |
 | `Warnings` | Non-fatal generation notes; log them in the editor. |
+| `Settings` | The settings the layout was generated with (for `ClientView.Redact`). |
+
+## Multiplayer architecture
+
+The generator was built deterministic so that the dungeon never has to cross the wire. The
+`Runtime/Core/Net` layer turns that into a working model (`Net/` is still pure C#; the Unity
+adapter is `IMatchTransport` + `DungeonMatchBootstrap`):
+
+```
+SERVER                                      CLIENT
+MatchDescriptor.Create(seed, settings) ──►  MatchDescriptor.FromBytes
+  = seed + settings + team→spawn + rules       BuildAndVerify(): regenerate, compare fingerprint
+  + fingerprint   (~250 bytes, once)           (mismatch = refuse to start)
+MatchState (authoritative)                  MatchState (mirror)
+  Apply(event) validates, logs, ──────────►   Apply(event) in order
+  broadcasts                                 late joiner: Replay(log)
+```
+
+* **One message builds the world.** `MatchDescriptor` carries the seed, the full settings
+  (binary, fixed field order, versioned by `SettingsCodec`), the shuffled team → spawn-room
+  table, the round rules, and the server's `LayoutFingerprint`. Clients never use their own
+  settings asset; a stale client build fails the settings version or the fingerprint before the
+  round starts instead of desyncing ten minutes in.
+* **Fingerprints are stable across machines.** `StableHash` is FNV-1a over bytes; `GetHashCode`
+  is randomized per process and differs between Mono and IL2CPP, so it is never used for this.
+* **Stable ids without a table.** `LayoutIndex` numbers items in generation order (room id, then
+  slot), mob packs as 1000 + room id, keys as 5000 + key id. Server and clients compute the same
+  ids independently.
+* **Clients do not know what is in the chests.** `ClientView.Redact` regenerates the layout with
+  loot disabled: because loot is rolled from its own RNG fork after everything else is fixed,
+  tiles, rooms, bosses, mobs and key holders are bit-identical and only the items are missing.
+  The server reveals a room's items with `ContainerOpened` and filters per recipient with
+  `VisibleItemsIn`. A modified client cannot read the vault off the map.
+* **State changes only through events.** `MatchState.Apply` validates every `MatchEvent`
+  (taking an item twice, opening a vault without the key, extracting before extracts open, using
+  the boss exit while the boss lives, a dead player doing anything) and rejects the illegal ones.
+  The server's rejections are where cheats die; clients apply the same log and arrive at the same
+  state; a reconnect replays the log (`Replay`, `LogToBytes`).
+* **Interest management.** `LayoutIndex.RoomsWithin(room, hops)` is the relevancy set: a player
+  needs updates from the rooms within two hops (7 of 34 rooms on the sample seed), not the whole dungeon.
+* **Netcode-agnostic.** `IMatchTransport` is two broadcasts and one unicast. Implement it over
+  Netcode for GameObjects, Mirror, Fishnet or a relay; `DungeonMatchBootstrap` does the rest and
+  raises `OnMatchReady` / `OnDesync`.
+
+What the dungeon layer deliberately does *not* do: player movement, combat resolution and
+hit validation are the netcode's job. The layer gives them the authoritative world, ids for
+everything in it, and the rules for what may change.
 
 ## Determinism and multiplayer
 
