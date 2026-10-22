@@ -30,6 +30,7 @@ namespace DungeonGen.Core.Net
                     h.Add(r.Boss.Budget.Health).Add(r.Boss.Budget.Dps);
                 }
                 if (r.Mobs != null) h.Add(r.Mobs.Mob.Name).Add(r.Mobs.Count).Add(r.Mobs.TierMultiplier);
+                h.Add(r.HasShrine);
             }
             foreach (var c in l.Corridors) { h.Add(c.RoomA).Add(c.RoomB).Add(c.Length).Add(c.IsLoop); }
             if (l.BossExit != null) h.Add(l.BossExit.RoomId).Add(l.BossExit.Cell.X).Add(l.BossExit.Cell.Y);
@@ -37,6 +38,7 @@ namespace DungeonGen.Core.Net
             if (includeServerOnly)
             {
                 foreach (var k in l.Keys) h.Add(k.KeyId).Add(k.VaultRoomId).Add(k.HolderRoomId).Add(k.DroppedByBoss);
+                foreach (var r in l.Rooms) foreach (var c in r.Consumables) h.Add(c.Name);
                 foreach (var it in l.Items)
                 {
                     h.Add(it.Name).Add(it.ItemLevel).Add((int)it.Rarity).Add(it.Base.Name).Add(it.Condition.Current);

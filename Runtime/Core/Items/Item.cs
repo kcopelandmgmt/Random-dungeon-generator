@@ -27,6 +27,7 @@ namespace DungeonGen.Core.Items
             Condition = new ItemCondition(max, max);
         }
 
+        public float WeightKg => Base.WeightKg;
         public float Armour => Base.ArmourAt(ItemLevel) * (1f + Sum(AffixKind.IncreasedArmour) / 100f);
         public float BaseResist => Base.ResistAt(ItemLevel);
         public float WeaponDamage => Base.DamageAt(ItemLevel) * (1f + Sum(AffixKind.IncreasedDamage) / 100f);

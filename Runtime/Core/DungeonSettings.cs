@@ -68,6 +68,10 @@ namespace DungeonGen.Core
         public float MobBudgetAtEdge = 0.5f;
         public float MobBudgetAtCenter = 2.0f;
         public float MobBudgetLootBonus = 0.5f;
+        // --- Shrines ------------------------------------------------------------
+        /// <summary>Resurrection shrines in hub rooms (at least one per dungeon).</summary>
+        public bool ShrinesEnabled = true;
+
         // --- Loot ---------------------------------------------------------------
         public bool LootEnabled = true;
         /// <summary>Scales item counts per room. 1 = 1-2 per ordinary room, 3 in loot rooms, 4 in vaults and the final boss.</summary>

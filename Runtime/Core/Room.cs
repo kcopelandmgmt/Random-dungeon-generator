@@ -33,6 +33,12 @@ namespace DungeonGen.Core
         /// <summary>Items rolled for this room's chests / boss drop. Empty for spawns and extracts.</summary>
         public List<Items.Item> Loot { get; } = new List<Items.Item>();
 
+        /// <summary>A resurrection shrine stands here (hub rooms). Two player-kill souls bring a dead teammate back, naked.</summary>
+        public bool HasShrine { get; set; }
+
+        /// <summary>Consumables found in this room's chests, beside the gear.</summary>
+        public List<Items.Consumable> Consumables { get; } = new List<Items.Consumable>();
+
         /// <summary>Ordinary enemies stationed here. Null for spawns, extracts and boss rooms.</summary>
         public MobPack Mobs { get; set; }
 

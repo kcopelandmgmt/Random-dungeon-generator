@@ -8,17 +8,19 @@ namespace DungeonGen.Core.Net
     /// <summary>Round rules the server decides and every client must agree on.</summary>
     public sealed class MatchRules
     {
-        /// <summary>Hard round limit; anyone still inside is dead to the world.</summary>
+        /// <summary>Hard round limit; at the end anyone still inside dies and drops everything. Locked at 20 minutes.</summary>
         public int RoundSeconds = 20 * 60;
-        /// <summary>Regular extracts open this long after the round starts (Tarkov-style: nobody leaves in the first minutes).</summary>
+        /// <summary>Regular extracts open this long after the round starts. Locked at 4 minutes.</summary>
         public int ExtractsOpenAfterSeconds = 4 * 60;
         /// <summary>Whether the boss-gated exit stays open for everyone after the killing team uses it.</summary>
         public bool BossExitStaysOpen = true;
-        /// <summary>Players per team the server will admit.</summary>
+        /// <summary>Maximum players per team. Teams of 1 to 3 share one queue; a solo is exactly who a room boss is built to beat.</summary>
         public int TeamSize = 3;
+        /// <summary>No spawn protection: the ring spacing is the only defence, by decision.</summary>
+        public int SpawnGraceSeconds = 0;
 
-        public void Write(BinaryWriter w) { w.Write(RoundSeconds); w.Write(ExtractsOpenAfterSeconds); w.Write(BossExitStaysOpen); w.Write(TeamSize); }
-        public static MatchRules Read(BinaryReader r) => new MatchRules { RoundSeconds = r.ReadInt32(), ExtractsOpenAfterSeconds = r.ReadInt32(), BossExitStaysOpen = r.ReadBoolean(), TeamSize = r.ReadInt32() };
+        public void Write(BinaryWriter w) { w.Write(RoundSeconds); w.Write(ExtractsOpenAfterSeconds); w.Write(BossExitStaysOpen); w.Write(TeamSize); w.Write(SpawnGraceSeconds); }
+        public static MatchRules Read(BinaryReader r) => new MatchRules { RoundSeconds = r.ReadInt32(), ExtractsOpenAfterSeconds = r.ReadInt32(), BossExitStaysOpen = r.ReadBoolean(), TeamSize = r.ReadInt32(), SpawnGraceSeconds = r.ReadInt32() };
     }
 
     /// <summary>

@@ -558,6 +558,24 @@ and `CandidateCount` if you go there.
 | `Warnings` | Non-fatal generation notes; log them in the editor. |
 | `Settings` | The settings the layout was generated with (for `ClientView.Redact`). |
 
+## Round rules, souls and shrines (locked)
+
+`docs/DECISIONS.md` has the full list. The ones with code behind them:
+
+* **20-minute round, extracts open at 4** (`MatchRules`). `RoundEnded` kills everyone still
+  inside and drops their keys: the clock is a weapon.
+* **Resurrection.** `PlayerSpawned` gives the state the roster; `PlayerDied` with a player killer
+  grants the killer's team a soul (never for teammates); `PlayerResurrected` costs the team two
+  souls, needs a living teammate at a shrine room, works once per player per round, and brings the
+  player back **naked**. Shrines are placed by `ShrinePlacer` in every hub (at least one per
+  dungeon) and shown as † in the ASCII view.
+* **Keys die on extraction.** `PlayerExtracted` destroys every key the player held; a destroyed
+  key cannot be picked up again.
+* **Weight-only inventory.** `ItemBase.WeightKg`, `Equipment.WornWeightKg`, `CarryRules`.
+* **Consumables** (`Consumable.All`): Health Potion, Antidote, Salvage Kit; sold by the vendor,
+  found in ordinary chests (`Room.Consumables`).
+* **Teams of 1–3**, one queue; **no spawn protection**; **no brackets**; **vendor only**.
+
 ## Presentation: top-down, 3D, line-of-sight (locked)
 
 See `docs/DECISIONS.md` for the reasoning. The short form: a 3D scene viewed from a fixed-yaw

@@ -1273,3 +1273,156 @@ namespace DungeonGen.Tests
         }
     }
 }
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+    using DungeonGen.Core.Items;
+    using DungeonGen.Core.Net;
+
+    public class RoundRuleTests
+    {
+        private static (MatchState st, DungeonLayout layout) Fresh(int seed = 7, bool exitStays = true)
+        {
+            var d = MatchDescriptor.Create(seed, DungeonSettings.ForTeams(8), new MatchRules { BossExitStaysOpen = exitStays }, out var layout);
+            var st = new MatchState(d, layout);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out _));
+            for (int p = 1; p <= 6; p++) Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, p, (p - 1) / 3), out _));   // players 1-3 team 0, 4-6 team 1
+            return (st, layout);
+        }
+
+        [Fact]
+        public void EveryDungeonHasAShrineAndHubsAlwaysDo()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            for (int seed = 1; seed <= 20; seed++)
+            {
+                var layout = DungeonGenerator.Generate(s, seed);
+                Assert.Contains(layout.Rooms, r => r.HasShrine);
+                Assert.All(layout.RoomsOfType(RoomType.Hub), h => Assert.True(h.HasShrine));
+                Assert.All(layout.Rooms.Where(r => r.HasShrine), r => Assert.True(r.Type == RoomType.Hub || r.Type == RoomType.Standard));
+            }
+        }
+
+        [Fact]
+        public void SoulsComeOnlyFromEnemyPlayerKills()
+        {
+            var (st, layout) = Fresh();
+            string why;
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 10, 4, -1, 0), out why));     // killed by a mob
+            Assert.Empty(st.Souls);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 11, 2, 1, 0), out why));      // teammate kill
+            Assert.Empty(st.Souls);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 12, 5, 1, 0), out why));      // team 0 kills team 1
+            Assert.Equal(1, st.Souls[0]);
+        }
+
+        [Fact]
+        public void ResurrectionCostsTwoSoulsNeedsAShrineAndWorksOnce()
+        {
+            var (st, layout) = Fresh();
+            var shrine = layout.Rooms.First(r => r.HasShrine).Id;
+            var plain = layout.Rooms.First(r => !r.HasShrine && r.Type == RoomType.Standard).Id;
+            string why;
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 10, 2, 4, 0), out why));                 // player 2 (team 0) dies to player 4
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 11, 2, 1, shrine), out why));   // no souls yet
+            Assert.Contains("souls", why);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 12, 4, 1, 0), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 13, 5, 1, 0), out why));                 // team 0 now has 2 souls
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 14, 2, 1, plain), out why));    // not a shrine
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 14, 2, 6, shrine), out why));   // enemy cannot res you
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 14, 2, 4, shrine), out why));   // dead teammate? 4 is enemy and dead anyway
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 15, 2, 1, shrine), out why));
+            Assert.Equal(0, st.Souls[0]);
+            Assert.DoesNotContain(2, st.DeadPlayers);
+            Assert.Contains(2, st.PlayersInside);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 20, 2, 6, 0), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 21, 6, 1, 0), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 22, 6, 1, 0), out why) == false);        // already dead
+            st.Souls[0] = 5;
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 23, 2, 1, shrine), out why));   // once per round
+            Assert.Contains("already", why);
+        }
+
+        [Fact]
+        public void ExtractingDestroysUnusedKeysAndRoundEndWipesEveryoneInside()
+        {
+            var (st, layout) = Fresh();
+            var key = layout.Keys.First();
+            string why;
+            if (key.DroppedByBoss) Assert.True(st.Apply(new MatchEvent(MatchEventKind.BossKilled, 5, key.HolderRoomId, 0), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.KeyPickedUp, 6, key.KeyId, 1), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ExtractsOpened, 240), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerExtracted, 300, 1, layout.ExtractRooms.First().Id, 0), out why));
+            Assert.False(st.KeyHolder.ContainsKey(key.KeyId));
+            Assert.Contains(key.KeyId, st.DestroyedKeys);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.KeyPickedUp, 301, key.KeyId, 2), out why));
+            Assert.Contains("destroyed", why);
+
+            Assert.Equal(5, st.PlayersInside.Count());
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.RoundEnded, 1200), out why));
+            Assert.Empty(st.PlayersInside);
+            Assert.Equal(5, st.DeadPlayers.Count);
+            Assert.Contains(1, st.ExtractedPlayers);
+        }
+
+        [Fact]
+        public void TeamsAreCappedAtThree()
+        {
+            var (st, _) = Fresh();
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 1, 99, 0), out string why));
+            Assert.Contains("full", why);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 1, 99, 2), out why));
+        }
+
+        [Fact]
+        public void WeightOnlyInventoryUsesStrength()
+        {
+            var warden = ClassArchetype.DefaultRoster.First(c => c.Name == "Warden");
+            var shade = ClassArchetype.DefaultRoster.First(c => c.Name == "Shade");
+            var wKit = Equipment.StandardSet(warden.Armour, 0, warden.Primary);
+            var sKit = Equipment.StandardSet(shade.Armour, 0, shade.Primary);
+            Assert.InRange(wKit.WornWeightKg, 33f, 38f);     // 30 kg plate + 6 kg sword
+            Assert.InRange(sKit.WornWeightKg, 8f, 10f);
+            var wSheet = PlayerStats.For(warden, wKit);
+            Assert.Equal(1f, CarryRules.MoveSpeedFactor(wKit.WornWeightKg, wSheet.CarryKg));
+            Assert.Equal(0.75f, CarryRules.MoveSpeedFactor(150f, 100f), 2);
+            Assert.Equal(0.5f, CarryRules.MoveSpeedFactor(300f, 100f), 2);
+            Assert.True(CarryRules.IsOverloaded(wSheet.CarryKg + 1f, wSheet.CarryKg));
+        }
+
+        [Fact]
+        public void ConsumablesAppearInOrdinaryChestsOnly()
+        {
+            var s = DungeonSettings.ForTeams(8);
+            int found = 0;
+            for (int seed = 1; seed <= 10; seed++)
+            {
+                var layout = DungeonGenerator.Generate(s, seed);
+                foreach (var r in layout.Rooms)
+                {
+                    if (r.Type == RoomType.Vault || r.IsBossRoom || r.Type == RoomType.Spawn || r.Type == RoomType.Extract) Assert.Empty(r.Consumables);
+                    found += r.Consumables.Count;
+                }
+            }
+            Assert.True(found > 10, $"only {found} consumables in ten dungeons");
+            Assert.Equal(3, Consumable.All.Count);
+        }
+
+        [Fact]
+        public void NewEventsReplayAndSettingsStillRoundTrip()
+        {
+            var (st, layout) = Fresh();
+            var shrine = layout.Rooms.First(r => r.HasShrine).Id;
+            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 1, 2, 4, 0), out _);
+            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 2, 4, 1, 0), out _);
+            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 3, 5, 1, 0), out _);
+            st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 4, 2, 1, shrine), out _);
+            var replay = MatchState.Replay(MatchDescriptor.FromBytes(st.Descriptor.ToBytes()), st.Descriptor.BuildAndVerify(), MatchState.LogFromBytes(st.LogToBytes()));
+            Assert.Equal(st.Souls, replay.Souls);
+            Assert.Equal(st.DeadPlayers, replay.DeadPlayers);
+            Assert.Equal(st.ResurrectedOnce, replay.ResurrectedOnce);
+            Assert.Equal(st.Descriptor.Rules.SpawnGraceSeconds, replay.Descriptor.Rules.SpawnGraceSeconds);
+        }
+    }
+}

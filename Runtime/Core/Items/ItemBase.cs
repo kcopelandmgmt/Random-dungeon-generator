@@ -60,6 +60,18 @@ namespace DungeonGen.Core.Items
             }
         }
 
+        /// <summary>Kilograms. Heavy plate is the reason Strength exists on a Warden.</summary>
+        public float WeightKg
+        {
+            get
+            {
+                if (IsWeapon) return ScalesWith == Attribute.Strength ? 6f : ScalesWith == Attribute.Dexterity ? 2.5f : 2f;
+                if (IsJewellery) return 0.2f;
+                float perWeight = Weight == ArmourWeight.Heavy ? 30f : Weight == ArmourWeight.Medium ? 15f : 6f;
+                return perWeight * SlotShare(Slot) / 0.35f * 0.35f;   // a full set weighs perWeight; pieces by slot share
+            }
+        }
+
         public float ArmourAt(int level) => IsArmour ? StatFormulas.BaseArmour(Weight) * SlotShare(Slot) * LevelMultiplier(level) : 0f;
         public float ResistAt(int level) => IsArmour ? StatFormulas.BaseResist(Weight) * SlotShare(Slot) * LevelMultiplier(level) : 0f;
         public float DamageAt(int level) => IsWeapon ? WeaponDamage * LevelMultiplier(level) : 0f;

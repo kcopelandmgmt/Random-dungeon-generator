@@ -8,6 +8,7 @@ namespace DungeonGen.Core.Net
     public enum MatchEventKind : byte
     {
         RoundStarted,      // t
+        PlayerSpawned,     // playerId, team
         ExtractsOpened,    // t
         ContainerOpened,   // roomId, byTeam: the server reveals the room's items to that team
         ItemTaken,         // itemId, byPlayer
@@ -18,7 +19,8 @@ namespace DungeonGen.Core.Net
         BossExitOpened,    // -
         PlayerDied,        // playerId, killerPlayerId (or -1), roomId
         PlayerExtracted,   // playerId, roomId
-        RoundEnded,        // t
+        PlayerResurrected, // playerId, byPlayerId, shrineRoomId  (costs the team SoulsPerResurrection; the player returns naked)
+        RoundEnded,        // t: anyone still inside dies and drops everything
     }
 
     /// <summary>
@@ -63,6 +65,15 @@ namespace DungeonGen.Core.Net
         public HashSet<int> DeadBosses { get; } = new HashSet<int>();
         public HashSet<int> DeadPlayers { get; } = new HashSet<int>();
         public HashSet<int> ExtractedPlayers { get; } = new HashSet<int>();
+        /// <summary>playerId → team, from PlayerSpawned.</summary>
+        public Dictionary<int, int> PlayerTeam { get; } = new Dictionary<int, int>();
+        /// <summary>Souls per team: one per enemy player killed. Spent at shrines.</summary>
+        public Dictionary<int, int> Souls { get; } = new Dictionary<int, int>();
+        public HashSet<int> ResurrectedOnce { get; } = new HashSet<int>();
+        /// <summary>Keys destroyed because their holder extracted with them unused.</summary>
+        public HashSet<int> DestroyedKeys { get; } = new HashSet<int>();
+
+        public const int SoulsPerResurrection = 2;
         public int? FinalBossKillerTeam { get; private set; }
         public List<MatchEvent> Log { get; } = new List<MatchEvent>();
 
@@ -81,6 +92,11 @@ namespace DungeonGen.Core.Net
                 case MatchEventKind.RoundStarted:
                     if (Started) { rejection = "already started"; return false; }
                     Started = true; break;
+                case MatchEventKind.PlayerSpawned:
+                    if (PlayerTeam.ContainsKey(e.A)) { rejection = "already spawned"; return false; }
+                    if (e.B < 0 || e.B >= Descriptor.TeamSpawnRooms.Count) { rejection = "no such team"; return false; }
+                    if (PlayerTeam.Count(kv => kv.Value == e.B) >= Descriptor.Rules.TeamSize) { rejection = "team full"; return false; }
+                    PlayerTeam[e.A] = e.B; break;
                 case MatchEventKind.ExtractsOpened:
                     if (!Started) { rejection = "not started"; return false; }
                     ExtractsOpen = true; break;
@@ -97,6 +113,7 @@ namespace DungeonGen.Core.Net
                     {
                         var key = Layout.Keys.FirstOrDefault(k => k.KeyId == e.A);
                         if (key == null) { rejection = "no such key"; return false; }
+                        if (DestroyedKeys.Contains(e.A)) { rejection = "key was destroyed"; return false; }
                         if (key.DroppedByBoss && !DeadBosses.Contains(key.HolderRoomId)) { rejection = "boss still alive"; return false; }
                         KeyHolder[e.A] = e.B; break;
                     }
@@ -125,6 +142,9 @@ namespace DungeonGen.Core.Net
                 case MatchEventKind.PlayerDied:
                     if (DeadPlayers.Contains(e.A) || ExtractedPlayers.Contains(e.A)) { rejection = "player already out"; return false; }
                     DeadPlayers.Add(e.A);
+                    // A soul for the killer's team, only for player kills, never for teammates.
+                    if (e.B >= 0 && PlayerTeam.TryGetValue(e.B, out int killerTeam) && (!PlayerTeam.TryGetValue(e.A, out int victimTeam) || victimTeam != killerTeam))
+                        Souls[killerTeam] = (Souls.TryGetValue(killerTeam, out int sv) ? sv : 0) + 1;
                     // Their keys fall where they stand; the server re-issues KeyPickedUp when someone grabs them.
                     foreach (var k in KeyHolder.Where(kv => kv.Value == e.A).Select(kv => kv.Key).ToList()) KeyHolder.Remove(k);
                     break;
@@ -143,15 +163,40 @@ namespace DungeonGen.Core.Net
                             if (room.Type != RoomType.Extract) { rejection = "not an extract"; return false; }
                             if (!ExtractsOpen) { rejection = "extracts not open yet"; return false; }
                         }
-                        ExtractedPlayers.Add(e.A); break;
+                        ExtractedPlayers.Add(e.A);
+                        // A vault key is worthless outside this dungeon: extracting with one destroys it.
+                        foreach (var k in KeyHolder.Where(kv => kv.Value == e.A).Select(kv => kv.Key).ToList()) { KeyHolder.Remove(k); DestroyedKeys.Add(k); }
+                        break;
+                    }
+                case MatchEventKind.PlayerResurrected:
+                    {
+                        if (!DeadPlayers.Contains(e.A)) { rejection = "player is not dead"; return false; }
+                        if (ResurrectedOnce.Contains(e.A)) { rejection = "already resurrected this round"; return false; }
+                        if (!PlayerTeam.TryGetValue(e.A, out int team) || !PlayerTeam.TryGetValue(e.B, out int byTeam) || team != byTeam) { rejection = "only a teammate can resurrect"; return false; }
+                        if (DeadPlayers.Contains(e.B) || ExtractedPlayers.Contains(e.B)) { rejection = "resurrector is out"; return false; }
+                        if (e.C < 0 || e.C >= Layout.Rooms.Count || !Layout.Rooms[e.C].HasShrine) { rejection = "no shrine there"; return false; }
+                        if (!Souls.TryGetValue(team, out int souls) || souls < SoulsPerResurrection) { rejection = $"team needs {SoulsPerResurrection} souls"; return false; }
+                        Souls[team] = souls - SoulsPerResurrection;
+                        DeadPlayers.Remove(e.A);
+                        ResurrectedOnce.Add(e.A);
+                        break;
                     }
                 case MatchEventKind.RoundEnded:
+                    // The clock is a weapon: anyone still inside dies and drops everything.
+                    foreach (int p in PlayerTeam.Keys.Where(p => !DeadPlayers.Contains(p) && !ExtractedPlayers.Contains(p)).ToList())
+                    {
+                        DeadPlayers.Add(p);
+                        foreach (var k in KeyHolder.Where(kv => kv.Value == p).Select(kv => kv.Key).ToList()) KeyHolder.Remove(k);
+                    }
                     Ended = true; break;
             }
             Time = Math.Max(Time, e.Time);
             Log.Add(e);
             return true;
         }
+
+        /// <summary>Players still alive and inside.</summary>
+        public IEnumerable<int> PlayersInside => PlayerTeam.Keys.Where(p => !DeadPlayers.Contains(p) && !ExtractedPlayers.Contains(p));
 
         /// <summary>Rebuild a state from the descriptor and a log: what a late joiner or a reconnect does.</summary>
         public static MatchState Replay(MatchDescriptor d, DungeonLayout layout, IEnumerable<MatchEvent> log)

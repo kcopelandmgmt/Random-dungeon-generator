@@ -3,6 +3,34 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-22 · Round, progression and economy rules — LOCKED
+
+Answered in one sitting; each line is a decision, not a default.
+
+1. **Flat characters.** Attributes never change; gear tiers are the only vertical progression.
+   Account-level unlocks are cosmetic or recipes. Boss tuning stays true forever.
+2. **Round: 20 minutes, extracts open at 4.** All teams enter at once. At 20:00 anyone still
+   inside dies and drops everything (`RoundEnded` kills everyone not extracted). The clock is a weapon.
+3. **Resurrection, not spectating.** A dead teammate can be brought back at a **shrine** for
+   **2 souls**; they return **naked**, and the team decides who gives up gear. Souls come from
+   **player kills only** (one per enemy player killed; never teammates), so PvE teams cannot res and
+   PvP has a reward beyond loot. **Once per player per round.** Shrines stand in hub rooms (at
+   least one per dungeon), so a res is always a contested walk. (`PlayerResurrected`, `ShrinePlacer`.)
+4. **Keys are destroyed if extracted unused.** Nothing back. Use it or lose it.
+5. **Weight-only inventory.** No slot grid. Worn and carried kilograms count against carry
+   capacity (30 + 2 per Strength + affixes); over the limit you move slower, down to half speed at
+   double load. Heavy plate weighs 30 kg a set, medium 15, light 6. (`CarryRules`, `ItemBase.WeightKg`.)
+6. **Teams of 1 to 3, one queue.** A solo knows the room boss is built to beat them.
+7. **No gear brackets at launch.** Flat characters bound the gap to ~1.4×; watch the data.
+8. **Consumables: three, from the vendor and ordinary chests.** Health Potion (30% over 3 s,
+   60 s cooldown, 40 silver), Antidote (bottled Purge, 90 s, 60 silver), Salvage Kit (salvage in the
+   dungeon, 25 silver). Silver's sink; a Mender-less trio survives a room boss at duo odds.
+9. **Vendor only at launch.** No player trading or market until there is a population.
+10. **One look at launch.** Themes later, once the loop is proven.
+11. **No spawn protection.** The ring spacing is the only defence.
+12. **Colour only for damage types, with a colour-blind palette option.** Shapes and sounds per
+    element are not a launch requirement.
+
 ## 2026-10-22 · Presentation: top-down camera, 3D assets, mouse-aimed skillshots — LOCKED
 
 Albion Online's model for the camera, Bloodline Champions' for control.

@@ -23,7 +23,7 @@ namespace DungeonGen.Core.Net
             w.Write(s.SpawnCount); w.Write((int)s.SpawnPlacement); w.Write(s.RingJitter); w.Write(s.ExtractRingRadius); w.Write(s.BossRingRadius);
             w.Write(s.BossCount); w.Write(s.VaultCount); w.Write(s.KeyFromBossChance); w.Write(s.KeyMinWalk);
             w.Write(s.MobsEnabled); w.Write(s.MobDensity); w.Write(s.MobBudgetAtEdge); w.Write(s.MobBudgetAtCenter); w.Write(s.MobBudgetLootBonus);
-            w.Write(s.LootEnabled); w.Write(s.LootDensity);
+            w.Write(s.LootEnabled); w.Write(s.LootDensity); w.Write(s.ShrinesEnabled);
             w.Write(s.BossAffixesEnabled); w.Write(s.MaxAffixesPerBoss);
             w.Write(s.ExtractCount); w.Write(s.MinSpawnSeparation); w.Write(s.MinExtractDepth); w.Write(s.LootTiers); w.Write(s.LootRoomFraction);
             w.Write(s.CandidateCount);
@@ -45,7 +45,7 @@ namespace DungeonGen.Core.Net
                 SpawnCount = r.ReadInt32(), SpawnPlacement = (SpawnPlacement)r.ReadInt32(), RingJitter = r.ReadSingle(), ExtractRingRadius = r.ReadSingle(), BossRingRadius = r.ReadSingle(),
                 BossCount = r.ReadInt32(), VaultCount = r.ReadInt32(), KeyFromBossChance = r.ReadSingle(), KeyMinWalk = r.ReadInt32(),
                 MobsEnabled = r.ReadBoolean(), MobDensity = r.ReadSingle(), MobBudgetAtEdge = r.ReadSingle(), MobBudgetAtCenter = r.ReadSingle(), MobBudgetLootBonus = r.ReadSingle(),
-                LootEnabled = r.ReadBoolean(), LootDensity = r.ReadSingle(),
+                LootEnabled = r.ReadBoolean(), LootDensity = r.ReadSingle(), ShrinesEnabled = r.ReadBoolean(),
                 BossAffixesEnabled = r.ReadBoolean(), MaxAffixesPerBoss = r.ReadInt32(),
                 ExtractCount = r.ReadInt32(), MinSpawnSeparation = r.ReadInt32(), MinExtractDepth = r.ReadInt32(), LootTiers = r.ReadInt32(), LootRoomFraction = r.ReadSingle(),
                 CandidateCount = r.ReadInt32(),

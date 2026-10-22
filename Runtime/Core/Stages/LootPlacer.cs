@@ -30,6 +30,9 @@ namespace DungeonGen.Core.Stages
                     default: count = rng.Chance(0.5f) ? 2 : 1; source = LootSource.Chest; break;
                 }
                 count = (int)System.Math.Round(count * s.LootDensity);
+                if (source == LootSource.Chest || source == LootSource.LootRoom)
+                    foreach (var c in Consumable.All)
+                        if (rng.Chance(c.ChestChance)) room.Consumables.Add(c);
                 for (int i = 0; i < count; i++)
                 {
                     var item = LootRoller.Roll(room.LootTier, source, rng, theme);

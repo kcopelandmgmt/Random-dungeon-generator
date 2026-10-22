@@ -26,6 +26,11 @@ namespace DungeonGen.Core
                 };
                 labels[room.Center.X, room.Center.Y] = c;
             }
+            foreach (var r in layout.Rooms.Where(r => r.HasShrine))
+            {
+                var p = r.Center + GridPoint.Left;
+                if (layout.InBounds(p) && layout.Tiles[p.X, p.Y] == TileType.RoomFloor) labels[p.X, p.Y] = '†';
+            }
             foreach (var k in layout.Keys)
             {
                 var p = k.Cell + GridPoint.Right;
@@ -60,7 +65,7 @@ namespace DungeonGen.Core
             {
                 sb.AppendLine();
                 sb.AppendLine($"Seed {layout.Seed}  |  {layout.Rooms.Count} rooms, {layout.Corridors.Count} corridors ({layout.Corridors.Count(c => c.IsLoop)} loops)");
-                sb.AppendLine("S spawn  E extract  B boss  F final boss (X = gated exit)  V vault (locked)  k key  L loot room  H hub  0-9 standard room (digit = loot tier)");
+                sb.AppendLine("S spawn  E extract  B boss  F final boss (X = gated exit)  V vault (locked)  k key  † shrine  L loot room  H hub  0-9 standard room (digit = loot tier)");
                 sb.AppendLine(". room floor  : corridor  + door  = locked door  # wall");
                 foreach (var r in layout.Rooms.OrderBy(r => r.DepthFromSpawn))
                     sb.AppendLine($"  {r.Id,2} {r.Type,-8} depth {r.DepthFromSpawn}  danger {r.Danger:0.00}  tier {r.LootTier}  exits {r.Neighbours.Count}");
