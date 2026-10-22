@@ -1210,8 +1210,10 @@ namespace DungeonGen.Tests
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.BossExitOpened, 13), out why), "final boss alive");
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.BossKilled, 14, layout.FinalBossRoom.Id, 3), out why));
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.BossExitOpened, 15), out why));
-            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerExtracted, 16, 5, layout.FinalBossRoom.Id, 0), out why), "exit belongs to team 3");
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerExtracted, 17, 6, layout.FinalBossRoom.Id, 3), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ExtractStarted, 16, 5, layout.FinalBossRoom.Id), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ExtractStarted, 16, 6, layout.FinalBossRoom.Id), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerExtracted, 25, 5, layout.FinalBossRoom.Id, 0), out why), "exit belongs to team 3");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerExtracted, 25, 6, layout.FinalBossRoom.Id, 3), out why));
 
             var replay = MatchState.Replay(MatchDescriptor.FromBytes(d.ToBytes()), d.BuildAndVerify(), MatchState.LogFromBytes(st.LogToBytes()));
             Assert.Equal(st.Log.Count, replay.Log.Count);
@@ -1354,6 +1356,7 @@ namespace DungeonGen.Tests
             if (key.DroppedByBoss) Assert.True(st.Apply(new MatchEvent(MatchEventKind.BossKilled, 5, key.HolderRoomId, 0), out why));
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.KeyPickedUp, 6, key.KeyId, 1), out why));
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.ExtractsOpened, 240), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ExtractStarted, 290, 1, layout.ExtractRooms.First().Id), out why));
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerExtracted, 300, 1, layout.ExtractRooms.First().Id, 0), out why));
             Assert.False(st.KeyHolder.ContainsKey(key.KeyId));
             Assert.Contains(key.KeyId, st.DestroyedKeys);
@@ -1591,6 +1594,181 @@ namespace DungeonGen.Tests
             // Fire and Poison must not both be red/green-ish in the colour-blind palette.
             var fire = ElementPalette.ColourBlind[DamageType.Fire]; var poison = ElementPalette.ColourBlind[DamageType.Poison];
             Assert.True(System.Math.Abs(fire.b - poison.b) > 0.4f, "fire and poison separate on blue");
+        }
+    }
+}
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+    using DungeonGen.Core.Items;
+    using DungeonGen.Core.Net;
+    using DungeonGen.Core.Profile;
+
+    public class MomentToMomentRuleTests
+    {
+        private static (MatchState st, DungeonLayout layout) Fresh(int seed = 7)
+        {
+            var d = MatchDescriptor.Create(seed, DungeonSettings.ForTeams(8), new MatchRules(), out var layout);
+            var st = new MatchState(d, layout);
+            st.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out _);
+            for (int p = 1; p <= 6; p++) st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, p, (p - 1) / 3), out _);
+            st.Apply(new MatchEvent(MatchEventKind.ExtractsOpened, 240), out _);
+            return (st, layout);
+        }
+
+        [Fact]
+        public void StarterKitIsFreeAndNeverDisplacesBetterGear()
+        {
+            var ch = new Character("Ash", ClassArchetype.DefaultRoster.First(c => c.Name == "Warden"));
+            Vendor.ClaimStarterKit(ch);
+            Assert.Equal(6, ch.Equipment.Items.Count());
+            Assert.All(ch.Equipment.Items, i => Assert.Equal(Rarity.Normal, i.Rarity));
+            var rare = new Item(ItemBase.Armours.First(a => a.Name == "Plate Cuirass"), 3, Rarity.Rare, "Grim Hide", new List<AffixRoll>(), new List<AffixRoll>());
+            ch.Equipment.Equip(rare);
+            Vendor.ClaimStarterKit(ch);
+            Assert.Same(rare, ch.Equipment.Chest);
+            var profile = new PlayerProfile("acct") { Silver = 0 };
+            Vendor.ClaimStarterKit(ch);                       // still free at zero silver
+            Assert.Equal(0, profile.Silver);
+        }
+
+        [Fact]
+        public void FriendlyFireIsFullAndMobsAreObstacles()
+        {
+            Assert.Equal(1f, CombatRules.AllyDamageMultiplier);
+            Assert.True(CombatRules.AlliesAffectedByZones && CombatRules.AlliesAffectedByKnockback);
+            Assert.True(MobRules.LeashToRoom && MobRules.AttackAnyTeam && MobRules.ResetWhenRoomEmpty && !MobRules.Respawn);
+            Assert.True(AudioCues.FootstepsRadiusM > 0 && AudioCues.BossFightRadiusM > AudioCues.FootstepsRadiusM);
+        }
+
+        [Fact]
+        public void ExtractionNeedsAnUndamagedEightSecondChannel()
+        {
+            var (st, layout) = Fresh();
+            int gate = layout.ExtractRooms.First().Id;
+            string why;
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerExtracted, 300, 1, gate, 0), out why));
+            Assert.Contains("channel", why);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ExtractStarted, 300, 1, gate), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerExtracted, 305, 1, gate, 0), out why), "too early");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ExtractInterrupted, 306, 1), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerExtracted, 310, 1, gate, 0), out why), "interrupted");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ExtractStarted, 310, 1, gate), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerExtracted, 318, 1, gate, 0), out why));
+            Assert.False(st.Channels.ContainsKey(1));
+        }
+
+        [Fact]
+        public void BroughtInGearFallsOnTheCorpseAndAnyoneCanLootIt()
+        {
+            var (st, layout) = Fresh();
+            string why;
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ItemRegistered, 1, 100001, 1, 25), out why));   // player 1 brought a Rare
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ItemRegistered, 1, 100002, 1, 2), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemRegistered, 1, 5, 1, 2), out why), "ids below the base are generated items");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 50, 1, 4, 3), out why));
+            Assert.Equal(2, st.Corpses[1].Count);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 51, 100001, 4), out why), "corpse not opened");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ItemDestroyed, 51, 100002), out why));      // server rolled: trashed
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.CorpseOpened, 52, 1, 6), out why));          // a different team opens it
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 53, 100001, 6), out why));
+            Assert.Equal(6, st.ItemOwner[100001]);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 54, 100002, 6), out why), "destroyed");
+            int gate = layout.ExtractRooms.First().Id;
+            st.Apply(new MatchEvent(MatchEventKind.ExtractStarted, 300, 6, gate), out _);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerExtracted, 310, 6, gate, 1), out why));
+            Assert.Equal(25, st.ExtractedValue[6]);
+        }
+
+        [Fact]
+        public void MinimapIsWhatTheServerSaysYouSaw()
+        {
+            var (st, layout) = Fresh();
+            Assert.Single(st.Explored[0]);
+            Assert.Contains(st.Descriptor.TeamSpawnRooms[0], st.Explored[0]);
+            var seen = LineOfSight.VisibleRooms(layout, layout.Rooms[st.Descriptor.TeamSpawnRooms[0]].Doors[0], 10);
+            foreach (int r in seen) Assert.True(st.Apply(new MatchEvent(MatchEventKind.RoomSeen, 5, 0, r), out _));
+            Assert.True(st.Explored[0].Count >= seen.Count);
+            Assert.DoesNotContain(layout.FinalBossRoom.Id, st.Explored[0]);
+        }
+
+        [Fact]
+        public void ShrinesSellConsumablesForASoulToAnyone()
+        {
+            var (st, layout) = Fresh();
+            int shrine = layout.Rooms.First(r => r.HasShrine).Id;
+            string why;
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ShrinePurchase, 10, 1, 0, shrine), out why), "no souls");
+            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 11, 4, 1, 0), out _);
+            Assert.Equal(1, st.Souls[0]);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ShrinePurchase, 12, 1, 0, layout.ExtractRooms.First().Id), out why), "not a shrine");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ShrinePurchase, 12, 1, 0, shrine), out why));
+            Assert.Equal(0, st.Souls[0]);
+        }
+
+        [Fact]
+        public void SeasonTracksValueAndGrantsCosmeticsOnly()
+        {
+            var season = new Season(1, new System.DateTime(2027, 1, 1), new System.DateTime(2027, 4, 1));
+            season.RecordExtraction("a", 600); season.RecordExtraction("b", 3000); season.RecordExtraction("a", 100);
+            season.RecordKill("b");
+            var board = season.Leaderboard().ToList();
+            Assert.Equal("b", board[0].account);
+            Assert.Equal(700, board[1].value);
+            Assert.Contains("cosmetic.cloak.season", season.EarnedUnlocks("a"));
+            Assert.DoesNotContain("cosmetic.weapon_glow.season", season.EarnedUnlocks("a"));
+            Assert.All(Season.Rewards, r => Assert.StartsWith("cosmetic.", r.unlock));
+        }
+
+        [Fact]
+        public void CraftingChargesASilverFee()
+        {
+            var p = new PlayerProfile("acct") { Silver = 5 };
+            p.Materials.Scrap = 1000;
+            var req = new CraftRequest(ItemBase.Weapons[0], 2);
+            Assert.Throws<System.InvalidOperationException>(() => Vendor.Craft(p, req, new DungeonRandom(1)));
+            p.Silver = 100;
+            Vendor.Craft(p, req, new DungeonRandom(1));
+            Assert.Equal(100 - CraftingRules.SilverFee(2), p.Silver);
+            Assert.Equal(40, CraftingRules.SilverFee(2));
+        }
+
+        [Fact]
+        public void TutorialIsOneTeamWithEverythingOnce()
+        {
+            var d = MatchDescriptor.CreateTutorial(3, out var layout);
+            Assert.True(d.Rules.IsTutorial);
+            Assert.Equal(0, d.Rules.ExtractsOpenAfterSeconds);
+            Assert.Single(d.TeamSpawnRooms);
+            Assert.Single(layout.BossRooms);
+            Assert.Single(layout.VaultRooms);
+            Assert.Equal(2, layout.ExtractRooms.Count());
+            Assert.NotNull(layout.FinalBossRoom);
+            Assert.Contains(layout.Rooms, r => r.HasShrine);
+            var back = MatchDescriptor.FromBytes(d.ToBytes());
+            Assert.True(back.Rules.IsTutorial);
+            Assert.Equal(8f, back.Rules.ExtractChannelSeconds);
+            back.BuildAndVerify();
+        }
+
+        [Fact]
+        public void PingsRoundTripAndNeverTouchTheLog()
+        {
+            var ping = new TeamPing(3, 1, PingKind.Enemy, new GridPoint(10, 12), 44.5f);
+            var back = TeamPing.FromBytes(ping.ToBytes());
+            Assert.Equal(ping.Kind, back.Kind); Assert.Equal(ping.Cell, back.Cell); Assert.Equal(ping.Team, back.Team);
+            Assert.DoesNotContain(System.Enum.GetNames(typeof(MatchEventKind)), n => n.Contains("Ping"));
+        }
+
+        [Fact]
+        public void RoundEndDestroysWhatWasLeftInside()
+        {
+            var (st, layout) = Fresh();
+            st.Apply(new MatchEvent(MatchEventKind.ItemRegistered, 1, 100001, 2, 25), out _);
+            st.Apply(new MatchEvent(MatchEventKind.RoundEnded, 1200), out _);
+            Assert.Contains(100001, st.DestroyedItems);
+            Assert.False(st.ItemOwner.ContainsKey(100001));
         }
     }
 }

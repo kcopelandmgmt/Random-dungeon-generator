@@ -599,6 +599,19 @@ and `CandidateCount` if you go there.
 * **Theme and palettes** (`Presentation.cs`): `DungeonTheme.Default` is the one launch look;
   `ElementPalette.Standard` and `.ColourBlind` give every effect its colour.
 
+## Moment-to-moment rules (locked, built)
+
+`docs/DECISIONS.md` has the list; the code: `CombatRules` (full friendly fire; 8 s extraction
+channel reset by damage; chests and corpses open to anyone), `MobRules` (leash, attack anyone,
+reset, no respawn), `AudioCues` (sound radii: the second vision system), `TeamPing` (the only
+comms), `Vendor.ClaimStarterKit` (the free floor), `CraftingRules.SilverFee` (the silver sink),
+`Season` (leaderboard of value extracted, cosmetic rewards), `DungeonSettings.ForTutorial` +
+`MatchRules.Tutorial` (the first dungeon). In `MatchState`: brought-in gear is registered with
+server ids; death moves everything held onto a corpse anyone can open after the server rolls
+which worn half is destroyed; extraction needs a channel started at that gate, undamaged, long
+enough ago; the round end destroys whatever was left inside; a team's minimap is the rooms the
+server has told it it saw; a shrine sells a consumable for one of the team's souls.
+
 ## Presentation: top-down, 3D, line-of-sight (locked)
 
 See `docs/DECISIONS.md` for the reasoning. The short form: a 3D scene viewed from a fixed-yaw

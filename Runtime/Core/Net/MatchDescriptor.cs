@@ -18,9 +18,15 @@ namespace DungeonGen.Core.Net
         public int TeamSize = 3;
         /// <summary>No spawn protection: the ring spacing is the only defence, by decision.</summary>
         public int SpawnGraceSeconds = 0;
+        /// <summary>Seconds a player must stand in a gate, undamaged, to leave. From CombatRules; carried here so clients agree.</summary>
+        public float ExtractChannelSeconds = Combat.CombatRules.ExtractChannelSeconds;
+        /// <summary>Tutorial: one team, a long clock, extracts open at once.</summary>
+        public bool IsTutorial = false;
 
-        public void Write(BinaryWriter w) { w.Write(RoundSeconds); w.Write(ExtractsOpenAfterSeconds); w.Write(BossExitStaysOpen); w.Write(TeamSize); w.Write(SpawnGraceSeconds); }
-        public static MatchRules Read(BinaryReader r) => new MatchRules { RoundSeconds = r.ReadInt32(), ExtractsOpenAfterSeconds = r.ReadInt32(), BossExitStaysOpen = r.ReadBoolean(), TeamSize = r.ReadInt32(), SpawnGraceSeconds = r.ReadInt32() };
+        public static MatchRules Tutorial() => new MatchRules { RoundSeconds = 45 * 60, ExtractsOpenAfterSeconds = 0, TeamSize = 1, IsTutorial = true };
+
+        public void Write(BinaryWriter w) { w.Write(RoundSeconds); w.Write(ExtractsOpenAfterSeconds); w.Write(BossExitStaysOpen); w.Write(TeamSize); w.Write(SpawnGraceSeconds); w.Write(ExtractChannelSeconds); w.Write(IsTutorial); }
+        public static MatchRules Read(BinaryReader r) => new MatchRules { RoundSeconds = r.ReadInt32(), ExtractsOpenAfterSeconds = r.ReadInt32(), BossExitStaysOpen = r.ReadBoolean(), TeamSize = r.ReadInt32(), SpawnGraceSeconds = r.ReadInt32(), ExtractChannelSeconds = r.ReadSingle(), IsTutorial = r.ReadBoolean() };
     }
 
     /// <summary>
@@ -46,6 +52,9 @@ namespace DungeonGen.Core.Net
         {
             Seed = seed; Settings = settings; TeamSpawnRooms = teamSpawnRooms; Rules = rules; ExpectedFingerprint = expectedFingerprint;
         }
+
+        /// <summary>A new player's first dungeon: generated like any other, one team, no queue.</summary>
+        public static MatchDescriptor CreateTutorial(int seed, out DungeonLayout layout) => Create(seed, DungeonSettings.ForTutorial(), MatchRules.Tutorial(), out layout);
 
         /// <summary>Server side: generate, assign teams to spawns, fingerprint. The returned layout is the authoritative one (with loot).</summary>
         public static MatchDescriptor Create(int seed, DungeonSettings settings, MatchRules rules, out DungeonLayout layout)

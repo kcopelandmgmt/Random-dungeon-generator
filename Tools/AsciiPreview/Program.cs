@@ -193,10 +193,13 @@ namespace DungeonGen.Tools
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ItemTaken, 163, firstItem, 1));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ItemTaken, 164, firstItem, 2));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ExtractsOpened, 240));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ExtractStarted, 290, 1, serverLayout.ExtractRooms.First().Id));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.PlayerExtracted, 293, 1, serverLayout.ExtractRooms.First().Id, 0));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.PlayerExtracted, 300, 1, serverLayout.ExtractRooms.First().Id, 0));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.PlayerExtracted, 310, 2, serverLayout.FinalBossRoom.Id, 1));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.BossKilled, 400, serverLayout.FinalBossRoom.Id, 1));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.BossExitOpened, 401));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ExtractStarted, 402, 2, serverLayout.FinalBossRoom.Id));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.PlayerExtracted, 410, 2, serverLayout.FinalBossRoom.Id, 1));
             var logBytes = state.LogToBytes();
             var replayed = DungeonGen.Core.Net.MatchState.Replay(clientDesc, clientLayout, DungeonGen.Core.Net.MatchState.LogFromBytes(logBytes));

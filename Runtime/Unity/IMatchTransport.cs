@@ -18,10 +18,13 @@ namespace DungeonGen.Unity
         void BroadcastEvent(byte[] eventBytes);
         /// <summary>Server → one client, reliable: the full log so far, for a late joiner or reconnect.</summary>
         void SendLog(int clientId, byte[] logBytes);
+        /// <summary>Any → the sender's team only, unreliable is fine: pings. Never reaches another team and never enters the log.</summary>
+        void SendToTeam(int team, byte[] pingBytes);
 
         event Action<byte[]> DescriptorReceived;
         event Action<byte[]> EventReceived;
         event Action<byte[]> LogReceived;
         event Action<int> ClientJoined;
+        event Action<byte[]> TeamMessageReceived;
     }
 }

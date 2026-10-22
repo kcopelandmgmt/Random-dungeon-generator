@@ -3,6 +3,33 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-22 · Moment-to-moment and long-game rules — LOCKED AND BUILT
+
+1. **Free starter kit, always.** `Vendor.ClaimStarterKit`: a Normal tier-0 set of the class's
+   weight plus a weapon of its primary, free, any time. Worth nothing to a killer, everything to a
+   naked player. Nobody is locked out.
+2. **Full friendly fire, full strength.** Your damage, zones, knockbacks and slows apply to your
+   team exactly as to enemies. A teammate kill grants no soul. (`CombatRules`.)
+3. **Boss chests and corpses are open to anyone, immediately.** Corpses persist to round end.
+   (`CorpseOpened`, `ItemTaken` from a corpse; `ContainerOpened` has no team restriction.)
+4. **Extraction is an 8-second channel, reset by any damage.** Gates never close, no capacity.
+   (`ExtractStarted` / `ExtractInterrupted` / `PlayerExtracted` validated against the channel.)
+5. **Mobs leash to their room, attack any team, reset when the room empties, never respawn.** (`MobRules`.)
+6. **Minimap of explored rooms only.** The server derives `RoomSeen` from line of sight; Keen
+   Sense is the only way to see further. (`MatchState.Explored`.)
+7. **Shrines sell consumables for one soul each**, to anyone, so solos have a use for souls.
+   (`ShrinePurchase`.)
+8. **Seasons with a leaderboard of value extracted and cosmetic rewards; a silver fee on
+   crafting.** Stash and silver carry over; only the leaderboard resets. Fee 10/20/40/80/160 silver
+   by level. (`Season`, `CraftingRules.SilverFee`, `MatchState.ExtractedValue`.)
+9. **Sound is full information**: footsteps 12 m, combat 20 m, boss fights 30 m, vault doors 25 m,
+   extraction channels 20 m, through walls at half per wall. (`AudioCues`.)
+10. **Pings only, no built-in voice.** Team-scoped, transient, never logged. (`TeamPing`,
+    `IMatchTransport.SendToTeam`.)
+11. **Solo tutorial dungeon first.** One team, a small dungeon with one boss, one vault, two
+    extracts, extracts open at once, a 45-minute clock. (`DungeonSettings.ForTutorial`,
+    `MatchRules.Tutorial`, `MatchDescriptor.CreateTutorial`.)
+
 ## 2026-10-22 · Round, progression and economy rules — LOCKED AND BUILT
 
 Answered in one sitting; each line is a decision, not a default. Code: `PlayerProfile` /

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using DungeonGen.Core.Items;
 
 namespace DungeonGen.Core.Profile
@@ -10,7 +11,25 @@ namespace DungeonGen.Core.Profile
     /// </summary>
     public static class Vendor
     {
+        /// <summary>Single Normal pieces still cost silver, but a whole starter kit is always free: see ClaimStarterKit.</summary>
         public const int StarterPieceSilver = 20;
+
+        /// <summary>
+        /// The economic floor. A Normal tier-0 set of the character's armour weight and a weapon of
+        /// its primary, free, any time, as many times as needed. Worth almost nothing to a killer, so
+        /// it is not worth farming; worth everything to a naked player, so nobody is locked out.
+        /// </summary>
+        public static Equipment ClaimStarterKit(Character character)
+        {
+            var kit = Equipment.StandardSet(character.Class.Armour, 0, character.Class.Primary);
+            foreach (var item in kit.Items.ToList())
+            {
+                var old = character.Equipment.Equip(item);
+                // Anything the starter kit displaces is still the player's: it goes nowhere, they keep wearing the better piece.
+                if (old != null && old.Rarity != Rarity.Normal) character.Equipment.Equip(old);
+            }
+            return kit;
+        }
 
         public static bool Buy(PlayerProfile p, Consumable c, int n = 1)
         {
@@ -47,9 +66,13 @@ namespace DungeonGen.Core.Profile
             return bag;
         }
 
+        /// <summary>Crafting costs materials and a silver fee: the silver sink that keeps the vendor's buying from inflating forever.</summary>
         public static Item Craft(PlayerProfile p, CraftRequest req, DungeonRandom rng)
         {
+            long fee = CraftingRules.SilverFee(req.Level);
+            if (p.Silver < fee) throw new InvalidOperationException($"Cannot craft: needs {fee} silver fee, have {p.Silver}");
             var item = Crafter.Craft(req, p.Materials, rng);
+            p.Silver -= fee;
             p.Stash.Add(item);
             return item;
         }

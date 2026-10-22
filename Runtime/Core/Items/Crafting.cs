@@ -47,6 +47,8 @@ namespace DungeonGen.Core.Items
         /// <summary>Scrap to craft at an item level: 10, 40, 90, 160, 250.</summary>
         public static int ScrapCost(int level) => 10 * (level + 1) * (level + 1);
         public const int EssencesToGuarantee = 3;
+        /// <summary>Silver fee per craft on top of the materials: 10, 20, 40, 80, 160 by level. The economy's steady silver sink.</summary>
+        public static long SilverFee(int level) => 10L << Math.Max(0, Math.Min(4, level));
         public const int ShardsForRare = 3;
         public const int MaxGuaranteedFamilies = 2;
 

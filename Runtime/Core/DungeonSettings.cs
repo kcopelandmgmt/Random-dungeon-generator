@@ -120,6 +120,18 @@ namespace DungeonGen.Core
             };
         }
 
+        /// <summary>A new player's first dungeon: one team, no rivals, small canvas, one boss, one vault, two extracts, every system present once.</summary>
+        public static DungeonSettings ForTutorial()
+        {
+            return new DungeonSettings
+            {
+                Width = 96, Height = 96, TargetRoomCount = 14,
+                SpawnCount = 1, ExtractCount = 2, BossCount = 1, VaultCount = 1,
+                SpawnPlacement = SpawnPlacement.Ring, MinSpawnSeparation = 1, MinExtractDepth = 2,
+                LoopChance = 0.15f, CandidateCount = 2, MobDensity = 0.7f,
+            };
+        }
+
         public void Validate()
         {
             if (SpawnCount < 1 || SpawnCount > MaxTeams) throw new ArgumentException($"SpawnCount must be 1..{MaxTeams}.");

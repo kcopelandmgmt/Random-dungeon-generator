@@ -20,6 +20,13 @@ namespace DungeonGen.Core.Net
         PlayerDied,        // playerId, killerPlayerId (or -1), roomId
         PlayerExtracted,   // playerId, roomId
         PlayerResurrected, // playerId, byPlayerId, shrineRoomId  (costs the team SoulsPerResurrection; the player returns naked)
+        ItemRegistered,    // itemId (>= BroughtItemIdBase, server-assigned), ownerPlayer, value: gear a player brought in from their stash
+        ItemDestroyed,     // itemId: trashed on death (the server rolls which half)
+        CorpseOpened,      // playerId (the dead one), byPlayer: anyone may loot a corpse
+        ExtractStarted,    // playerId, roomId: the channel begins
+        ExtractInterrupted,// playerId: took damage, channel resets
+        RoomSeen,          // team, roomId: the team's minimap gains the room (server derives from LineOfSight)
+        ShrinePurchase,    // playerId, consumableIndex, shrineRoomId: one soul from the team for a consumable
         RoundEnded,        // t: anyone still inside dies and drops everything
     }
 
@@ -74,6 +81,21 @@ namespace DungeonGen.Core.Net
         public HashSet<int> DestroyedKeys { get; } = new HashSet<int>();
 
         public const int SoulsPerResurrection = 2;
+        public const int SoulsPerShrinePurchase = 1;
+        public const int BroughtItemIdBase = 100000;
+
+        /// <summary>Value (Item.Value) of every item, generated or brought in, for extraction scoring.</summary>
+        public Dictionary<int, int> ItemValue { get; } = new Dictionary<int, int>();
+        /// <summary>playerId → items lying on that player's corpse.</summary>
+        public Dictionary<int, HashSet<int>> Corpses { get; } = new Dictionary<int, HashSet<int>>();
+        public HashSet<int> OpenedCorpses { get; } = new HashSet<int>();
+        public HashSet<int> DestroyedItems { get; } = new HashSet<int>();
+        /// <summary>playerId → (room, time) of a running extraction channel.</summary>
+        public Dictionary<int, (int room, float started)> Channels { get; } = new Dictionary<int, (int, float)>();
+        /// <summary>team → rooms on its minimap.</summary>
+        public Dictionary<int, HashSet<int>> Explored { get; } = new Dictionary<int, HashSet<int>>();
+        /// <summary>playerId → total value walked out with.</summary>
+        public Dictionary<int, long> ExtractedValue { get; } = new Dictionary<int, long>();
         public int? FinalBossKillerTeam { get; private set; }
         public List<MatchEvent> Log { get; } = new List<MatchEvent>();
 
@@ -96,7 +118,49 @@ namespace DungeonGen.Core.Net
                     if (PlayerTeam.ContainsKey(e.A)) { rejection = "already spawned"; return false; }
                     if (e.B < 0 || e.B >= Descriptor.TeamSpawnRooms.Count) { rejection = "no such team"; return false; }
                     if (PlayerTeam.Count(kv => kv.Value == e.B) >= Descriptor.Rules.TeamSize) { rejection = "team full"; return false; }
-                    PlayerTeam[e.A] = e.B; break;
+                    PlayerTeam[e.A] = e.B;
+                    if (!Explored.ContainsKey(e.B)) Explored[e.B] = new HashSet<int>();
+                    Explored[e.B].Add(Descriptor.TeamSpawnRooms[e.B]);
+                    break;
+                case MatchEventKind.ItemRegistered:
+                    if (e.A < BroughtItemIdBase) { rejection = "brought-in item ids start at 100000"; return false; }
+                    if (ItemValue.ContainsKey(e.A)) { rejection = "item id in use"; return false; }
+                    if (!PlayerTeam.ContainsKey(e.B)) { rejection = "unknown player"; return false; }
+                    ItemValue[e.A] = e.C; ItemOwner[e.A] = e.B; break;
+                case MatchEventKind.ItemDestroyed:
+                    if (!ItemOwner.ContainsKey(e.A) && !Corpses.Values.Any(c => c.Contains(e.A))) { rejection = "no such item"; return false; }
+                    ItemOwner.Remove(e.A);
+                    foreach (var c in Corpses.Values) c.Remove(e.A);
+                    DestroyedItems.Add(e.A); break;
+                case MatchEventKind.CorpseOpened:
+                    if (!Corpses.ContainsKey(e.A)) { rejection = "no corpse"; return false; }
+                    if (DeadPlayers.Contains(e.B)) { rejection = "player is dead"; return false; }
+                    OpenedCorpses.Add(e.A); break;
+                case MatchEventKind.ExtractStarted:
+                    {
+                        if (DeadPlayers.Contains(e.A) || ExtractedPlayers.Contains(e.A)) { rejection = "player already out"; return false; }
+                        var room = Layout.Rooms[e.B];
+                        bool viaBoss = Layout.BossExit != null && room.Id == Layout.BossExit.RoomId;
+                        if (!viaBoss && room.Type != RoomType.Extract) { rejection = "not an extract"; return false; }
+                        if (!viaBoss && !ExtractsOpen) { rejection = "extracts not open yet"; return false; }
+                        if (viaBoss && !BossExitOpen) { rejection = "boss exit closed"; return false; }
+                        Channels[e.A] = (e.B, e.Time); break;
+                    }
+                case MatchEventKind.ExtractInterrupted:
+                    if (!Channels.Remove(e.A)) { rejection = "not channelling"; return false; }
+                    break;
+                case MatchEventKind.RoomSeen:
+                    if (e.B < 0 || e.B >= Layout.Rooms.Count) { rejection = "no such room"; return false; }
+                    if (!Explored.ContainsKey(e.A)) Explored[e.A] = new HashSet<int>();
+                    Explored[e.A].Add(e.B); break;
+                case MatchEventKind.ShrinePurchase:
+                    {
+                        if (DeadPlayers.Contains(e.A) || !PlayerTeam.TryGetValue(e.A, out int team)) { rejection = "player not alive"; return false; }
+                        if (e.B < 0 || e.B >= Items.Consumable.All.Count) { rejection = "no such consumable"; return false; }
+                        if (e.C < 0 || e.C >= Layout.Rooms.Count || !Layout.Rooms[e.C].HasShrine) { rejection = "no shrine there"; return false; }
+                        if (!Souls.TryGetValue(team, out int souls) || souls < SoulsPerShrinePurchase) { rejection = "team has no souls"; return false; }
+                        Souls[team] = souls - SoulsPerShrinePurchase; break;
+                    }
                 case MatchEventKind.ExtractsOpened:
                     if (!Started) { rejection = "not started"; return false; }
                     ExtractsOpen = true; break;
@@ -104,11 +168,23 @@ namespace DungeonGen.Core.Net
                     if (e.A < 0 || e.A >= Layout.Rooms.Count) { rejection = "no such room"; return false; }
                     OpenedContainers.Add(e.A); break;
                 case MatchEventKind.ItemTaken:
-                    if (!Index.Items.ContainsKey(e.A)) { rejection = "no such item"; return false; }
-                    if (ItemOwner.ContainsKey(e.A)) { rejection = "already taken"; return false; }
-                    if (!OpenedContainers.Contains(Index.ItemRoom[e.A])) { rejection = "container not opened"; return false; }
-                    if (DeadPlayers.Contains(e.B)) { rejection = "player is dead"; return false; }
-                    ItemOwner[e.A] = e.B; break;
+                    {
+                        if (DeadPlayers.Contains(e.B)) { rejection = "player is dead"; return false; }
+                        if (DestroyedItems.Contains(e.A)) { rejection = "item destroyed"; return false; }
+                        var corpse = Corpses.FirstOrDefault(kv => kv.Value.Contains(e.A));
+                        if (corpse.Value != null)
+                        {
+                            if (!OpenedCorpses.Contains(corpse.Key)) { rejection = "corpse not opened"; return false; }
+                            corpse.Value.Remove(e.A);
+                            ItemOwner[e.A] = e.B; break;
+                        }
+                        if (!Index.Items.ContainsKey(e.A)) { rejection = "no such item"; return false; }
+                        if (ItemOwner.ContainsKey(e.A)) { rejection = "already taken"; return false; }
+                        if (!OpenedContainers.Contains(Index.ItemRoom[e.A])) { rejection = "container not opened"; return false; }
+                        ItemOwner[e.A] = e.B;
+                        if (!ItemValue.ContainsKey(e.A)) ItemValue[e.A] = Index.Items[e.A].Value;
+                        break;
+                    }
                 case MatchEventKind.KeyPickedUp:
                     {
                         var key = Layout.Keys.FirstOrDefault(k => k.KeyId == e.A);
@@ -142,6 +218,13 @@ namespace DungeonGen.Core.Net
                 case MatchEventKind.PlayerDied:
                     if (DeadPlayers.Contains(e.A) || ExtractedPlayers.Contains(e.A)) { rejection = "player already out"; return false; }
                     DeadPlayers.Add(e.A);
+                    Channels.Remove(e.A);
+                    // Everything they held goes onto their corpse, open to anyone; the server then rolls which half of the worn gear is destroyed.
+                    {
+                        var held = ItemOwner.Where(kv => kv.Value == e.A).Select(kv => kv.Key).ToList();
+                        foreach (int it in held) ItemOwner.Remove(it);
+                        Corpses[e.A] = new HashSet<int>(held);
+                    }
                     // A soul for the killer's team, only for player kills, never for teammates.
                     if (e.B >= 0 && PlayerTeam.TryGetValue(e.B, out int killerTeam) && (!PlayerTeam.TryGetValue(e.A, out int victimTeam) || victimTeam != killerTeam))
                         Souls[killerTeam] = (Souls.TryGetValue(killerTeam, out int sv) ? sv : 0) + 1;
@@ -163,7 +246,12 @@ namespace DungeonGen.Core.Net
                             if (room.Type != RoomType.Extract) { rejection = "not an extract"; return false; }
                             if (!ExtractsOpen) { rejection = "extracts not open yet"; return false; }
                         }
+                        // The channel: started here, undamaged since, and long enough ago.
+                        if (!Channels.TryGetValue(e.A, out var ch) || ch.room != e.B) { rejection = "no extraction channel at this gate"; return false; }
+                        if (e.Time - ch.started < Descriptor.Rules.ExtractChannelSeconds - 0.01f) { rejection = $"channel needs {Descriptor.Rules.ExtractChannelSeconds:0} s"; return false; }
+                        Channels.Remove(e.A);
                         ExtractedPlayers.Add(e.A);
+                        ExtractedValue[e.A] = ItemOwner.Where(kv => kv.Value == e.A).Sum(kv => (long)(ItemValue.TryGetValue(kv.Key, out int v) ? v : 0));
                         // A vault key is worthless outside this dungeon: extracting with one destroys it.
                         foreach (var k in KeyHolder.Where(kv => kv.Value == e.A).Select(kv => kv.Key).ToList()) { KeyHolder.Remove(k); DestroyedKeys.Add(k); }
                         break;
@@ -186,7 +274,10 @@ namespace DungeonGen.Core.Net
                     foreach (int p in PlayerTeam.Keys.Where(p => !DeadPlayers.Contains(p) && !ExtractedPlayers.Contains(p)).ToList())
                     {
                         DeadPlayers.Add(p);
+                        Channels.Remove(p);
                         foreach (var k in KeyHolder.Where(kv => kv.Value == p).Select(kv => kv.Key).ToList()) KeyHolder.Remove(k);
+                        var held = ItemOwner.Where(kv => kv.Value == p).Select(kv => kv.Key).ToList();
+                        foreach (int it in held) { ItemOwner.Remove(it); DestroyedItems.Add(it); }   // nothing left behind survives the round
                     }
                     Ended = true; break;
             }
