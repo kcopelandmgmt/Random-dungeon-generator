@@ -615,8 +615,9 @@ server has told it it saw; a shrine sells a consumable for one of the team's sou
 ## Presentation: top-down, 3D, line-of-sight (locked)
 
 See `docs/DECISIONS.md` for the reasoning. The short form: a 3D scene viewed from a fixed-yaw
-camera pitched 55–60° (`TopDownCamera`), one cell = 2 m (`DungeonBuilder.CellSize`), WASD plus
-mouse-aimed skillshots with floor telegraphs, and **line-of-sight fog**: walls and locked doors
+camera pitched 55–60° (`TopDownCamera`), one cell = 2 m (`DungeonBuilder.CellSize`), **WASD plus
+mouse aim** as the only control scheme (`MovementRules`: 5 m/s base, screen-relative, facing
+follows the mouse, no click-to-move, no universal dodge) with floor telegraphs, and **line-of-sight fog**: walls and locked doors
 occlude, you see what your character could see. The vision rule is in the core (`LineOfSight`:
 `CanSee`, `VisibleCells`, `VisibleRooms`) so the server can enforce it, use it to decide what to
 replicate to whom, and settle "did they see that" disputes, and the client draws the same answer.

@@ -3,6 +3,24 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-22 · Movement: WASD with mouse aim — LOCKED
+
+WASD, screen-relative under the fixed-yaw camera (W is up the screen, which is grid north), the
+character faces the mouse, movement is independent of facing. **No click-to-move**, not even as an
+option: in PvP one scheme would be strictly worse in a fight and its players would learn it the
+hard way. A controller maps to the same scheme (left stick move, right stick aim). No universal
+dodge: mobility belongs to specs (Vault Back, Tumble, Blink, Cinder Step, Charge, Smoke Step).
+
+Why not Albion's click-to-move: full friendly fire, mouse-aimed skillshots, zones that block your
+own team, knockbacks and an extraction channel that any hit resets all assume a player can move one
+way while aiming another and sidestep a telegraph without turning. Path of Exile 2 moved to WASD
+for the same reason. Cost accepted: eight-direction locomotion blends per class, and one-handed
+accessibility traded for a controller scheme.
+
+Numbers (`MovementRules`): base 5 m/s = 2.5 cells/s. A Warden in plate ~4.4 m/s, a Shade ~5.3.
+A corridor crossed in under a second; spawn to extract on the sample seed 13–20 s; the 8-team
+dungeon edge to edge in about a minute.
+
 ## 2026-10-22 · Moment-to-moment and long-game rules — LOCKED AND BUILT
 
 1. **Free starter kit, always.** `Vendor.ClaimStarterKit`: a Normal tier-0 set of the class's

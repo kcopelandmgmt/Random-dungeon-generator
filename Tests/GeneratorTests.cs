@@ -1772,3 +1772,38 @@ namespace DungeonGen.Tests
         }
     }
 }
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+    using DungeonGen.Core.Items;
+
+    public class MovementTests
+    {
+        [Fact]
+        public void WasdWithMouseAimIsTheOnlyScheme()
+        {
+            Assert.True(MovementRules.ScreenRelative && MovementRules.FacingFollowsAim);
+            Assert.False(MovementRules.ClickToMove);
+            Assert.False(MovementRules.UniversalDodge);
+        }
+
+        [Fact]
+        public void SpeedsLandWhereTheDesignSaysTheyDo()
+        {
+            var warden = ClassArchetype.DefaultRoster.First(c => c.Name == "Warden");
+            var shade = ClassArchetype.DefaultRoster.First(c => c.Name == "Shade");
+            var w = PlayerStats.For(warden, Equipment.StandardSet(warden.Armour, 0, warden.Primary));
+            var s = PlayerStats.For(shade, Equipment.StandardSet(shade.Armour, 0, shade.Primary));
+            float wSpeed = MovementRules.SpeedMps(w, 0f), sSpeed = MovementRules.SpeedMps(s, 0f);
+            Assert.InRange(wSpeed, 4.2f, 4.6f);      // heavy armour, low DEX
+            Assert.InRange(sSpeed, 5.1f, 5.5f);      // light, high DEX
+            Assert.True(sSpeed > wSpeed);
+            // The 8-team dungeon (156 cells) edge to edge in about a minute at base speed.
+            Assert.InRange(MovementRules.SecondsForCells(156, MovementRules.BaseSpeedMps), 55f, 70f);
+            // A spawn-to-extract walk on the sample seed (32-50 cells) is 13-20 s.
+            Assert.InRange(MovementRules.SecondsForCells(40, MovementRules.BaseSpeedMps), 14f, 18f);
+            Assert.True(MovementRules.SpeedMps(w, w.CarryKg * 2f) < wSpeed * 0.6f, "double load halves speed");
+        }
+    }
+}
