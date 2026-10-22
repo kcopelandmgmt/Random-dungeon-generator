@@ -558,6 +558,17 @@ and `CandidateCount` if you go there.
 | `Warnings` | Non-fatal generation notes; log them in the editor. |
 | `Settings` | The settings the layout was generated with (for `ClientView.Redact`). |
 
+## Presentation: top-down, 3D, line-of-sight (locked)
+
+See `docs/DECISIONS.md` for the reasoning. The short form: a 3D scene viewed from a fixed-yaw
+camera pitched 55–60° (`TopDownCamera`), one cell = 2 m (`DungeonBuilder.CellSize`), WASD plus
+mouse-aimed skillshots with floor telegraphs, and **line-of-sight fog**: walls and locked doors
+occlude, you see what your character could see. The vision rule is in the core (`LineOfSight`:
+`CanSee`, `VisibleCells`, `VisibleRooms`) so the server can enforce it, use it to decide what to
+replicate to whom, and settle "did they see that" disputes, and the client draws the same answer.
+From a doorway you see the room you are leaving and the one ahead, at most three; a locked door is
+seen, never seen through.
+
 ## Multiplayer architecture
 
 The generator was built deterministic so that the dungeon never has to cross the wire. The

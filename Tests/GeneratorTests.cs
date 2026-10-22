@@ -1221,3 +1221,55 @@ namespace DungeonGen.Tests
         }
     }
 }
+
+namespace DungeonGen.Tests
+{
+    public class LineOfSightTests
+    {
+        [Fact]
+        public void WallsBlockAndFloorsDoNot()
+        {
+            var layout = DungeonGenerator.Generate(DungeonSettings.ForTeams(8), 7);
+            var room = layout.Rooms.First(r => r.Type == RoomType.Standard && r.Bounds.Width >= 7 && r.Bounds.Height >= 7);
+            var a = new GridPoint(room.Bounds.X + 1, room.Bounds.Y + 1);
+            var b = new GridPoint(room.Bounds.XMax - 2, room.Bounds.YMax - 2);
+            Assert.True(LineOfSight.CanSee(layout, a, b));
+            var outside = new GridPoint(room.Bounds.XMax + 3, room.Center.Y);   // beyond the wall ring
+            Assert.False(LineOfSight.CanSee(layout, room.Center, outside));
+        }
+
+        [Fact]
+        public void YouCannotSeeIntoAVaultThroughItsLockedDoor()
+        {
+            var layout = DungeonGenerator.Generate(DungeonSettings.ForTeams(8), 7);
+            var vault = layout.VaultRooms.First();
+            var door = vault.Doors[0];
+            var outsideDoor = GridPoint.Cardinals.Select(d => door + d).First(p => layout.IsWalkable(p) && !vault.Bounds.Contains(p));
+            Assert.False(LineOfSight.CanSee(layout, outsideDoor, vault.Center));
+            var seen = LineOfSight.VisibleRooms(layout, outsideDoor, 12);
+            Assert.DoesNotContain(vault.Id, seen);
+        }
+
+        [Fact]
+        public void VisibleCellsStayInRangeAndIncludeTheWallsYouLookAt()
+        {
+            var layout = DungeonGenerator.Generate(DungeonSettings.ForTeams(8), 7);
+            var room = layout.Rooms.First(r => r.Type == RoomType.Standard);
+            var cells = LineOfSight.VisibleCells(layout, room.Center, 6);
+            Assert.All(cells, c => Assert.True((c.X - room.Center.X) * (c.X - room.Center.X) + (c.Y - room.Center.Y) * (c.Y - room.Center.Y) <= 36));
+            Assert.Contains(cells, c => layout.Tiles[c.X, c.Y] == TileType.Wall);
+            Assert.True(cells.Count(c => layout.IsWalkable(c)) >= 9);
+        }
+
+        [Fact]
+        public void FromACorridorYouSeeTheRoomsItOpensInto()
+        {
+            var layout = DungeonGenerator.Generate(DungeonSettings.ForTeams(8), 7);
+            var spawn = layout.SpawnRooms.First();
+            var door = spawn.Doors[0];
+            var seen = LineOfSight.VisibleRooms(layout, door, 10);
+            Assert.Contains(spawn.Id, seen);
+            Assert.True(seen.Count <= 3, $"a doorway should not reveal the dungeon: {seen.Count} rooms");
+        }
+    }
+}

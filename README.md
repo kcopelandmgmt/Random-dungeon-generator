@@ -49,6 +49,10 @@ It switches to ring placement (spawns around the edge, extracts on an inner ring
 and keeps the fairest of four candidate layouts per seed. `Layout.Fairness` reports every team's walk
 to its nearest extract and the vault.
 
+**Presentation (locked).** Top-down camera over a 3D scene, fixed yaw, 2 m cells, mouse-aimed
+skillshots, line-of-sight fog computed in the core (`LineOfSight`) and a `TopDownCamera` rig.
+Decisions and reasoning live in `docs/DECISIONS.md`.
+
 **Multiplayer.** `Runtime/Core/Net`: `MatchDescriptor` (seed + settings + team spawns + rules +
 fingerprint, ~250 bytes), `LayoutFingerprint` and `SettingsCodec` for desync detection,
 `LayoutIndex` for stable network ids and interest management, `ClientView` to strip loot from what

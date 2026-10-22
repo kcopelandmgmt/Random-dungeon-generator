@@ -25,9 +25,9 @@ namespace DungeonGen.Unity
         public bool BuildOnStart = true;
 
         [Header("World mapping")]
-        [Tooltip("World units per grid cell.")]
+        [Tooltip("World units per grid cell. Locked at 2 m: a 9-cell boss arena is 18 m across, a corridor is a 2 m hall.")]
         public float CellSize = 2f;
-        [Tooltip("True: X/Z ground plane (3D). False: X/Y plane (2D).")]
+        [Tooltip("True: X/Z ground plane (the locked top-down 3D presentation). False: X/Y plane for a 2D prototype.")]
         public bool UseXZPlane = true;
 
         [Header("Tile prefabs")]
