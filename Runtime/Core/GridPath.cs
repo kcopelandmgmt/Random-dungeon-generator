@@ -11,9 +11,10 @@ namespace DungeonGen.Core
     public static class GridPath
     {
         /// <summary>Shortest 4-connected walkable path from <paramref name="from"/> to <paramref name="to"/>, inclusive, or null. Optionally confined to one room plus its leash margin.</summary>
-        public static List<GridPoint> Find(DungeonLayout layout, GridPoint from, GridPoint to, int? leashRoom = null, int leashCells = 0, int maxCost = 4000)
+        public static List<GridPoint> Find(DungeonLayout layout, GridPoint from, GridPoint to, int? leashRoom = null, int leashCells = 0, int maxCost = 4000, ISet<GridPoint> closedDoors = null)
         {
             if (!layout.IsWalkable(from) || !layout.IsWalkable(to)) return null;
+            if (closedDoors != null && closedDoors.Contains(to)) return null;
             int w = layout.Width, h = layout.Height;
             var g = new int[w * h];
             var came = new int[w * h];
@@ -44,6 +45,7 @@ namespace DungeonGen.Core
                 {
                     var n = p + d;
                     if (!layout.IsWalkable(n)) continue;
+                    if (closedDoors != null && closedDoors.Contains(n)) continue;   // a shut door stops mobs too
                     if (leash.HasValue && !leash.Value.Contains(n)) continue;
                     int ni = Idx(n);
                     if (closed[ni]) continue;

@@ -23,6 +23,7 @@ namespace DungeonGen.Unity
         public float CornerSizePx = 220f, MarginPx = 12f;
         public Color RoomColour = new Color(0.75f, 0.75f, 0.75f, 0.9f), HereColour = new Color(0.95f, 0.95f, 0.95f, 1f), CorridorColour = new Color(0.55f, 0.55f, 0.55f, 0.9f);
         public Color SelfColour = Color.white, TeammateColour = new Color(0.3f, 0.8f, 1f), PingColour = Color.yellow, LockedColour = new Color(1f, 0.6f, 0.1f), ExitColour = Color.green;
+        public Color ClosedDoorColour = new Color(0.9f, 0.3f, 0.3f), HazardColour = new Color(1f, 0.2f, 0.6f), DisarmedColour = new Color(0.5f, 0.5f, 0.5f);
 
         private readonly Dictionary<int, GridPoint> _cells = new Dictionary<int, GridPoint>();
         private static Texture2D _white;
@@ -74,7 +75,8 @@ namespace DungeonGen.Unity
             }
             foreach (var m in model.Markers)
             {
-                GUI.color = m.Kind == MiniMapMarkerKind.Self ? SelfColour : m.Kind == MiniMapMarkerKind.Teammate ? TeammateColour : m.Kind == MiniMapMarkerKind.Ping ? PingColour : m.Kind == MiniMapMarkerKind.LockedDoor ? LockedColour : ExitColour;
+                GUI.color = m.Kind == MiniMapMarkerKind.Self ? SelfColour : m.Kind == MiniMapMarkerKind.Teammate ? TeammateColour : m.Kind == MiniMapMarkerKind.Ping ? PingColour : m.Kind == MiniMapMarkerKind.LockedDoor ? LockedColour
+                          : m.Kind == MiniMapMarkerKind.ClosedDoor ? ClosedDoorColour : m.Kind == MiniMapMarkerKind.Hazard ? HazardColour : m.Kind == MiniMapMarkerKind.DisarmedHazard ? DisarmedColour : ExitColour;
                 float s = m.Kind == MiniMapMarkerKind.Self || m.Kind == MiniMapMarkerKind.Teammate ? 6f : 5f;
                 GUI.DrawTexture(new Rect(origin.x + (m.Cell.X + 0.5f) * scale - s / 2f, origin.y - (m.Cell.Y + 0.5f) * scale - s / 2f, s, s), _white);
             }

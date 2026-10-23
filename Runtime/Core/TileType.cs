@@ -9,5 +9,8 @@ namespace DungeonGen.Core
         Corridor = 3,
         Door = 4,       // Transition cell between a room and a corridor
         LockedDoor = 5, // Door into a Vault; impassable without the matching key
+        Pillar = 6,     // Room interior: blocks movement and sight
+        LowWall = 7,    // Room interior: blocks movement and projectiles, not sight (cover)
+        Pit = 8,        // Hazard: collapsed floor; blocks movement, not sight
     }
 }

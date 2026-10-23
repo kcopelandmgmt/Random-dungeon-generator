@@ -12,14 +12,17 @@ namespace DungeonGen.Core
     public static class LineOfSight
     {
         /// <summary>Does a cell stop sight? Locked doors do; ordinary doors do not (a door is an opening in the layout, the game may close it).</summary>
-        public static bool Blocks(DungeonLayout layout, GridPoint p)
+        public static bool Blocks(DungeonLayout layout, GridPoint p) => Blocks(layout, p, null);
+        /// <summary>As above, with the doors players have shut this round (<see cref="Net.MatchState.ClosedDoors"/>). Pillars block; low walls and pits do not.</summary>
+        public static bool Blocks(DungeonLayout layout, GridPoint p, ISet<GridPoint> closedDoors)
         {
             var t = layout.GetTile(p);
-            return t == TileType.Wall || t == TileType.Void || t == TileType.LockedDoor;
+            return t == TileType.Wall || t == TileType.Void || t == TileType.LockedDoor || t == TileType.Pillar || (closedDoors != null && t == TileType.Door && closedDoors.Contains(p));
         }
 
         /// <summary>Is there an unobstructed line from <paramref name="from"/> to <paramref name="to"/>? Blocking cells are visible but not seen through.</summary>
-        public static bool CanSee(DungeonLayout layout, GridPoint from, GridPoint to, int maxRange = int.MaxValue)
+        public static bool CanSee(DungeonLayout layout, GridPoint from, GridPoint to, int maxRange = int.MaxValue) => CanSee(layout, from, to, null, maxRange);
+        public static bool CanSee(DungeonLayout layout, GridPoint from, GridPoint to, ISet<GridPoint> closedDoors, int maxRange = int.MaxValue)
         {
             int dx = Math.Abs(to.X - from.X), dy = Math.Abs(to.Y - from.Y);
             if (maxRange != int.MaxValue && (long)dx * dx + (long)dy * dy > (long)maxRange * maxRange) return false;
@@ -30,7 +33,7 @@ namespace DungeonGen.Core
             {
                 if (x == to.X && y == to.Y) return true;
                 var here = new GridPoint(x, y);
-                if (here != from && Blocks(layout, here)) return false;
+                if (here != from && Blocks(layout, here, closedDoors)) return false;
                 int e2 = 2 * err;
                 if (e2 > -dy) { err -= dy; x += sx; }
                 if (e2 < dx) { err += dx; y += sy; }
@@ -42,21 +45,22 @@ namespace DungeonGen.Core
         /// included (you see the wall, not past it). Simple ray casting to the perimeter of the
         /// range square; cheap enough for one call per player per tick at the ranges we use (8-14 cells).
         /// </summary>
-        public static HashSet<GridPoint> VisibleCells(DungeonLayout layout, GridPoint origin, int range)
+        public static HashSet<GridPoint> VisibleCells(DungeonLayout layout, GridPoint origin, int range) => VisibleCells(layout, origin, range, null);
+        public static HashSet<GridPoint> VisibleCells(DungeonLayout layout, GridPoint origin, int range, ISet<GridPoint> closedDoors)
         {
             var seen = new HashSet<GridPoint> { origin };
             int r = range;
             for (int i = -r; i <= r; i++)
             {
-                CastRay(layout, origin, new GridPoint(origin.X + i, origin.Y - r), r, seen);
-                CastRay(layout, origin, new GridPoint(origin.X + i, origin.Y + r), r, seen);
-                CastRay(layout, origin, new GridPoint(origin.X - r, origin.Y + i), r, seen);
-                CastRay(layout, origin, new GridPoint(origin.X + r, origin.Y + i), r, seen);
+                CastRay(layout, origin, new GridPoint(origin.X + i, origin.Y - r), r, seen, closedDoors);
+                CastRay(layout, origin, new GridPoint(origin.X + i, origin.Y + r), r, seen, closedDoors);
+                CastRay(layout, origin, new GridPoint(origin.X - r, origin.Y + i), r, seen, closedDoors);
+                CastRay(layout, origin, new GridPoint(origin.X + r, origin.Y + i), r, seen, closedDoors);
             }
             return seen;
         }
 
-        private static void CastRay(DungeonLayout layout, GridPoint from, GridPoint to, int range, HashSet<GridPoint> seen)
+        private static void CastRay(DungeonLayout layout, GridPoint from, GridPoint to, int range, HashSet<GridPoint> seen, ISet<GridPoint> closedDoors)
         {
             int dx = Math.Abs(to.X - from.X), dy = Math.Abs(to.Y - from.Y);
             int x = from.X, y = from.Y;
@@ -69,7 +73,7 @@ namespace DungeonGen.Core
                 int ox = x - from.X, oy = y - from.Y;
                 if (ox * ox + oy * oy > r2) return;
                 if (layout.InBounds(here)) seen.Add(here);
-                if (here != from && Blocks(layout, here)) return;
+                if (here != from && Blocks(layout, here, closedDoors)) return;
                 if (x == to.X && y == to.Y) return;
                 int e2 = 2 * err;
                 if (e2 > -dy) { err -= dy; x += sx; }
@@ -78,13 +82,14 @@ namespace DungeonGen.Core
         }
 
         /// <summary>Rooms with at least one visible floor cell from here: the rooms a player can currently see into.</summary>
-        public static HashSet<int> VisibleRooms(DungeonLayout layout, GridPoint origin, int range)
+        public static HashSet<int> VisibleRooms(DungeonLayout layout, GridPoint origin, int range) => VisibleRooms(layout, origin, range, null);
+        public static HashSet<int> VisibleRooms(DungeonLayout layout, GridPoint origin, int range, ISet<GridPoint> closedDoors)
         {
             var rooms = new HashSet<int>();
-            foreach (var c in VisibleCells(layout, origin, range))
+            foreach (var c in VisibleCells(layout, origin, range, closedDoors))
             {
                 int id = layout.RoomIdAt[c.X, c.Y];
-                if (id >= 0 && layout.IsWalkable(c)) rooms.Add(id);   // a locked door is seen, not seen through
+                if (id >= 0 && layout.IsWalkable(c) && !(closedDoors != null && closedDoors.Contains(c))) rooms.Add(id);   // a locked or closed door is seen, not seen through
             }
             return rooms;
         }

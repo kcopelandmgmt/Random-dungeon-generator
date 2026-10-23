@@ -96,6 +96,12 @@ namespace DungeonGen.Core
         /// <summary>Generate this many playable layouts (from seeds derived from the requested one) and keep the fairest. 1 = take the first. Still deterministic.</summary>
         public int CandidateCount = 1;
 
+        /// <summary>Pillars and low walls inside rooms. Off for the tutorial's first room? No: off only for tools that want bare rooms.</summary>
+        public bool InteriorsEnabled = true;
+        /// <summary>Traps, vents, pits and lava, placed by depth. 0 disables.</summary>
+        public bool HazardsEnabled = true;
+        public float HazardDensity = 1f;
+
         /// <summary>Which dungeon tier this is (1..3). Set by <see cref="DungeonTier.Apply"/>; informational to the generator, decisive for the gate and the leaderboards.</summary>
         public int Tier = 1;
         /// <summary>Added to every room's loot tier when rolling items. Tier II is +2, Tier III +4.</summary>

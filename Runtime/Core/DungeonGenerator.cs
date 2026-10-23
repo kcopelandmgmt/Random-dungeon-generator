@@ -77,6 +77,8 @@ namespace DungeonGen.Core
             layout.Rooms.AddRange(rooms);
             layout.Corridors.AddRange(corridors);
             Rasterizer.Paint(layout, rooms, corridors);
+            InteriorPlacer.Assign(layout, s, rng.Fork(7));
+            HazardPlacer.Assign(layout, s, rng.Fork(8));
             DangerMapper.Assign(layout, s);
             MobPlacer.Assign(layout, s, rng.Fork(5));
             ShrinePlacer.Assign(layout, s);

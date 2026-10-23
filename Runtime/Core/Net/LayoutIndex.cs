@@ -28,6 +28,13 @@ namespace DungeonGen.Core.Net
 
         public const int MobPackIdBase = 1000;
         public const int KeyIdBase = 5000;
+        /// <summary>Door network id → (room, cell). Ids = DoorRules.IdBase + index in room order, door order.</summary>
+        public IReadOnlyDictionary<int, (int room, GridPoint cell)> Doors => _doors;
+        public IReadOnlyDictionary<GridPoint, int> DoorIdAt => _doorIds;
+        private readonly Dictionary<int, (int, GridPoint)> _doors = new Dictionary<int, (int, GridPoint)>();
+        private readonly Dictionary<GridPoint, int> _doorIds = new Dictionary<GridPoint, int>();
+        public IReadOnlyDictionary<int, Hazard> Hazards => _hazards;
+        private readonly Dictionary<int, Hazard> _hazards = new Dictionary<int, Hazard>();
 
         public LayoutIndex(DungeonLayout layout)
         {
@@ -41,6 +48,11 @@ namespace DungeonGen.Core.Net
                 }
                 if (room.Mobs != null) _packs[MobPackIdBase + room.Id] = room.Mobs;
             }
+            int door = DoorRules.IdBase;
+            foreach (var room in layout.Rooms.OrderBy(r => r.Id))
+                foreach (var d in room.Doors)
+                    if (layout.GetTile(d) == TileType.Door) { _doors[door] = (room.Id, d); _doorIds[d] = door; door++; }   // vault locks are keys' business
+            foreach (var hz in layout.Hazards) _hazards[hz.Id] = hz;
         }
 
         public int IdOf(Item it) => _itemIds[it];

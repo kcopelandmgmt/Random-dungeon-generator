@@ -43,6 +43,10 @@ namespace DungeonGen.Core.Net
         public List<(int item, int winner)> Winners = new List<(int, int)>();
         public List<(int key, int holder)> Keys = new List<(int, int)>();
         public List<Corpse> Corpses = new List<Corpse>();
+        /// <summary>Closed door cells in or next to explored rooms.</summary>
+        public List<GridPoint> ClosedDoors = new List<GridPoint>();
+        public List<int> KnownHazards = new List<int>();
+        public List<int> DisarmedHazards = new List<int>();
 
         public static TeamView For(MatchState st, int team)
         {
@@ -85,6 +89,13 @@ namespace DungeonGen.Core.Net
                 bool opened = st.OpenedCorpses.Contains(kv.Key);
                 v.Corpses.Add(new Corpse { Player = kv.Key, Room = room, Silver = st.CorpseSilver.TryGetValue(kv.Key, out int cs) ? cs : 0, Opened = opened, HasSoul = st.CorpseSouls.Contains(kv.Key), Items = opened ? kv.Value.OrderBy(i => i).ToList() : new List<int>() });
             }
+            foreach (var cell in st.ClosedDoors.OrderBy(c => c.X).ThenBy(c => c.Y))
+            {
+                int room = st.Layout.RoomIdAt[cell.X, cell.Y];
+                if (seen.Contains(room) || st.Layout.Rooms[room].Neighbours.Any(seen.Contains)) v.ClosedDoors.Add(cell);
+            }
+            v.KnownHazards = st.HazardsVisibleTo(team).Select(h => h.Id).OrderBy(i => i).ToList();
+            v.DisarmedHazards = st.DisarmedHazards.Where(id => seen.Contains(st.Index.Hazards[id].RoomId)).OrderBy(i => i).ToList();
             return v;
         }
 
@@ -105,6 +116,8 @@ namespace DungeonGen.Core.Net
                 w.Write(Keys.Count); foreach (var k in Keys) { w.Write(k.key); w.Write(k.holder); }
                 w.Write(Corpses.Count);
                 foreach (var c in Corpses) { w.Write(c.Player); w.Write(c.Room); w.Write(c.Silver); w.Write(c.Opened); w.Write(c.HasSoul); WriteInts(w, c.Items); }
+                w.Write(ClosedDoors.Count); foreach (var d in ClosedDoors) { w.Write(d.X); w.Write(d.Y); }
+                WriteInts(w, KnownHazards); WriteInts(w, DisarmedHazards);
             }
             return ms.ToArray();
         }
@@ -130,6 +143,8 @@ namespace DungeonGen.Core.Net
             n = r.ReadInt32(); for (int i = 0; i < n; i++) v.Keys.Add((r.ReadInt32(), r.ReadInt32()));
             n = r.ReadInt32();
             for (int i = 0; i < n; i++) v.Corpses.Add(new Corpse { Player = r.ReadInt32(), Room = r.ReadInt32(), Silver = r.ReadInt32(), Opened = r.ReadBoolean(), HasSoul = r.ReadBoolean(), Items = ReadInts(r) });
+            n = r.ReadInt32(); for (int i = 0; i < n; i++) v.ClosedDoors.Add(new GridPoint(r.ReadInt32(), r.ReadInt32()));
+            v.KnownHazards = ReadInts(r); v.DisarmedHazards = ReadInts(r);
             return v;
         }
 
@@ -169,6 +184,14 @@ namespace DungeonGen.Core.Net
                     return Teams(e.A, e.B);
                 case MatchEventKind.ItemGiven: case MatchEventKind.KeyGiven:
                     return Teams(e.B, e.C);
+                case MatchEventKind.DoorClosed: case MatchEventKind.DoorOpened:
+                    {   // everyone who has explored the door's room or a neighbour hears the door
+                        if (!st.Index.Doors.TryGetValue(e.A, out var d)) return new HashSet<int>();
+                        var near = st.Index.RoomsWithin(d.room, 1);
+                        return new HashSet<int>(st.Explored.Where(kv => kv.Value.Overlaps(near)).Select(kv => kv.Key));
+                    }
+                case MatchEventKind.HazardTriggered: case MatchEventKind.HazardDisarmed:
+                    return Teams(e.B);
                 case MatchEventKind.ContainerOpened: case MatchEventKind.VaultOpened: case MatchEventKind.ItemTaken: case MatchEventKind.KeyPickedUp: case MatchEventKind.CorpseOpened:
                 case MatchEventKind.SilverLooted: case MatchEventKind.LootRolled:
                     return Teams(e.B);

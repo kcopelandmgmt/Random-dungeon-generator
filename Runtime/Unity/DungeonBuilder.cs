@@ -37,6 +37,10 @@ namespace DungeonGen.Unity
         [Tooltip("Vault doors. Needs a key component on the player side to open; falls back to DoorPrefab if empty.")]
         public GameObject LockedDoorPrefab;
         public GameObject WallPrefab;
+        [Tooltip("Room interiors and hazards. Pillars block sight and movement; low walls block movement only; pits block movement only.")]
+        public GameObject PillarPrefab, LowWallPrefab, PitPrefab;
+        [Tooltip("Hazard markers by kind, instantiated at each hazard's centre. Hidden ones should render only for the local player's team per MatchState.HazardsVisibleTo.")]
+        public GameObject SpikeTrapPrefab, GasVentPrefab, LavaPrefab;
 
         [Header("Role markers (optional)")]
         public GameObject SpawnMarkerPrefab;
@@ -202,6 +206,9 @@ namespace DungeonGen.Unity
                 case TileType.Door: return DoorPrefab != null ? DoorPrefab : FloorPrefab;
                 case TileType.LockedDoor: return LockedDoorPrefab != null ? LockedDoorPrefab : (DoorPrefab != null ? DoorPrefab : FloorPrefab);
                 case TileType.Wall: return WallPrefab;
+                case TileType.Pillar: return PillarPrefab != null ? PillarPrefab : WallPrefab;
+                case TileType.LowWall: return LowWallPrefab != null ? LowWallPrefab : WallPrefab;
+                case TileType.Pit: return PitPrefab != null ? PitPrefab : FloorPrefab;
                 default: return null;
             }
         }

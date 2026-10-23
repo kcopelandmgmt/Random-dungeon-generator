@@ -51,6 +51,10 @@ namespace DungeonGen.Core.Net
         ItemDropped,       // itemId, player: put on the floor of the room they stand in; anyone standing there may take it
         PlayerLeft,        // playerId: a dead player goes to the hub, forfeiting any resurrection
         KeyGiven,          // keyId, fromPlayer, toPlayer: a vault key handed to a player in the same room; no account gate, keys are worthless outside
+        DoorClosed,        // doorId, playerId: instant, from inside the room or the room across the corridor; blocks sight and movement for everyone
+        DoorOpened,        // doorId, playerId: after a DoorRules.OpenSeconds channel (LootStarted kind 4), from either side
+        HazardTriggered,   // hazardId, playerId: the server saw a player step on an armed trap or stand in a vent or lava; damage is the combat layer's
+        HazardDisarmed,    // hazardId, playerId: a Shade, after a HazardRules.DisarmSeconds channel (LootStarted kind 3); permanent
     }
 
     /// <summary>
@@ -121,6 +125,16 @@ namespace DungeonGen.Core.Net
         public HashSet<int> LeftPlayers { get; } = new HashSet<int>();
         /// <summary>On a client: items the team may see, from the latest <see cref="TeamView"/>. The client's layout carries no loot, so this is the only item knowledge it has.</summary>
         public Dictionary<int, TeamView.ItemInfo> KnownItems { get; } = new Dictionary<int, TeamView.ItemInfo>();
+        /// <summary>On a client: hazard ids the team may see (obvious ones in explored rooms, hidden ones only with a Shade on the team or once disarmed).</summary>
+        public HashSet<int> KnownHazards { get; } = new HashSet<int>();
+        /// <summary>Hazards this team may see right now. On the server, computed; on a client, from the view.</summary>
+        public IEnumerable<Hazard> HazardsVisibleTo(int team)
+        {
+            if (IsView) return KnownHazards.Select(id => Index.Hazards[id]);
+            var seen = Explored.TryGetValue(team, out var ex) ? ex : new HashSet<int>();
+            bool shade = PlayerTeam.Any(kv => kv.Value == team && Standing(kv.Key) && ClassOf(kv.Key)?.Name == HazardRules.DisarmClass);
+            return Index.Hazards.Values.Where(h => seen.Contains(h.RoomId) && (!h.Hidden || shade || DisarmedHazards.Contains(h.Id) || HazardFired.ContainsKey(h.Id)));
+        }
         /// <summary>True on a client mirror fed by views; false on the authoritative server state.</summary>
         public bool IsView { get; private set; }
 
@@ -148,6 +162,9 @@ namespace DungeonGen.Core.Net
             foreach (var r in v.Rolls) OpenRolls[r.Item] = new LootRoll { Opened = r.Opened, Eligible = new HashSet<int>(r.Eligible), Choices = r.Choices.ToDictionary(c => c.player, c => (Items.LootRollChoice)c.choice) };
             LootWinner.Clear(); foreach (var w in v.Winners) LootWinner[w.item] = w.winner;
             KeyHolder.Clear(); foreach (var k in v.Keys) KeyHolder[k.key] = k.holder;
+            ClosedDoors.Clear(); foreach (var c in v.ClosedDoors) ClosedDoors.Add(c);
+            DisarmedHazards.Clear(); foreach (int h in v.DisarmedHazards) DisarmedHazards.Add(h);
+            KnownHazards.Clear(); foreach (int h in v.KnownHazards) KnownHazards.Add(h);
             Corpses.Clear(); OpenedCorpses.Clear(); CorpseSilver.Clear(); CorpseSouls.Clear();
             foreach (var c in v.Corpses) { Corpses[c.Player] = new HashSet<int>(c.Items); if (c.Opened) OpenedCorpses.Add(c.Player); if (c.Silver > 0) CorpseSilver[c.Player] = c.Silver; if (c.HasSoul) CorpseSouls.Add(c.Player); if (c.Room >= 0) PlayerRoom[c.Player] = c.Room; }
         }
@@ -189,6 +206,21 @@ namespace DungeonGen.Core.Net
         public int SoulsOf(int player) => Souls.TryGetValue(player, out int n) ? n : 0;
         private void GrantSoul(int player) { if (player >= 0 && PlayerTeam.ContainsKey(player)) Souls[player] = SoulsOf(player) + 1; }
         public HashSet<int> ResurrectedOnce { get; } = new HashSet<int>();
+        /// <summary>Doors players have shut. Cells, so LineOfSight and GridPath can take the set directly.</summary>
+        public HashSet<GridPoint> ClosedDoors { get; } = new HashSet<GridPoint>();
+        public HashSet<int> DisarmedHazards { get; } = new HashSet<int>();
+        /// <summary>hazardId → time it last fired; a spike trap rearms after HazardRules.SpikeRearmSeconds.</summary>
+        public Dictionary<int, float> HazardFired { get; } = new Dictionary<int, float>();
+        public bool HazardArmed(int id, float now) => Index.Hazards.ContainsKey(id) && !DisarmedHazards.Contains(id) && (!HazardFired.TryGetValue(id, out float t) || Index.Hazards[id].Kind != HazardKind.SpikeTrap || now - t >= HazardRules.SpikeRearmSeconds);
+        /// <summary>Can this player work this door: standing in its room, or in a room one corridor away.</summary>
+        private bool CanReachDoor(int player, int doorId, out string why)
+        {
+            why = null;
+            if (!Index.Doors.TryGetValue(doorId, out var d)) { why = "no such door"; return false; }
+            if (!Standing(player) || Downed.ContainsKey(player)) { why = "player cannot act"; return false; }
+            if (!PlayerRoom.TryGetValue(player, out int at) || !Index.RoomsWithin(d.room, DoorRules.ReachRooms).Contains(at)) { why = "not at that door"; return false; }
+            return true;
+        }
         /// <summary>Corpses that carry a soul: players killed or finished by an enemy player. The first enemy to open the corpse takes it. The victim's own team never can.</summary>
         public HashSet<int> CorpseSouls { get; } = new HashSet<int>();
         /// <summary>Keys destroyed because their holder extracted with them unused.</summary>
@@ -490,7 +522,9 @@ namespace DungeonGen.Core.Net
                     {
                         if (DeadPlayers.Contains(e.A) || Downed.ContainsKey(e.A) || ExtractedPlayers.Contains(e.A)) { rejection = "player cannot loot"; return false; }
                         if (e.C == 1 && !Corpses.ContainsKey(e.B)) { rejection = "no corpse"; return false; }
-                        if (e.C != 1 && (e.B < 0 || e.B >= Layout.Rooms.Count)) { rejection = "no such room"; return false; }
+                        if (e.C == 3 && !Index.Hazards.ContainsKey(e.B)) { rejection = "no such hazard"; return false; }
+                        if (e.C == 4 && !Index.Doors.ContainsKey(e.B)) { rejection = "no such door"; return false; }
+                        if (e.C <= 0 || e.C == 2) { if (e.B < 0 || e.B >= Layout.Rooms.Count) { rejection = "no such room"; return false; } }
                         Loots[e.A] = (e.B, e.C, e.Time); break;
                     }
                 case MatchEventKind.LootInterrupted:
@@ -586,6 +620,40 @@ namespace DungeonGen.Core.Net
                         if (!KeyHolder.TryGetValue(e.A, out int holder) || holder != e.B) { rejection = "not your key"; return false; }
                         if (!PlayerRoom.TryGetValue(e.B, out int r1) || !PlayerRoom.TryGetValue(e.C, out int r2) || r1 != r2) { rejection = "not in the same room"; return false; }
                         KeyHolder[e.A] = e.C; break;
+                    }
+                case MatchEventKind.DoorClosed:
+                    {
+                        if (!CanReachDoor(e.B, e.A, out string why)) { rejection = why; return false; }
+                        var cell = Index.Doors[e.A].cell;
+                        if (ClosedDoors.Contains(cell)) { rejection = "already closed"; return false; }
+                        ClosedDoors.Add(cell); break;
+                    }
+                case MatchEventKind.DoorOpened:
+                    {
+                        if (!CanReachDoor(e.B, e.A, out string why)) { rejection = why; return false; }
+                        var cell = Index.Doors[e.A].cell;
+                        if (!ClosedDoors.Contains(cell)) { rejection = "already open"; return false; }
+                        if (!Loots.TryGetValue(e.B, out var dc) || dc.kind != 4 || dc.target != e.A) { rejection = "no door channel"; return false; }
+                        if (e.Time - dc.started < DoorRules.OpenSeconds - 0.01f) { rejection = $"a door takes {DoorRules.OpenSeconds:0} s"; return false; }
+                        Loots.Remove(e.B); ClosedDoors.Remove(cell); break;
+                    }
+                case MatchEventKind.HazardTriggered:
+                    {
+                        if (!Index.Hazards.TryGetValue(e.A, out var hz)) { rejection = "no such hazard"; return false; }
+                        if (!Standing(e.B)) { rejection = "player not standing"; return false; }
+                        if (!HazardArmed(e.A, e.Time)) { rejection = "hazard is not armed"; return false; }
+                        HazardFired[e.A] = e.Time; break;
+                    }
+                case MatchEventKind.HazardDisarmed:
+                    {
+                        if (!Index.Hazards.TryGetValue(e.A, out var hz)) { rejection = "no such hazard"; return false; }
+                        if (!Standing(e.B) || Downed.ContainsKey(e.B)) { rejection = "player cannot act"; return false; }
+                        if (!HazardRules.CanDisarm(ClassOf(e.B), hz)) { rejection = hz.Disarmable ? $"only a {HazardRules.DisarmClass} disarms" : "cannot be disarmed"; return false; }
+                        if (DisarmedHazards.Contains(e.A)) { rejection = "already disarmed"; return false; }
+                        if (!PlayerRoom.TryGetValue(e.B, out int at) || at != hz.RoomId) { rejection = "not in that room"; return false; }
+                        if (!Loots.TryGetValue(e.B, out var hc) || hc.kind != 3 || hc.target != e.A) { rejection = "no disarm channel"; return false; }
+                        if (e.Time - hc.started < HazardRules.DisarmSeconds - 0.01f) { rejection = $"disarming takes {HazardRules.DisarmSeconds:0} s"; return false; }
+                        Loots.Remove(e.B); DisarmedHazards.Add(e.A); break;
                     }
                 case MatchEventKind.PlayerLeft:
                     if (!DeadPlayers.Contains(e.A)) { rejection = "only the dead leave early"; return false; }

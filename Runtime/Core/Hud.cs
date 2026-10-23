@@ -120,7 +120,7 @@ namespace DungeonGen.Core.Hud
         { Id = id; Bounds = bounds; Type = type; HasShrine = shrine; BossDead = bossDead; VaultOpen = vaultOpen; IsTeamSpawn = teamSpawn; IsHere = here; }
     }
 
-    public enum MiniMapMarkerKind { Self, Teammate, Ping, LockedDoor, BossExit }
+    public enum MiniMapMarkerKind { Self, Teammate, Ping, LockedDoor, BossExit, ClosedDoor, Hazard, DisarmedHazard }
 
     public readonly struct MiniMapMarker
     {
@@ -162,6 +162,10 @@ namespace DungeonGen.Core.Hud
                 if (r.Type == RoomType.Vault && !st.OpenVaults.Contains(id)) foreach (var d in r.Doors) m.Markers.Add(new MiniMapMarker(MiniMapMarkerKind.LockedDoor, d, id));
                 if (r.Type == RoomType.FinalBoss && st.BossExitOpen && st.Layout.BossExit != null) m.Markers.Add(new MiniMapMarker(MiniMapMarkerKind.BossExit, st.Layout.BossExit.Cell, id));
             }
+            foreach (var d in st.ClosedDoors.Where(c => seen.Contains(st.Layout.RoomIdAt[c.X, c.Y]) || st.Layout.Rooms[st.Layout.RoomIdAt[c.X, c.Y]].Neighbours.Any(seen.Contains)))
+                m.Markers.Add(new MiniMapMarker(MiniMapMarkerKind.ClosedDoor, d, st.Index.DoorIdAt.TryGetValue(d, out int did) ? did : -1));
+            foreach (var h in st.HazardsVisibleTo(team))
+                m.Markers.Add(new MiniMapMarker(st.DisarmedHazards.Contains(h.Id) ? MiniMapMarkerKind.DisarmedHazard : MiniMapMarkerKind.Hazard, h.Bounds.Center, h.Id));
             m.Markers.Add(new MiniMapMarker(MiniMapMarkerKind.Self, playerCell, player));
             foreach (var kv in st.PlayerTeam.Where(kv => kv.Value == team && kv.Key != player && !st.DeadPlayers.Contains(kv.Key) && !st.ExtractedPlayers.Contains(kv.Key)))
                 if (playerCells != null && playerCells.TryGetValue(kv.Key, out var c)) m.Markers.Add(new MiniMapMarker(MiniMapMarkerKind.Teammate, c, kv.Key));

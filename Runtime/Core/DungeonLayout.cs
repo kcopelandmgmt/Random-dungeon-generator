@@ -29,6 +29,8 @@ namespace DungeonGen.Core
 
         /// <summary>Exit that opens when the final boss dies. Null if the layout has no final boss.</summary>
         public BossGatedExit BossExit { get; set; }
+        /// <summary>Every hazard in the dungeon, in id order. Public layout.</summary>
+        public List<Hazard> Hazards { get; } = new List<Hazard>();
 
         /// <summary>Per-team start fairness (walking distances from each spawn to the extracts and vault). Filled by FairnessMapper.</summary>
         public LayoutFairness Fairness { get; set; } = LayoutFairness.Empty;

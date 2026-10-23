@@ -53,6 +53,11 @@ namespace DungeonGen.Core
         /// <summary>Door cells on this room's perimeter, one per corridor.</summary>
         public List<GridPoint> Doors { get; } = new List<GridPoint>();
 
+        /// <summary>Pillars and low walls inside the room (<see cref="Stages.InteriorPlacer"/>). Painted into the tiles; kept here for the fingerprint and the builder.</summary>
+        public List<InteriorFeature> Interior { get; } = new List<InteriorFeature>();
+        /// <summary>Traps, vents, pits and lava (<see cref="Stages.HazardPlacer"/>).</summary>
+        public List<Hazard> Hazards { get; } = new List<Hazard>();
+
         public GridPoint Center => Bounds.Center;
 
         public Room(int id, GridRect bounds)

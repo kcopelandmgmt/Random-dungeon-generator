@@ -41,6 +41,14 @@ namespace DungeonGen.Core
                 var p = layout.BossExit.Cell + GridPoint.Down;
                 if (layout.InBounds(p) && layout.Tiles[p.X, p.Y] == TileType.RoomFloor) labels[p.X, p.Y] = 'X';
             }
+            foreach (var hz in layout.Hazards)
+            {
+                if (hz.Kind == HazardKind.Pit) continue;   // painted as a tile
+                char g = hz.Kind == HazardKind.SpikeTrap ? '^' : hz.Kind == HazardKind.GasVent ? '%' : '~';
+                for (int x = hz.Bounds.X; x < hz.Bounds.XMax; x++)
+                    for (int y = hz.Bounds.Y; y < hz.Bounds.YMax; y++)
+                        if (labels[x, y] == '\0') labels[x, y] = g;
+            }
 
             for (int y = layout.Height - 1; y >= 0; y--)
             {
@@ -55,6 +63,9 @@ namespace DungeonGen.Core
                         TileType.Corridor => ':',
                         TileType.Door => '+',
                         TileType.LockedDoor => '=',
+                        TileType.Pillar => 'O',
+                        TileType.LowWall => '-',
+                        TileType.Pit => '_',
                         _ => '?',
                     });
                 }

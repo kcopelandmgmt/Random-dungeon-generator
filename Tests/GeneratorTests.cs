@@ -62,7 +62,7 @@ namespace DungeonGen.Tests
             foreach (var room in layout.Rooms)
                 for (int x = room.Bounds.X; x < room.Bounds.XMax; x++)
                     for (int y = room.Bounds.Y; y < room.Bounds.YMax; y++)
-                        Assert.Equal(TileType.RoomFloor, layout.Tiles[x, y]);
+                        Assert.Contains(layout.Tiles[x, y], new[] { TileType.RoomFloor, TileType.Pillar, TileType.LowWall, TileType.Pit });   // interiors and pits are the room's own; corridors never are
         }
 
         [Fact]
@@ -3131,6 +3131,228 @@ namespace DungeonGen.Tests
             Assert.Equal(AccountRules.XpPerPlayerKill, t.Award("b", "a", when.AddHours(3)));                  // the other direction is its own pair
             Assert.Equal(AccountRules.XpPerPlayerKill, t.Award("a", "c", when.AddHours(3)));
             Assert.Equal(AccountRules.XpPerPlayerKill, t.Award("a", "b", when.AddHours(25)));
+        }
+    }
+}
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+    using DungeonGen.Core.Hud;
+    using DungeonGen.Core.Net;
+    using DungeonGen.Core.Stages;
+
+    public class InteriorTests
+    {
+        [Fact]
+        public void InteriorsFurnishRoomsWithoutBlockingDoorsOrSplittingThem()
+        {
+            int furnished = 0, pillars = 0, lowWalls = 0;
+            for (int seed = 1; seed <= 12; seed++)
+            {
+                var layout = DungeonGenerator.Generate(DungeonSettings.ForTeams(8), seed);
+                foreach (var room in layout.Rooms)
+                {
+                    Assert.True(InteriorPlacer.Connected(layout, room), $"seed {seed} room {room.Id} is split");
+                    if (room.Type == RoomType.Spawn || room.Type == RoomType.Extract) Assert.Empty(room.Interior);
+                    foreach (var f in room.Interior)
+                    {
+                        Assert.True(f.Bounds.X > room.Bounds.X && f.Bounds.Y > room.Bounds.Y && f.Bounds.XMax < room.Bounds.XMax && f.Bounds.YMax < room.Bounds.YMax, "a clear ring inside every wall");
+                        Assert.False(f.Bounds.Expand(1).Contains(room.Center), "the centre stays clear");
+                        foreach (var d in room.Doors) Assert.False(f.Bounds.Expand(2).Contains(d), "doors stay clear");
+                        if (f.Kind == InteriorKind.Pillar) pillars++; else lowWalls++;
+                    }
+                    if (room.Interior.Count > 0) furnished++;
+                    if (room.Type == RoomType.Boss && room.Bounds.Width >= 9 && room.Bounds.Height >= 9) Assert.True(room.Interior.Count >= 1, $"a boss arena has shape (seed {seed} room {room.Id} {room.Bounds})");
+                    // Every door still opens onto walkable floor.
+                    foreach (var d in room.Doors) Assert.Contains(GridPoint.Cardinals, c => room.Bounds.Contains(d + c) && layout.IsWalkable(d + c));
+                }
+                Assert.True(LayoutValidator.IsPlayable(layout, layout.Settings, new List<string>()));
+            }
+            Assert.True(furnished > 40 && pillars > 40 && lowWalls > 10, $"{furnished} rooms, {pillars} pillars, {lowWalls} low walls");
+        }
+
+        [Fact]
+        public void PillarsBlockSightLowWallsDoNotAndInteriorsAreDeterministicAndPublic()
+        {
+            var layout = DungeonGenerator.Generate(DungeonSettings.ForTeams(8), 3);
+            var boss = layout.BossRooms.First(r => r.Interior.Any(f => f.Kind == InteriorKind.Pillar));
+            var pillar = boss.Interior.First(f => f.Kind == InteriorKind.Pillar).Bounds;
+            var left = new GridPoint(pillar.X - 1, pillar.Y); var right = new GridPoint(pillar.XMax, pillar.Y);
+            Assert.True(layout.IsWalkable(left) && layout.IsWalkable(right));
+            Assert.False(LineOfSight.CanSee(layout, left, right), "a pillar hides what is behind it");
+            Assert.False(layout.IsWalkable(new GridPoint(pillar.X, pillar.Y)));
+            var withLow = layout.Rooms.FirstOrDefault(r => r.Interior.Any(f => f.Kind == InteriorKind.LowWall && f.Bounds.Width == 1));
+            if (withLow != null)
+            {
+                var lw = withLow.Interior.First(f => f.Kind == InteriorKind.LowWall && f.Bounds.Width == 1).Bounds;
+                var a = new GridPoint(lw.X - 1, lw.Y); var b = new GridPoint(lw.X + 1, lw.Y);
+                Assert.True(LineOfSight.CanSee(layout, a, b), "you see over a low wall");
+                Assert.False(layout.IsWalkable(new GridPoint(lw.X, lw.Y)), "but not through it");
+            }
+            var again = DungeonGenerator.Generate(DungeonSettings.ForTeams(8), 3);
+            Assert.Equal(LayoutFingerprint.Compute(layout), LayoutFingerprint.Compute(again));
+            var redacted = ClientView.Redact(layout);
+            Assert.Equal(ClientView.PublicFingerprint(layout), ClientView.PublicFingerprint(redacted));   // interiors and hazards are public, clients get them
+            Assert.Equal(layout.Rooms.Sum(r => r.Interior.Count), redacted.Rooms.Sum(r => r.Interior.Count));
+            var bare = DungeonSettings.ForTeams(8); bare.InteriorsEnabled = false; bare.HazardsEnabled = false;
+            Assert.All(DungeonGenerator.Generate(bare, 3).Rooms, r => { Assert.Empty(r.Interior); Assert.Empty(r.Hazards); });
+            var back = SettingsCodec.FromBytes(SettingsCodec.ToBytes(bare));
+            Assert.False(back.InteriorsEnabled); Assert.False(back.HazardsEnabled);
+        }
+
+        [Fact]
+        public void HazardsFollowDepthAndStayOutOfSafeRooms()
+        {
+            int total = 0, pits = 0, hidden = 0; double shallow = 0, deep = 0; int shallowRooms = 0, deepRooms = 0;
+            for (int seed = 1; seed <= 12; seed++)
+            {
+                var layout = DungeonGenerator.Generate(DungeonSettings.ForTeams(8), seed);
+                int maxDepth = layout.Rooms.Max(r => r.DepthFromSpawn);
+                foreach (var room in layout.Rooms)
+                {
+                    if (room.Type == RoomType.Spawn || room.Type == RoomType.Extract || room.IsBossRoom || room.HasShrine) Assert.Empty(room.Hazards);
+                    foreach (var h in room.Hazards)
+                    {
+                        Assert.Equal(room.Id, h.RoomId);
+                        Assert.True(h.Id >= HazardRules.IdBase);
+                        Assert.False(h.Bounds.Expand(1).Contains(room.Center));
+                        foreach (var d in room.Doors) Assert.False(h.Bounds.Expand(2).Contains(d));
+                        if (h.Kind == HazardKind.Pit) { pits++; Assert.Equal(TileType.Pit, layout.Tiles[h.Bounds.X, h.Bounds.Y]); Assert.False(HazardRules.Passable(h.Kind)); }
+                        else Assert.Equal(TileType.RoomFloor, layout.Tiles[h.Bounds.X, h.Bounds.Y]);
+                        if (h.Hidden) hidden++;
+                        total++;
+                    }
+                    Assert.True(InteriorPlacer.Connected(layout, room));
+                    if (room.Type == RoomType.Standard || room.Type == RoomType.Loot || room.Type == RoomType.Vault)
+                    {
+                        if (room.DepthFromSpawn * 2 < maxDepth) { shallow += room.Hazards.Count; shallowRooms++; } else { deep += room.Hazards.Count; deepRooms++; }
+                    }
+                }
+                Assert.Equal(layout.Hazards.Count, layout.Rooms.Sum(r => r.Hazards.Count));
+                Assert.Equal(layout.Hazards.Select(h => h.Id).OrderBy(i => i), layout.Hazards.Select(h => h.Id));
+            }
+            Assert.True(total > 20 && pits > 0 && hidden > 0, $"{total} hazards, {pits} pits, {hidden} hidden");
+            Assert.True(deep / Math.Max(1, deepRooms) > shallow / Math.Max(1, shallowRooms), "deeper rooms carry more hazards");
+            Assert.True(HazardRules.CanSee(ClassArchetype.DefaultRoster.First(c => c.Name == "Shade"), new Hazard(1, HazardKind.SpikeTrap, new GridRect(0, 0, 1, 1), 0)));
+            Assert.False(HazardRules.CanSee(ClassArchetype.DefaultRoster.First(c => c.Name == "Warden"), new Hazard(1, HazardKind.SpikeTrap, new GridRect(0, 0, 1, 1), 0)));
+            Assert.True(HazardRules.CanSee(null, new Hazard(1, HazardKind.Lava, new GridRect(0, 0, 1, 1), 0)));
+        }
+
+        private static (MatchState st, DungeonLayout layout) Fresh(int seed = 7)
+        {
+            var d = MatchDescriptor.Create(seed, DungeonSettings.ForTeams(8), new MatchRules(), out var layout);
+            var st = new MatchState(d, layout);
+            st.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out _);
+            int shade = ClassArchetype.DefaultRoster.ToList().FindIndex(c => c.Name == "Shade");
+            for (int p = 1; p <= 6; p++) st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, p, (p - 1) / 3, p == 3 ? shade : 0), out _);   // player 3 is the Shade
+            return (st, layout);
+        }
+
+        [Fact]
+        public void TrapsFireRearmAndOnlyAShadeDisarmsThem()
+        {
+            var (st, layout) = Fresh();
+            string why;
+            var trap = layout.Hazards.First(h => h.Kind == HazardKind.SpikeTrap);
+            var lava = layout.Hazards.FirstOrDefault(h => h.Kind == HazardKind.Lava);
+            Assert.True(st.HazardArmed(trap.Id, 1f));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.HazardTriggered, 10, trap.Id, 4), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.HazardTriggered, 12, trap.Id, 5), out why), "rearming");
+            Assert.Contains("not armed", why);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.HazardTriggered, 10 + HazardRules.SpikeRearmSeconds, trap.Id, 5), out why));
+            if (lava != null) { Assert.True(st.Apply(new MatchEvent(MatchEventKind.HazardTriggered, 21, lava.Id, 4), out why)); Assert.True(st.Apply(new MatchEvent(MatchEventKind.HazardTriggered, 22, lava.Id, 4), out why), "lava never rearms, it just burns"); }
+
+            // Disarming: Shade only, in the room, two-second channel.
+            st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 30, 1, trap.RoomId), out _);
+            st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 30, 3, trap.RoomId), out _);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootStarted, 31, 1, trap.Id, 3), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.HazardDisarmed, 34, trap.Id, 1), out why));
+            Assert.Contains("Shade", why);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootStarted, 31, 3, trap.Id, 3), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.HazardDisarmed, 32, trap.Id, 3), out why));
+            Assert.Contains("takes", why);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.HazardDisarmed, 33.1f, trap.Id, 3), out why));
+            Assert.False(st.HazardArmed(trap.Id, 100f));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.HazardTriggered, 100, trap.Id, 5), out why), "disarmed for good");
+            if (lava != null)
+            {
+                st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 40, 3, lava.RoomId), out _);
+                st.Apply(new MatchEvent(MatchEventKind.LootStarted, 41, 3, lava.Id, 3), out _);
+                Assert.False(st.Apply(new MatchEvent(MatchEventKind.HazardDisarmed, 44, lava.Id, 3), out why), "lava cannot be disarmed");
+            }
+            // Visibility: team 0 has a Shade and sees the hidden trap once the room is explored; team 1 sees only obvious hazards there.
+            st.Apply(new MatchEvent(MatchEventKind.RoomSeen, 50, 0, trap.RoomId), out _);
+            st.Apply(new MatchEvent(MatchEventKind.RoomSeen, 50, 1, trap.RoomId), out _);
+            Assert.Contains(trap.Id, st.HazardsVisibleTo(0).Select(h => h.Id));
+            var otherHidden = layout.Hazards.FirstOrDefault(h => h.Hidden && h.RoomId == trap.RoomId && h.Id != trap.Id && !st.HazardFired.ContainsKey(h.Id));
+            if (otherHidden != null) Assert.DoesNotContain(otherHidden.Id, st.HazardsVisibleTo(1).Select(h => h.Id));
+            Assert.Contains(trap.Id, st.HazardsVisibleTo(1).Select(h => h.Id));                                           // it fired, so it is known
+            var v0 = TeamView.For(st, 0);
+            Assert.Contains(trap.Id, v0.KnownHazards); Assert.Contains(trap.Id, v0.DisarmedHazards);
+            var back = TeamView.FromBytes(v0.ToBytes());
+            Assert.Equal(v0.KnownHazards, back.KnownHazards);
+            var mini = MiniMap.Build(st, 1, layout.Rooms[trap.RoomId].Center, null, null, 60f);
+            Assert.Contains(mini.Markers, m => m.Kind == MiniMapMarkerKind.DisarmedHazard && m.Ref == trap.Id);
+        }
+
+        [Fact]
+        public void DoorsCloseInstantlyOpenWithAChannelAndBlockSightAndPaths()
+        {
+            var (st, layout) = Fresh();
+            string why;
+            int spawn0 = st.Descriptor.TeamSpawnRooms[0];
+            var room = layout.Rooms.First(r => r.Type == RoomType.Standard && r.Doors.Any(d => st.Index.DoorIdAt.ContainsKey(d)) && !st.Index.RoomsWithin(r.Id, 1).Contains(spawn0));   // not next to player 1's spawn
+            var cell = room.Doors.First(d => st.Index.DoorIdAt.ContainsKey(d));
+            int door = st.Index.DoorIdAt[cell];
+            Assert.Equal((room.Id, cell), st.Index.Doors[door]);
+            Assert.True(door >= DoorRules.IdBase);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.DoorClosed, 1, door, 1), out why), "player 1 is at spawn, not at the door");
+            Assert.Contains("not at that door", why);
+            st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 2, 1, room.Id), out _);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.DoorClosed, 3, door, 1), out why));
+            Assert.Contains(cell, st.ClosedDoors);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.DoorClosed, 3, door, 1), out why), "already closed");
+
+            // Sight and movement stop at the shut door.
+            var inside = GridPoint.Cardinals.Select(c => cell + c).First(p => room.Bounds.Contains(p));
+            var outside = GridPoint.Cardinals.Select(c => cell + c).First(p => !room.Bounds.Contains(p) && layout.IsWalkable(p));
+            Assert.True(LineOfSight.CanSee(layout, inside, outside));
+            Assert.False(LineOfSight.CanSee(layout, inside, outside, st.ClosedDoors));
+            Assert.NotNull(GridPath.Find(layout, inside, outside));
+            Assert.Null(GridPath.Find(layout, inside, outside, closedDoors: st.ClosedDoors));
+            Assert.DoesNotContain(room.Id, LineOfSight.VisibleRooms(layout, outside, 6, st.ClosedDoors));
+
+            // Opening: from either side, with the channel.
+            int neighbour = room.Neighbours.First();
+            st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 4, 4, neighbour), out _);   // an enemy on the other side
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.DoorOpened, 5, door, 4), out why));
+            Assert.Contains("no door channel", why);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootStarted, 5, 4, door, 4), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.DoorOpened, 6, door, 4), out why));
+            Assert.Contains("takes", why);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootInterrupted, 6.5f, 4), out why));             // took a hit: start over
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootStarted, 7, 4, door, 4), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.DoorOpened, 7 + DoorRules.OpenSeconds, door, 4), out why));
+            Assert.Empty(st.ClosedDoors);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.DoorOpened, 11, door, 4), out why), "already open");
+            Assert.False(DoorRules.Breakable);
+
+            // Vault doors are locks, not doors.
+            var vault = layout.VaultRooms.First();
+            Assert.All(vault.Doors, d => Assert.False(st.Index.DoorIdAt.ContainsKey(d)));
+
+            // Views and audiences: a shut door is on the map of anyone who has seen the room or its neighbour.
+            st.Apply(new MatchEvent(MatchEventKind.DoorClosed, 12, door, 1), out _);
+            st.Apply(new MatchEvent(MatchEventKind.RoomSeen, 12, 0, room.Id), out _);
+            var v0 = TeamView.For(st, 0); var v1 = TeamView.For(st, 1);
+            Assert.Contains(cell, v0.ClosedDoors);
+            Assert.DoesNotContain(cell, v1.ClosedDoors);                                                        // team 1 has seen neither room
+            Assert.Equal(new HashSet<int> { 0 }, EventVisibility.Audience(new MatchEvent(MatchEventKind.DoorClosed, 12, door, 1), st));
+            var client = new MatchState(MatchDescriptor.FromBytes(st.Descriptor.ToBytes()), st.Descriptor.BuildAndVerify());
+            client.LoadView(TeamView.FromBytes(v0.ToBytes()));
+            Assert.Contains(cell, client.ClosedDoors);
+            Assert.Contains(MiniMap.Build(client, 1, room.Center, null, null, 12f).Markers, m => m.Kind == MiniMapMarkerKind.ClosedDoor && m.Ref == door);
         }
     }
 }
