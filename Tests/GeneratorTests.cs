@@ -1203,9 +1203,11 @@ namespace DungeonGen.Tests
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.VaultOpened, 6, vault.Id, 1), out why));
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 7, item, 1), out why), "container not opened");
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.ContainerOpened, 8, vault.Id, 1), out why), "no chest channel");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 8, 1, vault.Id), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 8, 2, vault.Id), out why));
             Assert.True(Ch.OpenChest(st, 8, vault.Id, 1, out why));
             Assert.Contains(item, st.VisibleItemsIn(vault.Id));
-            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 9, item, 1), out why), "players 1 and 2 are a group: the vault piece goes to a roll first");
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 9, item, 1), out why), "players 1 and 2 are a group in the room: the vault piece goes to a roll first");
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootRolled, 9, item, 1, (int)LootRollChoice.Need), out why));
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootRolled, 9, item, 2, (int)LootRollChoice.Pass), out why));
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootRollResolved, 9, item, 1, 64), out why));
@@ -1366,6 +1368,18 @@ namespace DungeonGen.Tests
             var items = st.Index.Items.Where(kv => st.Index.ItemRoom[kv.Key] == room.Id).Select(kv => kv.Key).ToList();
             Assert.True(items.Count >= 4);
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.BossKilled, 10, room.Id, 1), out why));
+
+            // Proximity: everyone spawned far away, so a chest opened now rolls with nobody and player 1 just takes.
+            Assert.DoesNotContain(st.PlayerRoom[1], st.Index.RoomsWithin(room.Id, LootRollRules.RollRangeRooms));
+            Assert.Empty(st.TeammatesNear(1, room.Id));
+            int twoAway = st.Index.RoomsWithin(room.Id, 2).Except(st.Index.RoomsWithin(room.Id, 1)).First();
+            int threeAway = st.Index.RoomsWithin(room.Id, 3).Except(st.Index.RoomsWithin(room.Id, 2)).First();
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 10, 1, 9999), out why), "no such room");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 10, 1, room.Id), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 10, 2, threeAway), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 10, 3, twoAway), out why));
+            Assert.Equal(new List<int> { 1, 3 }, st.TeammatesNear(1, room.Id));                      // 2 is three rooms off: doing their own thing
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 10, 2, room.Id), out why));   // 2 comes back
             Assert.True(Ch.OpenChest(st, 11, room.Id, 1, out why));                                   // player 1 opens: the roll is among 1, 2, 3
             Assert.All(items, it => Assert.True(st.OpenRolls.ContainsKey(it)));
             Assert.Equal(new HashSet<int> { 1, 2, 3 }, st.OpenRolls[items[0]].Eligible);
@@ -1414,6 +1428,39 @@ namespace DungeonGen.Tests
             Assert.Equal(st.LootWinner, replay.LootWinner);
             Assert.Equal(st.PlayerClass, replay.PlayerClass);
             Assert.Equal(st.ItemOwner, replay.ItemOwner);
+        }
+
+        [Fact]
+        public void TheWandererGetsNoRoll()
+        {
+            var d = MatchDescriptor.Create(7, DungeonSettings.ForTeams(8), new MatchRules(), out var layout);
+            var st = new MatchState(d, layout);
+            string why;
+            st.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out _);
+            for (int p = 1; p <= 3; p++) st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, p, 0), out _);
+            var room = layout.FinalBossRoom;
+            int item = st.Index.Items.First(kv => st.Index.ItemRoom[kv.Key] == room.Id).Key;
+            st.Apply(new MatchEvent(MatchEventKind.BossKilled, 10, room.Id, 0), out _);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 10, 1, room.Id), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 10, 2, room.Id), out why));   // 3 stays at spawn, farming on their own
+            Assert.True(Ch.OpenChest(st, 11, room.Id, 1, out why));
+            Assert.Equal(new HashSet<int> { 1, 2 }, st.OpenRolls[item].Eligible);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.LootRolled, 14, item, 3, (int)LootRollChoice.Need), out why));
+            Assert.Contains("not in this roll", why);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 15, 3, room.Id), out why));   // arriving late changes nothing
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.LootRolled, 15, item, 3, (int)LootRollChoice.Need), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootRolled, 15, item, 1, (int)LootRollChoice.Greed), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootRolled, 15, item, 2, (int)LootRollChoice.Pass), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootRollResolved, 15, item, 1, 33), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 16, item, 3), out why), "won by player 1");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 16, item, 1), out why));
+            // A resurrection puts you at the shrine; a dead player cannot report a room.
+            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 20, 2, -1, room.Id), out _);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 21, 2, room.Id), out why));
+            st.Souls[1] = 2;
+            int shrine = layout.Rooms.First(r => r.HasShrine).Id;
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 22, 2, 1, shrine), out why));
+            Assert.Equal(shrine, st.PlayerRoom[2]);
         }
 
         [Fact]

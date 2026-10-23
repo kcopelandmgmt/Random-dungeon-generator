@@ -14,7 +14,8 @@ namespace DungeonGen.Core.Items
     /// opener's living teammates. Anyone may Need; any Need beats any Greed; among Needs, a player
     /// whose CURRENT class can wear the piece rolls with a bonus, so the Warden usually wins the
     /// plate but the Shade still has a chance at it. No answer inside the window is a Pass. If
-    /// everyone passes, the item is free for anyone. Solo players never roll.
+    /// everyone passes, the item is free for anyone. Only teammates within <see cref="RollRangeRooms"/>
+    /// rooms of the chest are in the roll; solo players and lone wanderers never roll.
     ///
     /// Only the opener's team rolls. The dungeon is full loot: an enemy who reaches the open chest
     /// can grab a piece mid-roll, which cancels that roll, and can take the winner's piece off their
@@ -28,6 +29,11 @@ namespace DungeonGen.Core.Items
         public const Rarity MinRarity = Rarity.Magic;
         /// <summary>Everyone rolls 1..RollMax.</summary>
         public const int RollMax = 100;
+        /// <summary>
+        /// A teammate must be this close, in corridor hops, to the chest's room to get a roll. The team
+        /// that stays together shares its loot; the teammate off doing their own thing does not.
+        /// </summary>
+        public const int RollRangeRooms = 2;
         /// <summary>Added to a Need roll when the item fits the player's current class. 50 on a d100 means the on-class player wins about seven times in eight against one off-class Need, and about four in five against two.</summary>
         public const int OnClassNeedBonus = 50;
 

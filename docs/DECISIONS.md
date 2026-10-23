@@ -13,7 +13,13 @@ Newest first.
   armour is the class's weight, jewellery fits everyone) adds **+50**. One on-class Need beats one
   off-class Need about seven times in eight, and two about four times in five. The off-class
   player still has a real chance; the on-class player is clearly favoured.
-* **Everyone passes: free for anyone on the team.** Solo players and one-player teams never roll.
+* **Only teammates within two rooms of the chest are in the roll.** The server reports each
+  player's room (`PlayerEnteredRoom`); eligibility is fixed the moment the chest opens, so arriving
+  late changes nothing. A teammate off doing their own thing gets no roll and no claim; the ones
+  who stayed together share. Two rooms, not one, so the teammate holding the corridor or covering
+  the door is still in.
+* **Everyone passes: free for anyone on the team.** Solo players, one-player teams and a player
+  whose teammates are all out of range never roll.
 * **It binds teammates, not the dungeon.** Chests stay open to anyone. An enemy who reaches the
   open chest can grab a piece mid-roll, which ends that roll, and can take the winner's piece off
   their corpse. Rolling is a courtesy among teammates; full loot still rules.

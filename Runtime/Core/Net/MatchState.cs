@@ -45,6 +45,7 @@ namespace DungeonGen.Core.Net
         RoundEnded,        // t: anyone still inside dies and drops everything
         LootRolled,        // itemId, playerId, choice (0 Need, 1 Greed, 2 Pass): a teammate answers a group roll
         LootRollResolved,  // itemId, winnerPlayer (-1 everyone passed), winningRoll: the server's decision, after all answered or the window closed
+        PlayerEnteredRoom, // playerId, roomId: the server reports the room a player is standing in (corridors keep the last room); decides who is near enough to roll
     }
 
     /// <summary>
@@ -85,6 +86,15 @@ namespace DungeonGen.Core.Net
         public Dictionary<int, int> ItemOwner { get; } = new Dictionary<int, int>();   // itemId → playerId
         /// <summary>playerId → class index into ClassArchetype.DefaultRoster, from PlayerSpawned.</summary>
         public Dictionary<int, int> PlayerClass { get; } = new Dictionary<int, int>();
+        /// <summary>playerId → the room they are in or last stood in. Spawn room at start; the shrine room after a resurrection.</summary>
+        public Dictionary<int, int> PlayerRoom { get; } = new Dictionary<int, int>();
+        /// <summary>Teammates of <paramref name="player"/> still standing and within <see cref="Items.LootRollRules.RollRangeRooms"/> hops of the room, the player included when they are.</summary>
+        public List<int> TeammatesNear(int player, int roomId)
+        {
+            if (!PlayerTeam.TryGetValue(player, out int team)) return new List<int>();
+            var near = Index.RoomsWithin(roomId, Items.LootRollRules.RollRangeRooms);
+            return PlayerTeam.Where(kv => kv.Value == team && Standing(kv.Key) && PlayerRoom.TryGetValue(kv.Key, out int r) && near.Contains(r)).Select(kv => kv.Key).OrderBy(p => p).ToList();
+        }
         public Combat.ClassArchetype ClassOf(int player) => PlayerClass.TryGetValue(player, out int c) && c >= 0 && c < Combat.ClassArchetype.DefaultRoster.Count ? Combat.ClassArchetype.DefaultRoster[c] : null;
 
         /// <summary>Group rolls in progress: itemId → who may answer, who has, and when it opened. See <see cref="Items.LootRollRules"/>.</summary>
@@ -185,7 +195,7 @@ namespace DungeonGen.Core.Net
                     if (PlayerTeam.ContainsKey(e.A)) { rejection = "already spawned"; return false; }
                     if (e.B < 0 || e.B >= Descriptor.TeamSpawnRooms.Count) { rejection = "no such team"; return false; }
                     if (PlayerTeam.Count(kv => kv.Value == e.B) >= Descriptor.Rules.TeamSize) { rejection = "team full"; return false; }
-                    PlayerTeam[e.A] = e.B; PlayerClass[e.A] = e.C;
+                    PlayerTeam[e.A] = e.B; PlayerClass[e.A] = e.C; PlayerRoom[e.A] = Descriptor.TeamSpawnRooms[e.B];
                     if (!Explored.ContainsKey(e.B)) Explored[e.B] = new HashSet<int>();
                     Explored[e.B].Add(Descriptor.TeamSpawnRooms[e.B]);
                     break;
@@ -250,9 +260,9 @@ namespace DungeonGen.Core.Net
                             Loots.Remove(e.B);
                             if (Layout.Rooms[e.A].IsBossRoom) for (int i = 0; i < SoulsPerBossChest; i++) GrantSoul(e.B);   // the boss's soul is in its chest
                             // Need over greed: every Magic+ piece goes to a roll among the opener's living teammates. Solo players just take.
-                            if (PlayerTeam.TryGetValue(e.B, out int openerTeam))
                             {
-                                var mates = PlayerTeam.Where(kv => kv.Value == openerTeam && Standing(kv.Key)).Select(kv => kv.Key).ToList();
+                                if (PlayerTeam.ContainsKey(e.B)) PlayerRoom[e.B] = e.A;   // you open a chest from inside its room
+                                var mates = TeammatesNear(e.B, e.A);                   // within two rooms; the wanderer gets no roll
                                 if (mates.Count >= 2)
                                     foreach (var kv in Index.Items.Where(kv => Index.ItemRoom[kv.Key] == e.A && !ItemOwner.ContainsKey(kv.Key) && Items.LootRollRules.GoesToRoll(kv.Value)))
                                         OpenRolls[kv.Key] = new LootRoll { Opened = e.Time, Eligible = new HashSet<int>(mates) };
@@ -374,7 +384,7 @@ namespace DungeonGen.Core.Net
                         if (e.C < 0 || e.C >= Layout.Rooms.Count || !Layout.Rooms[e.C].HasShrine) { rejection = "no shrine there"; return false; }
                         if (SoulsOf(e.B) < SoulsPerResurrection) { rejection = $"resurrector needs {SoulsPerResurrection} souls"; return false; }
                         Souls[e.B] = SoulsOf(e.B) - SoulsPerResurrection;
-                        DeadPlayers.Remove(e.A);
+                        DeadPlayers.Remove(e.A); PlayerRoom[e.A] = e.C;
                         ResurrectedOnce.Add(e.A);
                         break;
                     }
@@ -472,6 +482,10 @@ namespace DungeonGen.Core.Net
                     if (!Disconnected.TryGetValue(e.A, out float dropped)) { rejection = "was not disconnected"; return false; }
                     if (e.Time - dropped > Descriptor.Rules.ReconnectWindowSeconds) { rejection = "reconnect window passed"; return false; }
                     Disconnected.Remove(e.A); break;
+                case MatchEventKind.PlayerEnteredRoom:
+                    if (!Standing(e.A)) { rejection = "player not inside"; return false; }
+                    if (e.B < 0 || e.B >= Layout.Rooms.Count) { rejection = "no such room"; return false; }
+                    PlayerRoom[e.A] = e.B; break;
                 case MatchEventKind.LootRolled:
                     {
                         if (!OpenRolls.TryGetValue(e.A, out var roll)) { rejection = "no roll open"; return false; }
