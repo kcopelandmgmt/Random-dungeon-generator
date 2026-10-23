@@ -39,7 +39,7 @@ namespace DungeonGen.Unity
             _transport = transport;
             transport.DescriptorReceived += OnDescriptorBytes;
             transport.EventReceived += OnEventBytes;
-            transport.LogReceived += OnLogBytes;
+            transport.ViewReceived += OnViewBytes;
             transport.ClientJoined += OnClientJoined;
         }
 
@@ -48,24 +48,34 @@ namespace DungeonGen.Unity
         {
             if (!IsServer) throw new InvalidOperationException("HostMatch on a client.");
             var rules = new MatchRules { RoundSeconds = RoundSeconds, ExtractsOpenAfterSeconds = ExtractsOpenAfterSeconds, BossExitStaysOpen = BossExitStaysOpen, TeamSize = TeamSize };
-            Descriptor = MatchDescriptor.Create(seed, Config.Settings, rules, out var layout);
+            Descriptor = MatchDescriptor.Create(seed, Config.Settings, rules, out var layout, lootSecret: Guid.NewGuid().GetHashCode());   // the secret never leaves this process
             State = new MatchState(Descriptor, layout);
             BuildScene(layout);
             _transport.BroadcastDescriptor(Descriptor.ToBytes());
             OnMatchReady?.Invoke(State);
         }
 
-        /// <summary>Server: record something that happened and tell everyone. Returns false if the server's own rules reject it.</summary>
+        /// <summary>Client: the last notification the server sent this team. Hook sounds and UI lines here.</summary>
+        public UnityEvent<MatchEvent> OnEventNotified;
+
+        /// <summary>
+        /// Server: record something that happened, tell the teams allowed to hear about it, and send
+        /// every team its refreshed view. Returns false if the server's own rules reject it.
+        /// </summary>
         public bool Raise(MatchEvent e)
         {
             if (!IsServer) throw new InvalidOperationException("Only the server raises events.");
             if (!State.Apply(e, out string why)) { Debug.LogWarning($"Rejected {e}: {why}"); return false; }
-            using var ms = new MemoryStream();
-            using (var w = new BinaryWriter(ms)) e.Write(w);
-            _transport.BroadcastEvent(ms.ToArray());
+            byte[] bytes;
+            using (var ms = new MemoryStream()) { using (var w = new BinaryWriter(ms)) e.Write(w); bytes = ms.ToArray(); }
+            var audience = EventVisibility.Audience(e, State);
+            foreach (int team in Teams()) if (audience == null || audience.Contains(team)) _transport.SendEventToTeam(team, bytes);
+            foreach (int team in Teams()) _transport.SendViewToTeam(team, TeamView.For(State, team).ToBytes());
             if (e.Kind == MatchEventKind.BossExitOpened) Builder?.OpenBossGatedExit();
             return true;
         }
+
+        private System.Collections.Generic.IEnumerable<int> Teams() => System.Linq.Enumerable.Range(0, Descriptor.TeamSpawnRooms.Count);
 
         private void OnDescriptorBytes(byte[] bytes)
         {
@@ -90,24 +100,23 @@ namespace DungeonGen.Unity
             if (IsServer || State == null) return;
             using var ms = new MemoryStream(bytes);
             using var r = new BinaryReader(ms);
-            var e = MatchEvent.Read(r);
-            if (!State.Apply(e, out string why)) { OnDesync?.Invoke($"Server event rejected locally: {e} ({why})"); return; }
+            var e = MatchEvent.Read(r);                       // a notification only; the facts arrive in the view
+            OnEventNotified?.Invoke(e);
             if (e.Kind == MatchEventKind.BossExitOpened) Builder?.OpenBossGatedExit();
         }
 
-        private void OnLogBytes(byte[] bytes)
+        private void OnViewBytes(byte[] bytes)
         {
-            if (IsServer || Descriptor == null) return;
-            var layout = Descriptor.BuildAndVerify();
-            State = MatchState.Replay(Descriptor, layout, MatchState.LogFromBytes(bytes));
+            if (IsServer || State == null) return;
+            State.LoadView(TeamView.FromBytes(bytes));
             if (State.BossExitOpen) Builder?.OpenBossGatedExit();
         }
 
-        private void OnClientJoined(int clientId)
+        private void OnClientJoined(int clientId, int team)
         {
             if (!IsServer || State == null) return;
             _transport.BroadcastDescriptor(Descriptor.ToBytes());
-            _transport.SendLog(clientId, State.LogToBytes());
+            _transport.SendViewToTeam(team, TeamView.For(State, team).ToBytes());
         }
 
         private void BuildScene(DungeonLayout layout)

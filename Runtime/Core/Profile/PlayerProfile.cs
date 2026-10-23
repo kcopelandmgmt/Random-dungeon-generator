@@ -41,8 +41,6 @@ namespace DungeonGen.Core.Profile
         public int AccountLevel => AccountRules.LevelFor(AccountXp);
         public void AddAccountXp(long xp) { if (xp > 0) AccountXp += xp; }
         public bool CanHandOff => AccountRules.CanHandOff(AccountLevel);
-        /// <summary>Until the bank opens, each character's stash is its own; the shared bank is what level 5 unlocks.</summary>
-        public bool BankUnlocked => AccountRules.BankUnlocked(AccountLevel);
         public bool ClassUnlocked(ClassArchetype cls) => AccountRules.ClassUnlocked(cls.Name, AccountLevel);
         public IEnumerable<ClassArchetype> PlayableClasses => ClassArchetype.DefaultRoster.Where(ClassUnlocked);
 

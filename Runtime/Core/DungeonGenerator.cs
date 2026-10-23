@@ -19,7 +19,12 @@ namespace DungeonGen.Core
         /// <summary>How many derived seeds to try if a layout fails validation before giving up.</summary>
         public const int MaxRetries = 8;
 
-        public static DungeonLayout Generate(DungeonSettings settings, int seed)
+        /// <param name="lootSecret">
+        /// Server-only salt for the loot roll. With it, the seed alone (which every client holds) cannot
+        /// reproduce what is in the chests; everything else about the dungeon is unchanged. 0 means
+        /// "no secret", for tools and tests.
+        /// </param>
+        public static DungeonLayout Generate(DungeonSettings settings, int seed, int lootSecret = 0)
         {
             settings.Validate();
 
@@ -32,7 +37,7 @@ namespace DungeonGen.Core
 
             while (playable < settings.CandidateCount && failures <= MaxRetries)
             {
-                last = GenerateOnce(settings, attemptSeed, seed);
+                last = GenerateOnce(settings, attemptSeed, seed, lootSecret);
                 var problems = new List<string>();
                 if (LayoutValidator.IsPlayable(last, settings, problems))
                 {
@@ -52,7 +57,7 @@ namespace DungeonGen.Core
             return last;
         }
 
-        private static DungeonLayout GenerateOnce(DungeonSettings s, int workingSeed, int requestedSeed)
+        private static DungeonLayout GenerateOnce(DungeonSettings s, int workingSeed, int requestedSeed, int lootSecret)
         {
             var layout = new DungeonLayout(requestedSeed, s.Width, s.Height) { Settings = s };
             var rng = new DungeonRandom(workingSeed);
@@ -75,7 +80,7 @@ namespace DungeonGen.Core
             DangerMapper.Assign(layout, s);
             MobPlacer.Assign(layout, s, rng.Fork(5));
             ShrinePlacer.Assign(layout, s);
-            LootPlacer.Assign(layout, s, rng.Fork(6));
+            LootPlacer.Assign(layout, s, lootSecret == 0 ? rng.Fork(6) : new DungeonRandom(unchecked(workingSeed ^ lootSecret)).Fork(6));
             FairnessMapper.Assign(layout);
 
             return layout;

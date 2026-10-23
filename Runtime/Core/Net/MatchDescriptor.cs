@@ -48,7 +48,7 @@ namespace DungeonGen.Core.Net
         /// <summary>Index = team number; value = the Spawn room id that team starts in. Shuffled from the seed so slot order is not predictable.</summary>
         public IReadOnlyList<int> TeamSpawnRooms { get; }
         public MatchRules Rules { get; }
-        /// <summary>LayoutFingerprint.Compute on the server's layout. Clients compare after generating.</summary>
+        /// <summary>The PUBLIC fingerprint of the server's layout (everything but loot). Clients compare after generating without loot.</summary>
         public ulong ExpectedFingerprint { get; }
         public ulong SettingsHash => SettingsCodec.Hash(Settings);
 
@@ -60,20 +60,31 @@ namespace DungeonGen.Core.Net
         /// <summary>A new player's first dungeon: generated like any other, one team, no queue.</summary>
         public static MatchDescriptor CreateTutorial(int seed, out DungeonLayout layout) => Create(seed, DungeonSettings.ForTutorial(), MatchRules.Tutorial(), out layout);
 
-        /// <summary>Server side: generate, assign teams to spawns, fingerprint. The returned layout is the authoritative one (with loot).</summary>
-        public static MatchDescriptor Create(int seed, DungeonSettings settings, MatchRules rules, out DungeonLayout layout)
+        /// <summary>
+        /// Server side: generate, assign teams to spawns, fingerprint. The returned layout is the
+        /// authoritative one (with loot). <paramref name="lootSecret"/> never leaves the server: it
+        /// salts the loot roll so the public seed cannot reproduce the chests. Pass a random value
+        /// in production; 0 keeps tools and tests deterministic.
+        /// </summary>
+        public static MatchDescriptor Create(int seed, DungeonSettings settings, MatchRules rules, out DungeonLayout layout, int lootSecret = 0)
         {
-            layout = DungeonGenerator.Generate(settings, seed);
+            layout = DungeonGenerator.Generate(settings, seed, lootSecret);
             var spawns = layout.SpawnRooms.OrderBy(r => r.Id).Select(r => r.Id).ToList();
             new DungeonRandom(unchecked(seed * 7919 + 17)).Shuffle(spawns);
-            return new MatchDescriptor(seed, settings, spawns, rules ?? new MatchRules(), LayoutFingerprint.Compute(layout));
+            return new MatchDescriptor(seed, settings, spawns, rules ?? new MatchRules(), ClientView.PublicFingerprint(layout));
         }
 
-        /// <summary>Client side: rebuild from the descriptor and verify. Throws if the fingerprint differs: the client would be playing a different dungeon.</summary>
+        /// <summary>
+        /// Client side: rebuild the PUBLIC dungeon (no loot) from the descriptor and verify its
+        /// fingerprint. Throws if it differs: the client would be playing a different dungeon.
+        /// The loot is not here and cannot be derived; it arrives in <see cref="TeamView"/>s.
+        /// </summary>
         public DungeonLayout BuildAndVerify()
         {
-            var layout = DungeonGenerator.Generate(Settings, Seed);
-            ulong actual = LayoutFingerprint.Compute(layout);
+            var publicSettings = SettingsCodec.FromBytes(SettingsCodec.ToBytes(Settings));
+            publicSettings.LootEnabled = false;
+            var layout = DungeonGenerator.Generate(publicSettings, Seed);
+            ulong actual = ClientView.PublicFingerprint(layout);
             if (actual != ExpectedFingerprint)
                 throw new InvalidOperationException($"Layout fingerprint mismatch: server {ExpectedFingerprint:x16}, client {actual:x16}. Settings hash {SettingsHash:x16}. Client and server are not running the same generator.");
             return layout;

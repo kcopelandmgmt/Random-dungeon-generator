@@ -18,6 +18,9 @@ namespace DungeonGen.Core.Items
         public UniqueItem Unique { get; }
         /// <summary>Wear state. The one mutable thing about an item.</summary>
         public ItemCondition Condition { get; }
+        /// <summary>Free starter gear. Worth nothing to the vendor and yields nothing when salvaged, or eight character slots would be a materials farm.</summary>
+        public bool IsStarter { get; private set; }
+        public Item MarkStarter() { IsStarter = true; return this; }
         public IEnumerable<AffixRoll> Affixes => Prefixes.Concat(Suffixes);
 
         public Item(ItemBase b, int level, Rarity rarity, string name, List<AffixRoll> prefixes, List<AffixRoll> suffixes, UniqueItem unique = null)

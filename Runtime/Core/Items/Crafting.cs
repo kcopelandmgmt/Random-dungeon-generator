@@ -56,7 +56,7 @@ namespace DungeonGen.Core.Items
         public static MaterialBag Salvage(Item item)
         {
             var bag = new MaterialBag();
-            if (item.Condition.IsDestroyed) return bag;
+            if (item.Condition.IsDestroyed || item.IsStarter) return bag;
             bag.Scrap = (int)Math.Round(ScrapPerLevel * (item.ItemLevel + 1) * ScrapRarityMultiplier(item.Rarity));
             bag.PrimeShards = ShardsFor(item.Rarity);
             foreach (var a in item.Affixes) bag.AddEssence(a.Definition.FamilyKey, EssencesFor(a));
@@ -66,7 +66,7 @@ namespace DungeonGen.Core.Items
         /// <summary>Silver a vendor pays. Uniques and Rares are worth more salvaged than sold; Normals the reverse.</summary>
         public static float SellPrice(Item item)
         {
-            if (item.Condition.IsDestroyed) return 0f;
+            if (item.Condition.IsDestroyed || item.IsStarter) return 0f;
             float price = item.Value * SilverPerValue;
             return item.Condition.IsBroken ? price * BrokenSellFraction : price * (0.5f + 0.5f * item.Condition.Fraction);
         }

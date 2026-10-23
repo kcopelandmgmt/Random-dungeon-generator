@@ -24,6 +24,7 @@ namespace DungeonGen.Core.Profile
             var kit = Equipment.StandardSet(character.Class.Armour, 0, character.Class.Primary);
             foreach (var item in kit.Items.ToList())
             {
+                item.MarkStarter();
                 var old = character.Equipment.Equip(item);
                 // Anything the starter kit displaces is still the player's: it goes nowhere, they keep wearing the better piece.
                 if (old != null && old.Rarity != Rarity.Normal) character.Equipment.Equip(old);
@@ -45,7 +46,7 @@ namespace DungeonGen.Core.Profile
         {
             if (p.Silver < StarterPieceSilver) return null;
             p.Silver -= StarterPieceSilver;
-            var item = new Item(b, 0, Rarity.Normal, b.Name, new List<AffixRoll>(), new List<AffixRoll>());
+            var item = new Item(b, 0, Rarity.Normal, b.Name, new List<AffixRoll>(), new List<AffixRoll>()).MarkStarter();
             p.Stash.Add(item);
             return item;
         }

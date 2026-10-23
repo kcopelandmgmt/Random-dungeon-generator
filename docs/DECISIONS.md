@@ -3,6 +3,46 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-23 · Audit: contradictions found and fixed — BUILT
+
+A deliberate pass over every decision against the code found these. All fixed.
+
+1. **The shared log was a wallhack.** "Clients apply the same log" meant every client received
+   every team's `PlayerEnteredRoom`, rolls, souls, account levels and loot. And the client mirror
+   could not even apply loot events, because its layout had the loot stripped. Replaced by
+   per-team views: the server keeps the log; each team receives a `TeamView` of what it may know
+   and `EventVisibility.Audience` decides who is told an event happened. The transport interface
+   changed accordingly (`SendEventToTeam`, `SendViewToTeam`); reconnect is the next view.
+2. **Clients could compute every chest from the seed.** `ClientView.Redact` existed but the client
+   path regenerated the full layout, and loot was deterministic from the public seed anyway.
+   Loot is now rolled from a server-only `lootSecret`; the descriptor carries the public
+   fingerprint and the client builds without loot.
+3. **Gear score used vendor value**, where a unique is twelve Normals: one unique from a Tier I
+   boss threw a starter character out of Tier I. Gear score now has its own weights (1/2/3/4) and
+   the bands are 0–50 / 35–170 / 130+. A starter kit is 6 (weapon and five armour pieces, not nine).
+4. **Gating the shared bank behind account level 5 made no sense**: the bank moves gear between
+   one account's own characters, which is no use to a mule. Removed; only hand-offs are gated.
+5. **Free starter kits across eight slots were a materials farm.** Starter gear now sells for
+   nothing and salvages to nothing (`Item.IsStarter`).
+6. **Keys could not be handed over** although items could. `KeyGiven`, same room, no account
+   gate (keys are worthless outside).
+7. **Needing a unique you already carry** contradicted one-of-each. Such a Need counts as a Greed.
+8. **Kill XP could be farmed between two accounts.** Paid once per victim per day (`KillXpTracker`).
+
+Known and accepted, not changed:
+
+* **Souls are personal but downing is teamwork.** The finisher gets the soul. A team decides who
+  finishes; that is a choice, not a bug.
+* **The boss chest soul goes to the opener, not to a roll.** "Whoever loots it gets it" was the
+  instruction; the roll covers the gear in the chest, not the soul.
+* **Hand-offs open at level 5, so a day-one Need winner cannot pass a piece to a friend.** The
+  mule guard wins; a floor drop is also gated.
+* **Three tiers × six regions is eighteen queues.** Tier III queues will be thin at launch; the
+  matchmaker already goes with four teams after 90 s. Watch it; a two-team floor after three
+  minutes is one constant if needed.
+* **Affix tiers cap at item level 4**, so Tier III gear is better bases and more uniques, not
+  bigger affixes. Tuning, not contradiction.
+
 ## 2026-10-23 · Combat feel and free-to-play operations — LOCKED AND BUILT
 
 1. **Enemy bodies block, teammates pass through** (`MovementRules.EnemiesBlock / AlliesBlock`).
@@ -45,8 +85,8 @@ Newest first.
 
 ## 2026-10-23 · Tiers, hand-offs, account levels and the business — LOCKED AND BUILT
 
-1. **Three dungeon tiers, walled by gear score both ways.** Tier I admits gear score 0–60, Tier II
-   40–220, Tier III 160 and up (`DungeonTier`). You need the minimum to go up and are refused above
+1. **Three dungeon tiers, walled by gear score both ways.** Tier I admits gear score 0–50, Tier II
+   35–170, Tier III 130 and up (`DungeonTier`; recalibrated in the audit below). You need the minimum to go up and are refused above
    the maximum coming down, so a geared player only meets geared players and a fresh one is never
    farmed. The bands overlap so a player at a wall can choose a side. Higher tiers add +2 / +4 to
    every drop's item level, multiply unique chances ×1.5 / ×2 (capped at 90%), and tune mobs and
@@ -54,7 +94,7 @@ Newest first.
    never mixes them. This partly supersedes "no brackets": inside a tier there are still none.
 2. **Gear score = item level × rarity, worn AND carried** (`GearScore`, one item's score is its
    `Item.Value`). Everything you bring in counts, equipped or in the bag, so nobody carries a Tier
-   III weapon into Tier I. Consumables and silver do not count. A starter kit scores 9.
+   III weapon into Tier I. Consumables and silver do not count. A starter kit scores 6.
 3. **Silver splits.** A chest's purse divides evenly across the teammates near enough to roll for
    its gear (within two rooms); the remainder goes to the picker. Mob piles are the picker's.
 4. **Hand-offs in the dungeon are allowed**: give an item to a player standing in your room
@@ -63,7 +103,7 @@ Newest first.
 5. **Free to play, cosmetics only.** No battle pass, nothing for sale with a stat (`Monetisation`).
 6. **Account levels, which mean nothing except "not on day one".** XP for extractions (120),
    enemy player kills (40), boss kills (60) and the final boss (150); never for time. Level 5
-   (about a weekend) opens hand-offs and the shared bank between characters; the three earned
+   (about a weekend) opens hand-offs (the shared bank is not gated, see the audit); the three earned
    classes open at 10 (Reaver), 15 (Elementalist) and 20 (Shade). Free accounts make mules and
    cheats cheap; this is the answer. (`AccountRules`, `PlayerProfile.AccountXp`.)
 7. **RMT review.** Every hand-off is logged with its value (`MatchState.Transfers` →

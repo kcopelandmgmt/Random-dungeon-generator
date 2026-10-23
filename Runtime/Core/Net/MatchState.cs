@@ -50,6 +50,7 @@ namespace DungeonGen.Core.Net
         ItemGiven,         // itemId, fromPlayer, toPlayer: a hand-off, same room, both standing, both past the account gate; logged for RMT review
         ItemDropped,       // itemId, player: put on the floor of the room they stand in; anyone standing there may take it
         PlayerLeft,        // playerId: a dead player goes to the hub, forfeiting any resurrection
+        KeyGiven,          // keyId, fromPlayer, toPlayer: a vault key handed to a player in the same room; no account gate, keys are worthless outside
     }
 
     /// <summary>
@@ -118,6 +119,38 @@ namespace DungeonGen.Core.Net
         public Dictionary<int, int> FloorItems { get; } = new Dictionary<int, int>();
         /// <summary>Dead players who went back to the hub. No resurrection for them.</summary>
         public HashSet<int> LeftPlayers { get; } = new HashSet<int>();
+        /// <summary>On a client: items the team may see, from the latest <see cref="TeamView"/>. The client's layout carries no loot, so this is the only item knowledge it has.</summary>
+        public Dictionary<int, TeamView.ItemInfo> KnownItems { get; } = new Dictionary<int, TeamView.ItemInfo>();
+        /// <summary>True on a client mirror fed by views; false on the authoritative server state.</summary>
+        public bool IsView { get; private set; }
+
+        /// <summary>Client side: replace everything this state knows with what the server says the team may know.</summary>
+        public void LoadView(TeamView v)
+        {
+            IsView = true;
+            Time = v.Time; Started = v.Started; Ended = v.Ended; DoorsOpen = v.DoorsOpen; ExtractsOpen = v.ExtractsOpen; BossExitOpen = v.BossExitOpen;
+            PlayerTeam.Clear(); PlayerClass.Clear(); PlayerRoom.Clear(); Souls.Clear(); PlayerSilver.Clear(); UltimateCharges.Clear(); DeadPlayers.Clear(); Downed.Clear(); ExtractedPlayers.Clear(); LeftPlayers.Clear(); Disconnected.Clear();
+            foreach (var m in v.Members)
+            {
+                PlayerTeam[m.Player] = v.Team; PlayerClass[m.Player] = m.Class; if (m.Room >= 0) PlayerRoom[m.Player] = m.Room;
+                if (m.Souls > 0) Souls[m.Player] = m.Souls; if (m.Silver > 0) PlayerSilver[m.Player] = m.Silver; if (m.UltimateCharges > 0) UltimateCharges[m.Player] = m.UltimateCharges;
+                if (m.Dead) DeadPlayers.Add(m.Player); if (m.Downed) Downed[m.Player] = v.Time; if (m.Extracted) ExtractedPlayers.Add(m.Player); if (m.Left) LeftPlayers.Add(m.Player); if (m.Disconnected) Disconnected[m.Player] = v.Time;
+            }
+            Explored.Clear(); Explored[v.Team] = new HashSet<int>(v.Explored);
+            OpenedContainers.Clear(); foreach (int r in v.OpenedContainers) OpenedContainers.Add(r);
+            DeadBosses.Clear(); foreach (int r in v.DeadBosses) DeadBosses.Add(r);
+            if (v.FinalBossDead && Layout.FinalBossRoom != null) DeadBosses.Add(Layout.FinalBossRoom.Id);
+            OpenVaults.Clear(); foreach (int r in v.OpenVaults) OpenVaults.Add(r);
+            SilverTakenRooms.Clear(); foreach (int r in v.SilverTaken) SilverTakenRooms.Add(r);
+            KnownItems.Clear(); foreach (var i in v.Items) KnownItems[i.Id] = i;
+            FloorItems.Clear(); foreach (int i in v.FloorItems) FloorItems[i] = KnownItems[i].Room;
+            OpenRolls.Clear();
+            foreach (var r in v.Rolls) OpenRolls[r.Item] = new LootRoll { Opened = r.Opened, Eligible = new HashSet<int>(r.Eligible), Choices = r.Choices.ToDictionary(c => c.player, c => (Items.LootRollChoice)c.choice) };
+            LootWinner.Clear(); foreach (var w in v.Winners) LootWinner[w.item] = w.winner;
+            KeyHolder.Clear(); foreach (var k in v.Keys) KeyHolder[k.key] = k.holder;
+            Corpses.Clear(); OpenedCorpses.Clear(); CorpseSilver.Clear();
+            foreach (var c in v.Corpses) { Corpses[c.Player] = new HashSet<int>(c.Items); if (c.Opened) OpenedCorpses.Add(c.Player); if (c.Silver > 0) CorpseSilver[c.Player] = c.Silver; if (c.Room >= 0) PlayerRoom[c.Player] = c.Room; }
+        }
         private int ValueOf(int item) => ItemValue.TryGetValue(item, out int v) ? v : Index.Items.TryGetValue(item, out var it) ? it.Value : 0;
         /// <summary>itemId → the teammate who won it (-1: everyone passed, free for anyone). Enemies are never bound by it.</summary>
         public Dictionary<int, int> LootWinner { get; } = new Dictionary<int, int>();
@@ -130,8 +163,14 @@ namespace DungeonGen.Core.Net
         {
             if (!OpenRolls.TryGetValue(item, out var r)) yield break;
             var b = Index.Items[item].Base;
+            var unique = Index.Items[item].Unique;
             foreach (int p in StillRolling(item))
-                yield return new Items.LootRollRules.Entry(p, r.Choices.TryGetValue(p, out var c) ? c : Items.LootRollChoice.Pass, Items.LootRollRules.FitsClass(ClassOf(p), b));
+            {
+                var choice = r.Choices.TryGetValue(p, out var c) ? c : Items.LootRollChoice.Pass;
+                // One of each unique: a Need on a unique you already carry counts as a Greed.
+                if (choice == Items.LootRollChoice.Need && unique != null && ItemOwner.Any(kv => kv.Value == p && Index.Items.TryGetValue(kv.Key, out var owned) && owned.Unique == unique)) choice = Items.LootRollChoice.Greed;
+                yield return new Items.LootRollRules.Entry(p, choice, Items.LootRollRules.FitsClass(ClassOf(p), b));
+            }
         }
         public Dictionary<int, int> KeyHolder { get; } = new Dictionary<int, int>();   // keyId → playerId
         public HashSet<int> OpenVaults { get; } = new HashSet<int>();
@@ -535,6 +574,14 @@ namespace DungeonGen.Core.Net
                         if (!PlayerRoom.TryGetValue(e.B, out int here)) { rejection = "nowhere to drop it"; return false; }
                         ItemOwner.Remove(e.A); FloorItems[e.A] = here; break;
                     }
+                case MatchEventKind.KeyGiven:
+                    {
+                        if (!Standing(e.B) || Downed.ContainsKey(e.B)) { rejection = "giver cannot act"; return false; }
+                        if (!Standing(e.C) || Downed.ContainsKey(e.C) || e.B == e.C) { rejection = "receiver cannot take"; return false; }
+                        if (!KeyHolder.TryGetValue(e.A, out int holder) || holder != e.B) { rejection = "not your key"; return false; }
+                        if (!PlayerRoom.TryGetValue(e.B, out int r1) || !PlayerRoom.TryGetValue(e.C, out int r2) || r1 != r2) { rejection = "not in the same room"; return false; }
+                        KeyHolder[e.A] = e.C; break;
+                    }
                 case MatchEventKind.PlayerLeft:
                     if (!DeadPlayers.Contains(e.A)) { rejection = "only the dead leave early"; return false; }
                     if (LeftPlayers.Contains(e.A)) { rejection = "already left"; return false; }
@@ -620,6 +667,7 @@ namespace DungeonGen.Core.Net
 
         /// <summary>Items a player may be shown: everything in containers they or their team opened that nobody has taken. The server filters per recipient with this.</summary>
         public IEnumerable<int> VisibleItemsIn(int roomId) =>
+            IsView ? KnownItems.Where(kv => kv.Value.Room == roomId).Select(kv => kv.Key) :
             OpenedContainers.Contains(roomId) ? Index.Items.Where(kv => Index.ItemRoom[kv.Key] == roomId && !ItemOwner.ContainsKey(kv.Key)).Select(kv => kv.Key) : Enumerable.Empty<int>();
     }
 }

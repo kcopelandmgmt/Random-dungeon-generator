@@ -30,9 +30,9 @@ namespace DungeonGen.Core
 
         public static readonly IReadOnlyList<DungeonTier> All = new[]
         {
-            new DungeonTier(1, "Tier I",   0,   60,            0, 1.0f, 1.0f),   // starter kit scores 9; a full Magic set about 36
-            new DungeonTier(2, "Tier II",  40,  220,           2, 1.5f, 1.4f),   // a full Rare set at item level 2 scores about 135
-            new DungeonTier(3, "Tier III", 160, int.MaxValue,  4, 2.0f, 1.9f),   // Rare at item level 4 and uniques
+            new DungeonTier(1, "Tier I",   0,   50,            0, 1.0f, 1.0f),   // starter kit 6; a full Magic set at level 1 about 36; a starter with one unique 26
+            new DungeonTier(2, "Tier II",  35,  170,           2, 1.4f, 1.4f),   // a full Rare set at level 2 is 81, at level 4 is 135
+            new DungeonTier(3, "Tier III", 130, int.MaxValue,  4, 2.0f, 1.9f),   // Tier II Rares at level 6 (189) and anything with uniques on top
         };
 
         public static DungeonTier For(int number) => All.FirstOrDefault(t => t.Number == number) ?? throw new ArgumentOutOfRangeException(nameof(number));

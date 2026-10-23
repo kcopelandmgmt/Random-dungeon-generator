@@ -6,9 +6,10 @@ namespace DungeonGen.Core.Profile
 {
     /// <summary>
     /// Account levels. They mean nothing except "not on day one": the game is free to play, so a
-    /// fresh account costs nothing, and the things a mule or a cheat would want on day one (handing
-    /// gear to another player, the shared bank between characters) wait for a few sessions of real
-    /// play. The three earned classes wait longer. Nothing here is power.
+    /// fresh account costs nothing, and the thing a mule would want on day one (receiving gear from
+    /// another player) waits for a few sessions of real play. The three earned classes wait longer.
+    /// The shared bank is NOT gated: it moves gear between one account's own characters, which is
+    /// no use to a mule. Nothing here is power.
     /// XP comes from doing the thing: extracting, killing enemy players, killing bosses. Never time.
     /// </summary>
     public static class AccountRules
@@ -22,9 +23,8 @@ namespace DungeonGen.Core.Profile
         public static long XpToReach(int level) => level <= 1 ? 0 : 150L * level * (level + 1) / 2;
         public static int LevelFor(long xp) { int l = 1; while (XpToReach(l + 1) <= xp) l++; return l; }
 
-        /// <summary>Hand-offs in the dungeon and the shared bank open here.</summary>
+        /// <summary>Hand-offs in the dungeon (giving and receiving) open here.</summary>
         public const int HandOffLevel = 5;
-        public const int BankLevel = 5;
 
         public static readonly IReadOnlyList<string> StartingClasses = new[] { "Warden", "Marksman", "Mender" };
         public static readonly IReadOnlyDictionary<string, int> ClassUnlockLevel = new Dictionary<string, int>
@@ -36,7 +36,24 @@ namespace DungeonGen.Core.Profile
             StartingClasses.Contains(className) || (ClassUnlockLevel.TryGetValue(className, out int need) && accountLevel >= need);
         public static int LevelForClass(string className) => StartingClasses.Contains(className) ? 1 : ClassUnlockLevel.TryGetValue(className, out int n) ? n : int.MaxValue;
         public static bool CanHandOff(int accountLevel) => accountLevel >= HandOffLevel;
-        public static bool BankUnlocked(int accountLevel) => accountLevel >= BankLevel;
+    }
+
+    /// <summary>
+    /// Kill XP is paid once per victim per day. Two accounts trading kills across rounds earn one
+    /// kill's worth each per day, which is not a ladder to level 5. Souls in the dungeon are
+    /// unaffected: they are spent inside the round and burn with you.
+    /// </summary>
+    public sealed class KillXpTracker
+    {
+        public const int CooldownHours = 24;
+        private readonly Dictionary<(string killer, string victim), DateTime> _last = new Dictionary<(string, string), DateTime>();
+        /// <summary>XP to award for this kill: the full amount, or 0 when this killer already earned XP for this victim within the cooldown.</summary>
+        public int Award(string killer, string victim, DateTime whenUtc)
+        {
+            if (_last.TryGetValue((killer, victim), out var last) && (whenUtc - last).TotalHours < CooldownHours) return 0;
+            _last[(killer, victim)] = whenUtc;
+            return AccountRules.XpPerPlayerKill;
+        }
     }
 
     /// <summary>

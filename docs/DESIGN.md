@@ -711,13 +711,14 @@ The generator was built deterministic so that the dungeon never has to cross the
 adapter is `IMatchTransport` + `DungeonMatchBootstrap`):
 
 ```
-SERVER                                      CLIENT
-MatchDescriptor.Create(seed, settings) ──►  MatchDescriptor.FromBytes
-  = seed + settings + team→spawn + rules       BuildAndVerify(): regenerate, compare fingerprint
-  + fingerprint   (~250 bytes, once)           (mismatch = refuse to start)
-MatchState (authoritative)                  MatchState (mirror)
-  Apply(event) validates, logs, ──────────►   Apply(event) in order
-  broadcasts                                 late joiner: Replay(log)
+SERVER                                           CLIENT (one team)
+MatchDescriptor.Create(seed, settings,    ──►    MatchDescriptor.FromBytes
+  lootSecret) = seed + settings + team→spawn       BuildAndVerify(): regenerate WITHOUT loot,
+  + rules + PUBLIC fingerprint (~250 bytes)        compare public fingerprint (mismatch = refuse)
+MatchState (authoritative, full layout)          MatchState (mirror, redacted layout)
+  Apply(event) validates and logs                  LoadView(TeamView): what this team may know
+  EventVisibility.Audience(event) ──────────►      notification (sound, UI line)
+  TeamView.For(state, team) per team ───────►      reconnect = the next view
 ```
 
 * **One message builds the world.** `MatchDescriptor` carries the seed, the full settings
@@ -730,21 +731,25 @@ MatchState (authoritative)                  MatchState (mirror)
 * **Stable ids without a table.** `LayoutIndex` numbers items in generation order (room id, then
   slot), mob packs as 1000 + room id, keys as 5000 + key id. Server and clients compute the same
   ids independently.
-* **Clients do not know what is in the chests.** `ClientView.Redact` regenerates the layout with
-  loot disabled: because loot is rolled from its own RNG fork after everything else is fixed,
-  tiles, rooms, bosses, mobs and key holders are bit-identical and only the items are missing.
-  The server reveals a room's items with `ContainerOpened` and filters per recipient with
-  `VisibleItemsIn`. A modified client cannot read the vault off the map.
-* **State changes only through events.** `MatchState.Apply` validates every `MatchEvent`
-  (taking an item twice, opening a vault without the key, extracting before extracts open, using
-  the boss exit while the boss lives, a dead player doing anything) and rejects the illegal ones.
-  The server's rejections are where cheats die; clients apply the same log and arrive at the same
-  state; a reconnect replays the log (`Replay`, `LogToBytes`).
+* **Clients do not know what is in the chests, and cannot compute it.** Loot is rolled from a
+  server-only `lootSecret` salted into the loot RNG, so the public seed reproduces everything
+  about the dungeon except its items. `BuildAndVerify` generates with loot disabled and checks the
+  public fingerprint (`ClientView.PublicFingerprint`); tiles, rooms, bosses, mobs and key holders
+  are bit-identical. Items reach a client only inside its team's `TeamView`.
+* **State changes only through events, on the server.** `MatchState.Apply` validates every
+  `MatchEvent` and rejects the illegal ones; the log stays on the server for replay, review and
+  the death recap. Clients never receive the log (it holds every team's rooms, rolls and souls).
+  Each team gets `TeamView.For(state, team)`: public round state, its own members, souls, silver,
+  charges, rolls and keys, and the containers, items, corpses, dead bosses and open vaults in rooms
+  it has explored. `EventVisibility.Audience` decides which teams are told an event happened at
+  all (positions, rolls and account levels stay inside the team; the final boss and the exit are
+  public). The client's `MatchState` is loaded from views (`LoadView`, `IsView`, `KnownItems`), so
+  the HUD models work unchanged on both sides, and a reconnect is just the next view.
 * **Interest management.** `LayoutIndex.RoomsWithin(room, hops)` is the relevancy set: a player
   needs updates from the rooms within two hops (7 of 34 rooms on the sample seed), not the whole dungeon.
-* **Netcode-agnostic.** `IMatchTransport` is two broadcasts and one unicast. Implement it over
-  Netcode for GameObjects, Mirror, Fishnet or a relay; `DungeonMatchBootstrap` does the rest and
-  raises `OnMatchReady` / `OnDesync`.
+* **Netcode-agnostic.** `IMatchTransport` is one broadcast (the descriptor) and three team-scoped
+  sends (event notification, view, ping). Implement it over Fishnet; `DungeonMatchBootstrap` does
+  the rest and raises `OnMatchReady` / `OnEventNotified` / `OnDesync`.
 
 What the dungeon layer deliberately does *not* do: player movement, combat resolution and
 hit validation are the netcode's job. The layer gives them the authoritative world, ids for
@@ -755,7 +760,8 @@ everything in it, and the rules for what may change.
 `DungeonRandom` is a self-contained xorshift128+ generator seeded via SplitMix64, so results are
 bit-identical across platforms and .NET/Mono/IL2CPP versions (unlike `System.Random`, whose
 algorithm has changed between runtimes). The server rolls a seed, generates the layout for
-authoritative loot/AI, and sends only the `int` to clients, which rebuild the identical map locally.
+authoritative AI, and sends only the `int` to clients, which rebuild the identical map locally,
+minus the loot, which is salted with a secret the clients never see.
 
 ## Tuning cheat sheet
 
