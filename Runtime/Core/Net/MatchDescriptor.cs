@@ -24,6 +24,8 @@ namespace DungeonGen.Core.Net
         public bool IsTutorial = false;
         /// <summary>A disconnected character stands where it was, killable, for this long; reconnecting replays the log. After it, the server kills it.</summary>
         public int ReconnectWindowSeconds = 60;
+        /// <summary>Nobody joins a round after the doors open. Reconnects are not joins.</summary>
+        public const bool Backfill = false;
 
         public static MatchRules Tutorial() => new MatchRules { RoundSeconds = 45 * 60, ExtractsOpenAfterSeconds = 0, TeamSize = 1, IsTutorial = true };
 

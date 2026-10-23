@@ -643,6 +643,17 @@ No sprint. One of each unique. A new account is the free kit, 200 silver and two
 round opens with a 10-second sealed countdown. `MatchState` validates all of it; `RoundClock`
 raises `DoorsOpened`.
 
+## Death recap, round summary, reports, regions, strings (locked, built)
+
+`HitLog` keeps the last five hits per victim outside the event log; `DeathRecap.For(state,
+victim, hits)` gives killer class and spec (never a name), finished or killed, downed seconds and
+the hits. `RoundSummary.For(state, player)` walks the log for kills, boss kills, souls earned and
+spent, extraction value and the account XP earned. `ReportQueue.Submit` dedupes per reporter,
+accused and match; `ReadingOrder` is for a human. `Region.Pick(latencies, override)` chooses the
+queue region; `QueuedGroup.Region` and `Tier` key the matchmaker. `MatchRules.Backfill` is false
+and `PlayerSpawned` is refused once the doors are open. `Season.Starting` makes 91-day seasons.
+`Strings.Get(key)` serves every player-facing string with English fallback.
+
 ## Compass and minimap (locked, built)
 
 `Compass.Bearing` measures from +Y clockwise (0 north, 90 east). `CompassBar.Markers(state,

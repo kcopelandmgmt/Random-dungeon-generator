@@ -3,6 +3,32 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-23 · Combat feel and free-to-play operations — LOCKED AND BUILT
+
+1. **Enemy bodies block, teammates pass through** (`MovementRules.EnemiesBlock / AlliesBlock`).
+   A Warden can plug a doorway without trapping the healer behind them.
+2. **Death recap: the killer's class and weapon spec, the last five hits, how long you lay
+   downed. Never a name.** Hits are not match events; the server keeps the last five per victim
+   in a `HitLog` and `DeathRecap.For` builds the screen. (`Runtime/Core/Net/DeathRecap.cs`.)
+3. **Round-end summary from the match log**: extracted or not, value and silver walked out
+   with, kills, boss kills, souls earned and spent, rooms explored, tier, account XP
+   (`RoundSummary.For`).
+4. **Store: direct purchase at a visible price plus a small featured shelf that rotates weekly.
+   No loot boxes. No offer timer under seven days.** (`Monetisation`.)
+5. **Easy Anti-Cheat (Epic Online Services) on the client**; server rejections remain the line
+   (`TechStack.AntiCheat`).
+6. **Reporting: cheating, real-money trading, abuse; one click from the death screen, scoreboard
+   or spectator view; the report carries the match id. No automated action, ever**: reports are
+   read by a human in order of distinct reporters (`ReportQueue`).
+7. **Region: auto-picked by latency, manual override, a match never mixes regions**
+   (`Region.Pick`, `QueuedGroup.Region`; the matchmaker keys queues by tier and region).
+8. **No backfill.** Nobody joins after the doors open; a reconnect is not a join
+   (`MatchRules.Backfill`, `PlayerSpawned` rejected once `DoorsOpen`).
+9. **Seasons are three months** (`Season.LengthDays`, `Season.Starting`, `Season.Next`).
+10. **English only at launch, every string externalized** (`Strings`): a missing key shows the
+    key, a second language is a table loaded at runtime. The announcer and HUD labels already
+    read from it.
+
 ## 2026-10-23 · Compass and minimap — LOCKED AND BUILT
 
 * **A compass strip across the top of the screen.** Cardinal letters at their bearings (north is

@@ -207,6 +207,7 @@ namespace DungeonGen.Core.Net
                     Started = true; break;
                 case MatchEventKind.PlayerSpawned:
                     if (PlayerTeam.ContainsKey(e.A)) { rejection = "already spawned"; return false; }
+                    if (DoorsOpen && !MatchRules.Backfill) { rejection = "no backfill after the doors open"; return false; }
                     if (e.B < 0 || e.B >= Descriptor.TeamSpawnRooms.Count) { rejection = "no such team"; return false; }
                     if (PlayerTeam.Count(kv => kv.Value == e.B) >= Descriptor.Rules.TeamSize) { rejection = "team full"; return false; }
                     PlayerTeam[e.A] = e.B; PlayerClass[e.A] = e.C; PlayerRoom[e.A] = Descriptor.TeamSpawnRooms[e.B];

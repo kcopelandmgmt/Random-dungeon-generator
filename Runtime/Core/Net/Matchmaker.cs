@@ -12,11 +12,13 @@ namespace DungeonGen.Core.Net
         public float QueuedAt { get; }
         /// <summary>Which dungeon tier the group queued for. The gate (gear score in band for every member) is checked before enqueueing; groups only ever match within a tier.</summary>
         public int Tier { get; }
-        public QueuedGroup(int id, IReadOnlyList<int> players, float queuedAt, int tier = 1)
+        /// <summary>The region the group queued in: auto-picked by latency (<see cref="Region.Pick"/>) or chosen by the player. A match never mixes regions.</summary>
+        public string Region { get; }
+        public QueuedGroup(int id, IReadOnlyList<int> players, float queuedAt, int tier = 1, string region = "auto")
         {
             if (players.Count < 1 || players.Count > 3) throw new ArgumentException("A group is 1 to 3 players.");
             DungeonTier.For(tier);
-            GroupId = id; PlayerIds = players; QueuedAt = queuedAt; Tier = tier;
+            GroupId = id; PlayerIds = players; QueuedAt = queuedAt; Tier = tier; Region = region ?? "auto";
         }
     }
 
@@ -26,14 +28,29 @@ namespace DungeonGen.Core.Net
         public int Seed { get; }
         public IReadOnlyList<QueuedGroup> Teams { get; }
         public int Tier { get; }
-        public FormedMatch(int seed, IReadOnlyList<QueuedGroup> teams) { Seed = seed; Teams = teams; Tier = teams.Count > 0 ? teams[0].Tier : 1; }
+        public string Region { get; }
+        public FormedMatch(int seed, IReadOnlyList<QueuedGroup> teams) { Seed = seed; Teams = teams; Tier = teams.Count > 0 ? teams[0].Tier : 1; Region = teams.Count > 0 ? teams[0].Region : "auto"; }
 
         /// <summary>The dungeon is sized to the teams actually present (four teams get the 4-team preset, eight the 8-team one) and stamped with the tier they queued for.</summary>
         public DungeonSettings Settings => DungeonTier.For(Tier).Apply(DungeonSettings.ForTeams(Teams.Count));
     }
 
+    /// <summary>Region choice: the client measures latency to each region and queues in the best one unless the player overrides.</summary>
+    public static class Region
+    {
+        public static readonly IReadOnlyList<string> Launch = new[] { "na-east", "na-west", "eu", "sa", "oce", "asia" };
+        public const bool NeverMixed = true;
+        /// <summary>The lowest-latency region, or the override when the player set one.</summary>
+        public static string Pick(IReadOnlyDictionary<string, float> latencyMs, string playerOverride = null)
+        {
+            if (!string.IsNullOrEmpty(playerOverride) && Launch.Contains(playerOverride)) return playerOverride;
+            if (latencyMs == null || latencyMs.Count == 0) return Launch[0];
+            return latencyMs.Where(kv => Launch.Contains(kv.Key)).OrderBy(kv => kv.Value).ThenBy(kv => kv.Key).Select(kv => kv.Key).DefaultIfEmpty(Launch[0]).First();
+        }
+    }
+
     /// <summary>
-    /// One queue, no gear brackets, groups of 1 to 3 stay together and each becomes a team. A
+    /// One queue per tier and region, no gear brackets inside it, groups of 1 to 3 stay together and each becomes a team. A
     /// match forms when enough groups are waiting, or when the oldest group has waited long enough
     /// to go with fewer teams. Seeds come from a server counter, never from a client.
     /// </summary>
@@ -59,10 +76,10 @@ namespace DungeonGen.Core.Net
         public FormedMatch TryForm(float now)
         {
             if (_queue.Count == 0) return null;
-            // Tiers are separate queues: a match is only ever formed from groups that queued for the same tier.
-            foreach (int tier in _queue.Select(g => g.Tier).Distinct().OrderBy(t => t))
+            // Tiers and regions are separate queues: a match is only ever formed from groups that queued for the same tier in the same region.
+            foreach (var key in _queue.Select(g => (g.Tier, g.Region)).Distinct().OrderBy(k => k.Tier).ThenBy(k => k.Region))
             {
-                var ordered = _queue.Where(g => g.Tier == tier).OrderBy(g => g.QueuedAt).ThenBy(g => g.GroupId).ToList();
+                var ordered = _queue.Where(g => g.Tier == key.Tier && g.Region == key.Region).OrderBy(g => g.QueuedAt).ThenBy(g => g.GroupId).ToList();
                 bool waited = now - ordered[0].QueuedAt >= MaxWaitSeconds;
                 int need = ordered.Count >= TeamsPerMatch ? TeamsPerMatch : waited && ordered.Count >= MinTeamsAfterWait ? ordered.Count : 0;
                 if (need == 0) continue;

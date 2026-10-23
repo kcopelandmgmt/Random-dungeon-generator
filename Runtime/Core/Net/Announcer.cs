@@ -18,9 +18,9 @@ namespace DungeonGen.Core.Net
             switch (e.Kind)
             {
                 case MatchEventKind.BossKilled when e.A >= 0 && e.A < layout.Rooms.Count && layout.Rooms[e.A].Type == RoomType.FinalBoss:
-                    return new Announcement("The Sovereign Below has fallen.", "announce.final_boss_dead");
+                    return new Announcement(Strings.Get("announce.final_boss_dead"), "announce.final_boss_dead");
                 case MatchEventKind.BossExitOpened:
-                    return new Announcement("The way out has opened at the heart of the dungeon.", "announce.exit_open");
+                    return new Announcement(Strings.Get("announce.exit_open"), "announce.exit_open");
                 default:
                     return null;
             }

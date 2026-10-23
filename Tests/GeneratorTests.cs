@@ -2775,3 +2775,133 @@ namespace DungeonGen.Tests
         }
     }
 }
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+    using DungeonGen.Core.Net;
+    using DungeonGen.Core.Profile;
+
+    public class OperationsTests
+    {
+        private static (MatchState st, DungeonLayout layout) Fresh()
+        {
+            var d = MatchDescriptor.Create(7, DungeonSettings.ForTeams(8), new MatchRules(), out var layout);
+            var st = new MatchState(d, layout);
+            st.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out _);
+            for (int p = 1; p <= 6; p++) st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, p, (p - 1) / 3), out _);
+            return (st, layout);
+        }
+
+        [Fact]
+        public void DeathRecapNamesClassAndSpecNeverTheAccount()
+        {
+            var (st, layout) = Fresh();
+            var hits = new HitLog();
+            for (int i = 0; i < 7; i++) hits.Record(4, new Hit(9f + i * 0.1f, 1, "Sentinel", DamageType.Physical, 80f + i, "Shield Bash"));
+            Assert.Equal(HitLog.Kept, hits.LastHits(4).Count);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDowned, 10, 4, 1, 0), out _));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerFinished, 15, 4, 1, 0), out _));
+            var r = DeathRecap.For(st, 4, hits);
+            Assert.Equal(1, r.Killer); Assert.Equal("Warden", r.KillerClass); Assert.Equal("Sentinel", r.KillerSpec);
+            Assert.True(r.Finished); Assert.False(r.KilledByTeammate); Assert.Equal(5f, r.DownedSeconds, 3);
+            Assert.Equal("Finished by a Warden (Sentinel).", r.Headline);
+            Assert.DoesNotContain("acct", r.Headline);
+            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 20, 5, -1, 0), out _);
+            Assert.Equal("Killed by the dungeon.", DeathRecap.For(st, 5, hits).Headline);
+            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 21, 2, 3, 0), out _);
+            Assert.Contains("your own Warden", DeathRecap.For(st, 2, null).Headline);
+            Assert.Equal(-1, DeathRecap.For(st, 6, hits).Killer);                                   // still alive: empty recap
+
+            var sum = RoundSummary.For(st, 1);
+            Assert.Equal(1, sum.PlayerKills); Assert.Equal(1, sum.SoulsEarned); Assert.False(sum.Extracted); Assert.False(sum.Died);
+            Assert.Equal(AccountRules.XpPerPlayerKill, sum.AccountXp);
+            int shrine = layout.Rooms.First(r2 => r2.HasShrine).Id;
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ShrinePurchase, 22, 1, 0, shrine), out _));
+            Assert.Equal(1, RoundSummary.For(st, 1).SoulsSpent);
+            Assert.Equal(0, RoundSummary.For(st, 3).PlayerKills);                                   // a teammate kill is not a kill
+            Assert.Equal(1, sum.Tier);
+        }
+
+        [Fact]
+        public void ReportsDedupeAndAreReadByHumans()
+        {
+            var q = new ReportQueue();
+            var t = new System.DateTime(2027, 1, 1);
+            Assert.False(ReportQueue.AutomatedAction);
+            Assert.True(q.Submit(new PlayerReport(t, "a", "x", "m1", ReportReason.Cheating)));
+            Assert.False(q.Submit(new PlayerReport(t, "a", "x", "m1", ReportReason.Abuse)), "same reporter, accused and match");
+            Assert.True(q.Submit(new PlayerReport(t, "a", "x", "m2", ReportReason.Cheating)));
+            Assert.True(q.Submit(new PlayerReport(t, "b", "x", "m1", ReportReason.RealMoneyTrading)));
+            Assert.True(q.Submit(new PlayerReport(t, "c", "y", "m1", ReportReason.Abuse)));
+            Assert.False(q.Submit(new PlayerReport(t, "c", "c", "m1", ReportReason.Abuse)), "self");
+            Assert.False(q.Submit(new PlayerReport(t, "c", "y", "", ReportReason.Abuse)), "no match id");
+            var order = q.ReadingOrder().ToList();
+            Assert.Equal(("x", 2, 3), order[0]); Assert.Equal(("y", 1, 1), order[1]);
+        }
+
+        [Fact]
+        public void StringsResolveAndFallBack()
+        {
+            Assert.All(Strings.Keys, k => Assert.NotEqual(k, Strings.Get(k)));
+            Assert.Equal("no.such.key", Strings.Get("no.such.key"));
+            Assert.Equal(new[] { "en" }, Strings.LaunchLanguages);
+            var layout = DungeonGenerator.Generate(DungeonSettings.ForTeams(4), 3);
+            Strings.Load("fr", new Dictionary<string, string> { ["announce.exit_open"] = "La sortie est ouverte." });
+            try
+            {
+                Assert.Equal("fr", Strings.Language);
+                Assert.Equal("La sortie est ouverte.", Announcer.For(new MatchEvent(MatchEventKind.BossExitOpened, 1), layout).Value.Text);
+                Assert.Equal("Shrine", Strings.Get("hud.shrine"));                                      // untranslated keys fall back to English
+            }
+            finally { Strings.ResetToEnglish(); }
+            Assert.Contains("opened", Announcer.For(new MatchEvent(MatchEventKind.BossExitOpened, 1), layout).Value.Text);
+        }
+
+        [Fact]
+        public void RegionsAutoPickByLatencyAndNeverMix()
+        {
+            Assert.True(Region.NeverMixed);
+            var lat = new Dictionary<string, float> { ["eu"] = 90f, ["na-east"] = 35f, ["asia"] = 200f, ["mars"] = 1f };
+            Assert.Equal("na-east", Region.Pick(lat));
+            Assert.Equal("eu", Region.Pick(lat, "eu"));
+            Assert.Equal("na-east", Region.Pick(lat, "mars"));                                        // unknown override ignored
+            Assert.Equal(Region.Launch[0], Region.Pick(null));
+            var mm = new Matchmaker(teamsPerMatch: 2, minTeamsAfterWait: 2, maxWaitSeconds: 90f);
+            mm.Enqueue(new QueuedGroup(1, new[] { 1 }, 0f, 1, "eu"));
+            mm.Enqueue(new QueuedGroup(2, new[] { 2 }, 0f, 1, "na-east"));
+            Assert.Null(mm.TryForm(1f));
+            mm.Enqueue(new QueuedGroup(3, new[] { 3 }, 1f, 1, "eu"));
+            var m = mm.TryForm(2f);
+            Assert.Equal("eu", m.Region);
+            Assert.All(m.Teams, t => Assert.Equal("eu", t.Region));
+            Assert.Equal(TechStack.RegionPolicy, TechStack.RegionPolicy);
+            Assert.Contains("Easy Anti-Cheat", TechStack.AntiCheat);
+        }
+
+        [Fact]
+        public void SeasonsAreThreeMonthsAndStoreHasNoLootBoxes()
+        {
+            var s = Season.Starting(1, new System.DateTime(2027, 1, 1));
+            Assert.Equal(91, Season.LengthDays);
+            Assert.Equal(new System.DateTime(2027, 4, 2), s.EndUtc);
+            Assert.Equal(2, s.Next().Number); Assert.Equal(s.EndUtc, s.Next().StartUtc);
+            Assert.False(Monetisation.LootBoxes); Assert.Equal(7, Monetisation.FeaturedRotationDays); Assert.Equal(7, Monetisation.MinimumOfferDays);
+            Assert.True(MovementRules.EnemiesBlock); Assert.False(MovementRules.AlliesBlock);
+        }
+
+        [Fact]
+        public void NobodyJoinsAfterTheDoorsOpen()
+        {
+            var (st, layout) = Fresh();
+            string why;
+            Assert.False(MatchRules.Backfill);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 5, 7, 2), out why), "before the doors: fine");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.DoorsOpened, 10), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 11, 8, 2), out why));
+            Assert.Contains("backfill", why);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDisconnected, 12, 7), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerReconnected, 20, 7), out why), "a reconnect is not a join");
+        }
+    }
+}

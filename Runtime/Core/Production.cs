@@ -18,6 +18,9 @@ namespace DungeonGen.Core
         public const string Platform = "PC (Steam) first, controller supported, console later";
         public const string Hub = "Menus only";
         public const int TeamSizeOfDevelopers = 1;
+        public const string AntiCheat = "Easy Anti-Cheat (Epic Online Services) on the client; server rejections remain the line";
+        public const string RegionPolicy = "Auto by latency, manual override, a match never mixes regions";
+        public static readonly IReadOnlyList<string> LaunchLanguages = Strings.LaunchLanguages;
     }
 
     /// <summary>How the game is sold. Free to play; the only thing for sale is how you look. Nothing for sale is power, ever.</summary>
@@ -27,6 +30,11 @@ namespace DungeonGen.Core
         public const string Sells = "Cosmetics only: seasonal cosmetics, nothing with a stat";
         public const bool BattlePass = false;
         public const bool PaidPower = false;
+        public const string Store = "Direct purchase at a visible price, plus a small featured shelf that rotates weekly";
+        public const bool LootBoxes = false;
+        public const int FeaturedRotationDays = 7;
+        /// <summary>No countdown timer on anything for sale shorter than this. No FOMO under a week.</summary>
+        public const int MinimumOfferDays = 7;
         /// <summary>Free accounts are cheap for mules and cheats, so the account level gates in AccountRules exist.</summary>
         public const string Consequence = "Account levels gate hand-offs, the shared bank and the three earned classes";
     }

@@ -96,12 +96,12 @@ namespace DungeonGen.Core.Hud
                 CompassMarkerKind kind; string label;
                 switch (room.Type)
                 {
-                    case RoomType.Extract: kind = CompassMarkerKind.Extract; label = st.ExtractsOpen ? "Extract (open)" : "Extract"; break;
-                    case RoomType.Boss: kind = CompassMarkerKind.BossRoom; label = st.DeadBosses.Contains(id) ? "Boss (dead)" : room.Boss?.Archetype.Name ?? "Boss"; break;
-                    case RoomType.FinalBoss: kind = st.BossExitOpen ? CompassMarkerKind.BossExit : CompassMarkerKind.FinalBoss; label = st.BossExitOpen ? "Exit (open)" : "Final boss"; break;
-                    case RoomType.Vault: kind = CompassMarkerKind.Vault; label = st.OpenVaults.Contains(id) ? "Vault (open)" : "Vault (locked)"; break;
-                    case RoomType.Spawn: if (st.Descriptor.TeamSpawnRooms[team] != id) continue; kind = CompassMarkerKind.Spawn; label = "Spawn"; break;
-                    default: if (!room.HasShrine) continue; kind = CompassMarkerKind.Shrine; label = "Shrine"; break;
+                    case RoomType.Extract: kind = CompassMarkerKind.Extract; label = Strings.Get(st.ExtractsOpen ? "hud.extract_open" : "hud.extract"); break;
+                    case RoomType.Boss: kind = CompassMarkerKind.BossRoom; label = st.DeadBosses.Contains(id) ? Strings.Get("hud.boss_dead") : room.Boss?.Archetype.Name ?? Strings.Get("hud.boss"); break;
+                    case RoomType.FinalBoss: kind = st.BossExitOpen ? CompassMarkerKind.BossExit : CompassMarkerKind.FinalBoss; label = Strings.Get(st.BossExitOpen ? "hud.exit_open" : "hud.final_boss"); break;
+                    case RoomType.Vault: kind = CompassMarkerKind.Vault; label = Strings.Get(st.OpenVaults.Contains(id) ? "hud.vault_open" : "hud.vault_locked"); break;
+                    case RoomType.Spawn: if (st.Descriptor.TeamSpawnRooms[team] != id) continue; kind = CompassMarkerKind.Spawn; label = Strings.Get("hud.spawn"); break;
+                    default: if (!room.HasShrine) continue; kind = CompassMarkerKind.Shrine; label = Strings.Get("hud.shrine"); break;
                 }
                 list.Add(new CompassMarker(kind, Compass.Bearing(playerCell, room.Center), Compass.DistanceCells(playerCell, room.Center), label, id));
             }

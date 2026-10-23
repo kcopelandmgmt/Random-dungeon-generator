@@ -31,7 +31,11 @@ namespace DungeonGen.Core.Profile
             (500L, "cosmetic.cloak.season"), (2500L, "cosmetic.weapon_glow.season"), (10000L, "cosmetic.title.season"), (50000L, "cosmetic.mount_banner.season"),
         };
 
+        /// <summary>Three months. Four a season a year; a solo dev ships one real change per season.</summary>
+        public const int LengthDays = 91;
         public Season(int number, DateTime startUtc, DateTime endUtc) { Number = number; StartUtc = startUtc; EndUtc = endUtc; }
+        public static Season Starting(int number, DateTime startUtc) => new Season(number, startUtc, startUtc.AddDays(LengthDays));
+        public Season Next() => Starting(Number + 1, EndUtc);
 
         public bool IsActive(DateTime nowUtc) => nowUtc >= StartUtc && nowUtc < EndUtc;
 

@@ -17,6 +17,9 @@ namespace DungeonGen.Core.Combat
         public const bool FacingFollowsAim = true;
         /// <summary>Movement while channelling an extraction cancels it; abilities with a cast time root the caster for the cast.</summary>
         public const bool MovingCancelsExtractChannel = true;
+        /// <summary>Enemy bodies block: a Warden can plug a doorway. Teammates pass through each other, so the plug never traps the healer behind it.</summary>
+        public const bool EnemiesBlock = true;
+        public const bool AlliesBlock = false;
 
         /// <summary>World speed for a character: sheet move speed (attributes, armour weight, affixes) times load.</summary>
         public static float SpeedMps(PlayerStats sheet, float loadKg) =>
