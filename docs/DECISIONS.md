@@ -3,6 +3,45 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-23 · Tiers, hand-offs, account levels and the business — LOCKED AND BUILT
+
+1. **Three dungeon tiers, walled by gear score both ways.** Tier I admits gear score 0–60, Tier II
+   40–220, Tier III 160 and up (`DungeonTier`). You need the minimum to go up and are refused above
+   the maximum coming down, so a geared player only meets geared players and a fresh one is never
+   farmed. The bands overlap so a player at a wall can choose a side. Higher tiers add +2 / +4 to
+   every drop's item level, multiply unique chances ×1.5 / ×2 (capped at 90%), and tune mobs and
+   bosses for players 1.4× / 1.9× baseline. Tiers are separate queues (`QueuedGroup.Tier`); a match
+   never mixes them. This partly supersedes "no brackets": inside a tier there are still none.
+2. **Gear score = item level × rarity, worn AND carried** (`GearScore`, one item's score is its
+   `Item.Value`). Everything you bring in counts, equipped or in the bag, so nobody carries a Tier
+   III weapon into Tier I. Consumables and silver do not count. A starter kit scores 9.
+3. **Silver splits.** A chest's purse divides evenly across the teammates near enough to roll for
+   its gear (within two rooms); the remainder goes to the picker. Mob piles are the picker's.
+4. **Hand-offs in the dungeon are allowed**: give an item to a player standing in your room
+   (`ItemGiven`) or drop it on the floor (`ItemDropped`), where anyone in that room may take it,
+   enemies included. The floor does not survive the round.
+5. **Free to play, cosmetics only.** No battle pass, nothing for sale with a stat (`Monetisation`).
+6. **Account levels, which mean nothing except "not on day one".** XP for extractions (120),
+   enemy player kills (40), boss kills (60) and the final boss (150); never for time. Level 5
+   (about a weekend) opens hand-offs and the shared bank between characters; the three earned
+   classes open at 10 (Reaver), 15 (Elementalist) and 20 (Shade). Free accounts make mules and
+   cheats cheap; this is the answer. (`AccountRules`, `PlayerProfile.AccountXp`.)
+7. **RMT review.** Every hand-off is logged with its value (`MatchState.Transfers` →
+   `TransferLedger`). Pairs whose flow runs one way (net 300+ over 3+ transfers) are flagged for a
+   human. The tier walls already stop the obvious delivery routes: a seller cannot carry high gear
+   into a low tier, and a buyer cannot enter a high tier without owning gear of that tier.
+8. **Three classes on day one: Warden, Marksman, Mender.** Tank, ranged damage, healer. Reaver,
+   Elementalist and Shade are earned. The vertical slice now builds the three day-one classes
+   (Sentinel, Sharpshooter, Warder) and no element kit; the Elementalist lands with milestone two.
+9. **A dead player spectates their team and may leave for the hub at any time**, forfeiting any
+   resurrection (`PlayerLeft`). A wiped team goes straight to the hub.
+10. **Two global announcements, nothing else**: the final boss falling and the centre exit opening,
+    each with a sound (`Announcer`). Other teams' fates are learned by seeing and hearing.
+11. **Leaderboards: value extracted is the main board; player kills, boss kills and final boss
+    kills are side boards; every board per tier and in total** (`Season`, `LeaderboardKind`).
+12. **Weekly contracts in season two**, three a week paying silver and account XP (`Roadmap`).
+13. **No secure pouch.** Nothing you carry survives dying (`FightRules.SecurePouchSlots = 0`).
+
 ## 2026-10-23 · Need over greed — LOCKED AND BUILT
 
 * **Group loot is rolled, World of Warcraft style**, so a player who queued with strangers has a
@@ -115,7 +154,8 @@ Stated in code as `TechStack` and `VerticalSlice`; the rules with behaviour are 
    Locked doors block mobs as they block players; leashes are a rectangle around the room.
 6. **Art direction: stylized low-poly**, flat-shaded or hand-painted. Reads from 22 m, cheapest to
    keep consistent across bought packs, lights well.
-7. **Vertical slice: 4 teams, 3 classes (Warden, Reaver, Elementalist with Pyromancy), 2 bosses
+7. **Vertical slice: 4 teams, 3 classes (Warden, Reaver, Elementalist with Pyromancy; changed
+   2026-10-23 to the day-one trio Warden, Marksman, Mender), 2 bosses
    (Iron Juggernaut, Hive Matron), one preset.** `VerticalSlice.Settings()`; the generator draws
    only the slice's bosses (`DungeonSettings.AllowedBosses`). Every system once, half the content.
 8. **Platform: PC (Steam) first, controller supported, console later.**

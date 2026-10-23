@@ -643,6 +643,25 @@ No sprint. One of each unique. A new account is the free kit, 200 silver and two
 round opens with a 10-second sealed countdown. `MatchState` validates all of it; `RoundClock`
 raises `DoorsOpened`.
 
+## Dungeon tiers, gear score and account levels (locked, built)
+
+Three tiers (`DungeonTier.All`), walled by gear score both ways: Tier I 0–60, Tier II 40–220,
+Tier III 160+. `GearScore.Of(worn, carried)` sums `Item.Value` (item level × rarity weight) over
+everything a character brings in. `DungeonTier.Apply(settings)` stamps `Tier`, `ItemLevelOffset`
+(+0/+2/+4 on every drop), `UniqueChanceMultiplier` (×1/×1.5/×2) and scales the combat baseline so
+mobs and bosses are tuned for geared players. `QueuedGroup.Tier` keeps queues apart; `FormedMatch`
+applies the tier. The settings codec is version 2 and round-trips the three fields.
+
+Account levels (`AccountRules`): XP for extractions, kills and bosses, never time. Level 5 opens
+hand-offs (`ItemGiven`, same room, both parties past the gate; `AccountLevelReported` carries the
+level into the match) and the shared bank; Reaver, Elementalist and Shade open at 10/15/20.
+`MatchState.Transfers` records every hand-off for `TransferLedger.Flagged()`. `ItemDropped` puts
+an item on the room floor (`FloorItems`) for anyone standing there; the floor is destroyed at round
+end. A chest's silver splits across `TeammatesNear` on `SilverPicked`. Dead players may
+`PlayerLeft`, forfeiting resurrection. `Announcer.For` yields text for exactly two events.
+`Season` keeps four `LeaderboardKind` boards per tier and in total. `Monetisation`: free to play,
+cosmetics only. `Roadmap.SeasonTwo`: weekly contracts, a possible fourth tier.
+
 ## Technical stack and the vertical slice (locked)
 
 `TechStack` states them: Unity 6 + URP, Fishnet over `IMatchTransport`, managed dedicated

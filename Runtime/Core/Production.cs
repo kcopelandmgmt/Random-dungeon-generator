@@ -20,6 +20,27 @@ namespace DungeonGen.Core
         public const int TeamSizeOfDevelopers = 1;
     }
 
+    /// <summary>How the game is sold. Free to play; the only thing for sale is how you look. Nothing for sale is power, ever.</summary>
+    public static class Monetisation
+    {
+        public const string Model = "Free to play";
+        public const string Sells = "Cosmetics only: seasonal cosmetics, nothing with a stat";
+        public const bool BattlePass = false;
+        public const bool PaidPower = false;
+        /// <summary>Free accounts are cheap for mules and cheats, so the account level gates in AccountRules exist.</summary>
+        public const string Consequence = "Account levels gate hand-offs, the shared bank and the three earned classes";
+    }
+
+    /// <summary>What is decided but deliberately not in the launch build.</summary>
+    public static class Roadmap
+    {
+        public static readonly IReadOnlyList<string> SeasonTwo = new[]
+        {
+            "Weekly contracts: three a week, paying silver and account XP (extract with a unique, open two vaults, kill a boss in Tier II)",
+            "A fourth dungeon tier if Tier III queues are healthy",
+        };
+    }
+
     /// <summary>
     /// The first playable build: every system once, half the content. Anything outside this list
     /// is still in the code base but is not in the slice.
@@ -27,12 +48,14 @@ namespace DungeonGen.Core
     public static class VerticalSlice
     {
         public const int Teams = 4;
-        public static readonly IReadOnlyList<string> Classes = new[] { "Warden", "Reaver", "Elementalist" };
+        public static readonly IReadOnlyList<string> Classes = new[] { "Warden", "Marksman", "Mender" };   // the three day-one classes (AccountRules.StartingClasses)
         public static readonly IReadOnlyList<string> Bosses = new[] { "Iron Juggernaut", "Hive Matron" };
-        /// <summary>The one element kit the slice ships for the Elementalist; the other two staves exist but their kits are not in the slice.</summary>
-        public static readonly IReadOnlyList<string> ElementKits = new[] { "Pyromancy" };
+        /// <summary>No Elementalist in the slice, so no element kit: the Elementalist is an earned class and lands with the second milestone.</summary>
+        public static readonly IReadOnlyList<string> ElementKits = new string[0];
         /// <summary>Specs in the slice: one per class, the second spec of each comes after.</summary>
-        public static readonly IReadOnlyList<string> Specs = new[] { "Sentinel", "Berserker", "Pyromancy" };
+        public static readonly IReadOnlyList<string> Specs = new[] { "Sentinel", "Sharpshooter", "Warder" };
+        /// <summary>The slice is Tier I only.</summary>
+        public const int Tiers = 1;
 
         /// <summary>The slice's dungeon: the 4-team preset, two boss rooms drawn only from the slice's bosses.</summary>
         public static DungeonSettings Settings()

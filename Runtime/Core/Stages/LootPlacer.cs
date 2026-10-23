@@ -40,7 +40,7 @@ namespace DungeonGen.Core.Stages
                         if (rng.Chance(c.ChestChance)) room.Consumables.Add(c);
                 for (int i = 0; i < count; i++)
                 {
-                    var item = LootRoller.Roll(room.LootTier, source, rng, theme);
+                    var item = LootRoller.Roll(room.LootTier + s.ItemLevelOffset, source, rng, theme, s.UniqueChanceMultiplier);   // dungeon tier lifts every drop
                     room.Loot.Add(item);
                     layout.Items.Add(item);
                 }

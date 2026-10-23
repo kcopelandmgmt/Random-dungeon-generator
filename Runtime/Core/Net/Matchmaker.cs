@@ -10,10 +10,13 @@ namespace DungeonGen.Core.Net
         public int GroupId { get; }
         public IReadOnlyList<int> PlayerIds { get; }
         public float QueuedAt { get; }
-        public QueuedGroup(int id, IReadOnlyList<int> players, float queuedAt)
+        /// <summary>Which dungeon tier the group queued for. The gate (gear score in band for every member) is checked before enqueueing; groups only ever match within a tier.</summary>
+        public int Tier { get; }
+        public QueuedGroup(int id, IReadOnlyList<int> players, float queuedAt, int tier = 1)
         {
             if (players.Count < 1 || players.Count > 3) throw new ArgumentException("A group is 1 to 3 players.");
-            GroupId = id; PlayerIds = players; QueuedAt = queuedAt;
+            DungeonTier.For(tier);
+            GroupId = id; PlayerIds = players; QueuedAt = queuedAt; Tier = tier;
         }
     }
 
@@ -22,10 +25,11 @@ namespace DungeonGen.Core.Net
     {
         public int Seed { get; }
         public IReadOnlyList<QueuedGroup> Teams { get; }
-        public FormedMatch(int seed, IReadOnlyList<QueuedGroup> teams) { Seed = seed; Teams = teams; }
+        public int Tier { get; }
+        public FormedMatch(int seed, IReadOnlyList<QueuedGroup> teams) { Seed = seed; Teams = teams; Tier = teams.Count > 0 ? teams[0].Tier : 1; }
 
-        /// <summary>The dungeon is sized to the teams actually present: four teams get the 4-team preset, eight the 8-team one.</summary>
-        public DungeonSettings Settings => DungeonSettings.ForTeams(Teams.Count);
+        /// <summary>The dungeon is sized to the teams actually present (four teams get the 4-team preset, eight the 8-team one) and stamped with the tier they queued for.</summary>
+        public DungeonSettings Settings => DungeonTier.For(Tier).Apply(DungeonSettings.ForTeams(Teams.Count));
     }
 
     /// <summary>
@@ -55,13 +59,18 @@ namespace DungeonGen.Core.Net
         public FormedMatch TryForm(float now)
         {
             if (_queue.Count == 0) return null;
-            var ordered = _queue.OrderBy(g => g.QueuedAt).ThenBy(g => g.GroupId).ToList();
-            bool waited = now - ordered[0].QueuedAt >= MaxWaitSeconds;
-            int need = ordered.Count >= TeamsPerMatch ? TeamsPerMatch : waited && ordered.Count >= MinTeamsAfterWait ? ordered.Count : 0;
-            if (need == 0) return null;
-            var teams = ordered.Take(need).ToList();
-            foreach (var t in teams) _queue.Remove(t);
-            return new FormedMatch(unchecked(_seedCounter++ * 2654435761u.GetHashCode() ^ (int)now), teams);
+            // Tiers are separate queues: a match is only ever formed from groups that queued for the same tier.
+            foreach (int tier in _queue.Select(g => g.Tier).Distinct().OrderBy(t => t))
+            {
+                var ordered = _queue.Where(g => g.Tier == tier).OrderBy(g => g.QueuedAt).ThenBy(g => g.GroupId).ToList();
+                bool waited = now - ordered[0].QueuedAt >= MaxWaitSeconds;
+                int need = ordered.Count >= TeamsPerMatch ? TeamsPerMatch : waited && ordered.Count >= MinTeamsAfterWait ? ordered.Count : 0;
+                if (need == 0) continue;
+                var teams = ordered.Take(need).ToList();
+                foreach (var t in teams) _queue.Remove(t);
+                return new FormedMatch(unchecked(_seedCounter++ * 2654435761u.GetHashCode() ^ (int)now), teams);
+            }
+            return null;
         }
     }
 }

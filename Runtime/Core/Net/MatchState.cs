@@ -46,6 +46,10 @@ namespace DungeonGen.Core.Net
         LootRolled,        // itemId, playerId, choice (0 Need, 1 Greed, 2 Pass): a teammate answers a group roll
         LootRollResolved,  // itemId, winnerPlayer (-1 everyone passed), winningRoll: the server's decision, after all answered or the window closed
         PlayerEnteredRoom, // playerId, roomId: the server reports the room a player is standing in (corridors keep the last room); decides who is near enough to roll
+        AccountLevelReported, // playerId, accountLevel: from the profile at spawn; gates hand-offs (AccountRules.HandOffLevel)
+        ItemGiven,         // itemId, fromPlayer, toPlayer: a hand-off, same room, both standing, both past the account gate; logged for RMT review
+        ItemDropped,       // itemId, player: put on the floor of the room they stand in; anyone standing there may take it
+        PlayerLeft,        // playerId: a dead player goes to the hub, forfeiting any resurrection
     }
 
     /// <summary>
@@ -105,6 +109,16 @@ namespace DungeonGen.Core.Net
             public Dictionary<int, Items.LootRollChoice> Choices = new Dictionary<int, Items.LootRollChoice>();
         }
         public Dictionary<int, LootRoll> OpenRolls { get; } = new Dictionary<int, LootRoll>();
+        /// <summary>playerId → account level, as reported at spawn. Missing means level 1.</summary>
+        public Dictionary<int, int> AccountLevel { get; } = new Dictionary<int, int>();
+        public int AccountLevelOf(int player) => AccountLevel.TryGetValue(player, out int l) ? l : 1;
+        /// <summary>Every hand-off this round: (time, item, from, to, value). The server appends these to the account TransferLedger.</summary>
+        public List<(float time, int item, int from, int to, int value)> Transfers { get; } = new List<(float, int, int, int, int)>();
+        /// <summary>itemId → room it lies on the floor of, after an ItemDropped. Anyone standing in that room may take it.</summary>
+        public Dictionary<int, int> FloorItems { get; } = new Dictionary<int, int>();
+        /// <summary>Dead players who went back to the hub. No resurrection for them.</summary>
+        public HashSet<int> LeftPlayers { get; } = new HashSet<int>();
+        private int ValueOf(int item) => ItemValue.TryGetValue(item, out int v) ? v : Index.Items.TryGetValue(item, out var it) ? it.Value : 0;
         /// <summary>itemId → the teammate who won it (-1: everyone passed, free for anyone). Enemies are never bound by it.</summary>
         public Dictionary<int, int> LootWinner { get; } = new Dictionary<int, int>();
         private bool Standing(int p) => PlayerTeam.ContainsKey(p) && !DeadPlayers.Contains(p) && !ExtractedPlayers.Contains(p);
@@ -281,6 +295,12 @@ namespace DungeonGen.Core.Net
                             corpse.Value.Remove(e.A);
                             ItemOwner[e.A] = e.B; break;
                         }
+                        if (FloorItems.TryGetValue(e.A, out int floorRoom))
+                        {
+                            if (!Standing(e.B) || Downed.ContainsKey(e.B)) { rejection = "player cannot loot"; return false; }
+                            if (!PlayerRoom.TryGetValue(e.B, out int standIn) || standIn != floorRoom) { rejection = "not in that room"; return false; }
+                            FloorItems.Remove(e.A); ItemOwner[e.A] = e.B; break;
+                        }
                         if (!Index.Items.ContainsKey(e.A)) { rejection = "no such item"; return false; }
                         if (ItemOwner.ContainsKey(e.A)) { rejection = "already taken"; return false; }
                         if (!OpenedContainers.Contains(Index.ItemRoom[e.A])) { rejection = "container not opened"; return false; }
@@ -379,6 +399,7 @@ namespace DungeonGen.Core.Net
                     {
                         if (!DeadPlayers.Contains(e.A)) { rejection = "player is not dead"; return false; }
                         if (ResurrectedOnce.Contains(e.A)) { rejection = "already resurrected this round"; return false; }
+                        if (LeftPlayers.Contains(e.A)) { rejection = "player left for the hub"; return false; }
                         if (!PlayerTeam.TryGetValue(e.A, out int team) || !PlayerTeam.TryGetValue(e.B, out int byTeam) || team != byTeam) { rejection = "only a teammate can resurrect"; return false; }
                         if (DeadPlayers.Contains(e.B) || ExtractedPlayers.Contains(e.B)) { rejection = "resurrector is out"; return false; }
                         if (e.C < 0 || e.C >= Layout.Rooms.Count || !Layout.Rooms[e.C].HasShrine) { rejection = "no shrine there"; return false; }
@@ -438,7 +459,11 @@ namespace DungeonGen.Core.Net
                         if (room.Silver <= 0) { rejection = "no silver here"; return false; }
                         if (room.Loot.Count > 0 && !OpenedContainers.Contains(e.B)) { rejection = "the purse is in the chest"; return false; }
                         SilverTakenRooms.Add(e.B);
-                        PlayerSilver[e.A] = (PlayerSilver.TryGetValue(e.A, out int ps) ? ps : 0) + room.Silver;
+                        // A chest's purse splits evenly across the teammates near enough to roll for its gear; the remainder and any mob pile go to the picker.
+                        var sharers = room.Loot.Count > 0 ? TeammatesNear(e.A, e.B) : new List<int>();
+                        if (!sharers.Contains(e.A)) sharers = new List<int> { e.A };
+                        int share = room.Silver / sharers.Count, rest = room.Silver - share * sharers.Count;
+                        foreach (int p in sharers) PlayerSilver[p] = (PlayerSilver.TryGetValue(p, out int ps) ? ps : 0) + share + (p == e.A ? rest : 0);
                         break;
                     }
                 case MatchEventKind.SilverLooted:
@@ -486,6 +511,33 @@ namespace DungeonGen.Core.Net
                     if (!Standing(e.A)) { rejection = "player not inside"; return false; }
                     if (e.B < 0 || e.B >= Layout.Rooms.Count) { rejection = "no such room"; return false; }
                     PlayerRoom[e.A] = e.B; break;
+                case MatchEventKind.AccountLevelReported:
+                    if (!PlayerTeam.ContainsKey(e.A)) { rejection = "no such player"; return false; }
+                    if (e.B < 1) { rejection = "bad level"; return false; }
+                    AccountLevel[e.A] = e.B; break;
+                case MatchEventKind.ItemGiven:
+                    {
+                        if (!Standing(e.B) || Downed.ContainsKey(e.B)) { rejection = "giver cannot act"; return false; }
+                        if (!Standing(e.C) || Downed.ContainsKey(e.C)) { rejection = "receiver cannot take"; return false; }
+                        if (e.B == e.C) { rejection = "that is you"; return false; }
+                        if (!ItemOwner.TryGetValue(e.A, out int owner) || owner != e.B) { rejection = "not your item"; return false; }
+                        if (!PlayerRoom.TryGetValue(e.B, out int r1) || !PlayerRoom.TryGetValue(e.C, out int r2) || r1 != r2) { rejection = "not in the same room"; return false; }
+                        if (!Profile.AccountRules.CanHandOff(AccountLevelOf(e.B)) || !Profile.AccountRules.CanHandOff(AccountLevelOf(e.C))) { rejection = $"hand-offs open at account level {Profile.AccountRules.HandOffLevel}"; return false; }
+                        ItemOwner[e.A] = e.C;
+                        Transfers.Add((e.Time, e.A, e.B, e.C, ValueOf(e.A)));
+                        break;
+                    }
+                case MatchEventKind.ItemDropped:
+                    {
+                        if (!Standing(e.B) || Downed.ContainsKey(e.B)) { rejection = "player cannot act"; return false; }
+                        if (!ItemOwner.TryGetValue(e.A, out int owner) || owner != e.B) { rejection = "not your item"; return false; }
+                        if (!PlayerRoom.TryGetValue(e.B, out int here)) { rejection = "nowhere to drop it"; return false; }
+                        ItemOwner.Remove(e.A); FloorItems[e.A] = here; break;
+                    }
+                case MatchEventKind.PlayerLeft:
+                    if (!DeadPlayers.Contains(e.A)) { rejection = "only the dead leave early"; return false; }
+                    if (LeftPlayers.Contains(e.A)) { rejection = "already left"; return false; }
+                    LeftPlayers.Add(e.A); break;
                 case MatchEventKind.LootRolled:
                     {
                         if (!OpenRolls.TryGetValue(e.A, out var roll)) { rejection = "no roll open"; return false; }
@@ -519,6 +571,8 @@ namespace DungeonGen.Core.Net
                         var held = ItemOwner.Where(kv => kv.Value == p).Select(kv => kv.Key).ToList();
                         foreach (int it in held) { ItemOwner.Remove(it); DestroyedItems.Add(it); }   // nothing left behind survives the round
                         PlayerSilver.Remove(p); UltimateCharges.Remove(p); Souls.Remove(p);
+                    }
+                    foreach (int it in FloorItems.Keys.ToList()) { DestroyedItems.Add(it); FloorItems.Remove(it);
                     }
                     Ended = true; break;
             }

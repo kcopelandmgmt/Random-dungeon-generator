@@ -27,10 +27,11 @@ namespace DungeonGen.Core.Items
             new[] { 10, 40, 50 },
         };
 
-        public static Rarity RollRarity(int level, LootSource source, DungeonRandom rng)
+        public static Rarity RollRarity(int level, LootSource source, DungeonRandom rng, float uniqueChanceMultiplier = 1f)
         {
             level = Math.Max(0, Math.Min(4, level));
-            float uniqueChance = source == LootSource.FinalBoss ? 0.35f : source == LootSource.Vault ? 0.15f : source == LootSource.Boss ? 0.08f : 0f;
+            float uniqueChance = (source == LootSource.FinalBoss ? 0.35f : source == LootSource.Vault ? 0.15f : source == LootSource.Boss ? 0.08f : 0f) * uniqueChanceMultiplier;
+            uniqueChance = Math.Min(0.9f, uniqueChance);   // a Tier III final boss is not a guaranteed unique
             if (uniqueChance > 0f && rng.Chance(uniqueChance)) return Rarity.Unique;
 
             var w = RarityWeights[level];
@@ -42,9 +43,9 @@ namespace DungeonGen.Core.Items
             return floor;
         }
 
-        public static Item Roll(int level, LootSource source, DungeonRandom rng, string themedSource = null)
+        public static Item Roll(int level, LootSource source, DungeonRandom rng, string themedSource = null, float uniqueChanceMultiplier = 1f)
         {
-            var rarity = RollRarity(level, source, rng);
+            var rarity = RollRarity(level, source, rng, uniqueChanceMultiplier);
             if (rarity == Rarity.Unique) return RollUnique(level, rng, themedSource);
 
             var b = RollBase(rng);

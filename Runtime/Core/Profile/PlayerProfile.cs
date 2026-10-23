@@ -36,6 +36,15 @@ namespace DungeonGen.Core.Profile
         public List<Character> Characters { get; } = new List<Character>();
         /// <summary>Account-level unlocks: cosmetics and recipes only, never power.</summary>
         public HashSet<string> Unlocks { get; } = new HashSet<string>();
+        /// <summary>Account XP and the level it buys. Levels gate nothing but "not on day one": see <see cref="AccountRules"/>.</summary>
+        public long AccountXp { get; private set; }
+        public int AccountLevel => AccountRules.LevelFor(AccountXp);
+        public void AddAccountXp(long xp) { if (xp > 0) AccountXp += xp; }
+        public bool CanHandOff => AccountRules.CanHandOff(AccountLevel);
+        /// <summary>Until the bank opens, each character's stash is its own; the shared bank is what level 5 unlocks.</summary>
+        public bool BankUnlocked => AccountRules.BankUnlocked(AccountLevel);
+        public bool ClassUnlocked(ClassArchetype cls) => AccountRules.ClassUnlocked(cls.Name, AccountLevel);
+        public IEnumerable<ClassArchetype> PlayableClasses => ClassArchetype.DefaultRoster.Where(ClassUnlocked);
 
         /// <summary>Eight character slots per account; the stash, silver and materials are one shared bank between them.</summary>
         public const int MaxCharacters = 8;
@@ -55,6 +64,7 @@ namespace DungeonGen.Core.Profile
         public Character CreateCharacter(string name, ClassArchetype cls)
         {
             if (Characters.Count >= MaxCharacters) throw new System.InvalidOperationException($"All {MaxCharacters} character slots are used.");
+            if (!ClassUnlocked(cls)) throw new System.InvalidOperationException($"{cls.Name} unlocks at account level {AccountRules.LevelForClass(cls.Name)}.");
             var ch = new Character(name, cls);
             Characters.Add(ch);
             return ch;

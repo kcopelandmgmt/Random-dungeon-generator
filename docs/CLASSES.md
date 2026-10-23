@@ -31,6 +31,13 @@ Starting sheets (tier-0 gear), 100-damage hit taken by type:
 The Warden takes *more* than 100 from magic: heavy iron and 6 Spirit. That is the trade; a Warden
 walking into the Plague Herald's room wants a Mender more than anyone.
 
+## Availability
+
+Warden, Marksman and Mender are playable on a new account. Reaver unlocks at account level 10,
+Elementalist at 15, Shade at 20 (`AccountRules`). Account levels come from extractions, kills and
+bosses and gate nothing else but hand-offs and the shared bank at level 5; no class is stronger
+for being earned.
+
 ## Kits
 
 **Warden** — Shield Wall (block frontal damage 4s, allies behind take none) · Bulwark Slam (knockback cone, interrupts) · Hold the Line (root self, taunt, 40% DR for 6s) · Bastion (passive: immune to knockback in a doorway).

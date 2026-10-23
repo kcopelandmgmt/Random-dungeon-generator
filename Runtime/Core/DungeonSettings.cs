@@ -96,6 +96,13 @@ namespace DungeonGen.Core
         /// <summary>Generate this many playable layouts (from seeds derived from the requested one) and keep the fairest. 1 = take the first. Still deterministic.</summary>
         public int CandidateCount = 1;
 
+        /// <summary>Which dungeon tier this is (1..3). Set by <see cref="DungeonTier.Apply"/>; informational to the generator, decisive for the gate and the leaderboards.</summary>
+        public int Tier = 1;
+        /// <summary>Added to every room's loot tier when rolling items. Tier II is +2, Tier III +4.</summary>
+        public int ItemLevelOffset = 0;
+        /// <summary>Scales the unique chance of bosses, vaults and the final boss. 1 at Tier I, 2 at Tier III.</summary>
+        public float UniqueChanceMultiplier = 1f;
+
         public const int MaxTeams = 16;
 
         /// <summary>A preset scaled for a given number of teams: ring spawns, enough rooms for depth, and candidate selection for fairness.</summary>

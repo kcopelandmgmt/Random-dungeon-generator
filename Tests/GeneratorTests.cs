@@ -2070,6 +2070,8 @@ namespace DungeonGen.Tests
         public void EightCharacterSlotsShareOneBank()
         {
             var p = new PlayerProfile("acct");
+            Assert.Throws<System.InvalidOperationException>(() => p.CreateCharacter("locked", ClassArchetype.DefaultRoster.First(c => c.Name == "Shade")));   // earned class, level 1 account
+            p.AddAccountXp(AccountRules.XpToReach(20));
             for (int i = 0; i < 8; i++) p.CreateCharacter("c" + i, ClassArchetype.DefaultRoster[i % 6]);
             Assert.Throws<System.InvalidOperationException>(() => p.CreateCharacter("c9", ClassArchetype.DefaultRoster[0]));
             Assert.Equal(8, PlayerProfile.MaxCharacters);
@@ -2298,6 +2300,8 @@ namespace DungeonGen.Tests
             string why;
             var mobRoom = layout.Rooms.First(r => r.Mobs != null && r.Loot.Count > 0);
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.SilverPicked, 5, 1, mobRoom.Id), out why), "purse is in the chest");
+            int far = layout.Rooms.First(r => !st.Index.RoomsWithin(mobRoom.Id, 2).Contains(r.Id)).Id;                  // teammates out of range: no split
+            st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 4, 2, far), out _); st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 4, 3, far), out _);
             Assert.True(Ch.OpenChest(st, 5, mobRoom.Id, 1, out why));
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.SilverPicked, 8, 1, mobRoom.Id), out why));
             Assert.Equal(mobRoom.Silver, st.PlayerSilver[1]);
@@ -2417,6 +2421,252 @@ namespace DungeonGen.Tests
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.LastBreath, 23, 1, 3), out why));
             Assert.Contains("shrine", why);
             Assert.Equal(1, st.UltimateCharges[1]);                                                 // the charge is not wasted on a refusal
+        }
+    }
+}
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+    using DungeonGen.Core.Items;
+    using DungeonGen.Core.Net;
+    using DungeonGen.Core.Profile;
+
+    public class TierAndAccountTests
+    {
+        private static Item Rare(int level) => new Item(ItemBase.Weapons[0], level, Rarity.Rare, "Test Blade", new List<AffixRoll>(), new List<AffixRoll>());
+
+        [Fact]
+        public void DungeonTiersWallBothWaysAndCoverEveryScore()
+        {
+            Assert.Equal(3, DungeonTier.All.Count);
+            for (int score = 0; score <= 2000; score += 7) Assert.NotEmpty(DungeonTier.Open(score));
+            var t1 = DungeonTier.For(1); var t2 = DungeonTier.For(2); var t3 = DungeonTier.For(3);
+            var fresh = PlayerProfile.NewAccount("a", "Ash", ClassArchetype.DefaultRoster[0]);
+            int starter = GearScore.Of(fresh.Characters[0].Equipment);
+            Assert.InRange(starter, 1, 20);
+            Assert.True(t1.Admits(starter)); Assert.False(t2.Admits(starter)); Assert.False(t3.Admits(starter));
+            Assert.Contains("needs gear score", t2.Refusal(starter));
+            int geared = GearScore.Of(Enumerable.Range(0, 9).Select(_ => Rare(4)));                 // nine Rare pieces at item level 4
+            Assert.False(t1.Admits(geared)); Assert.False(t2.Admits(geared)); Assert.True(t3.Admits(geared));
+            Assert.Contains("closed above", t1.Refusal(geared));
+            Assert.Null(t3.Refusal(geared));
+            // Carried gear counts: a starter character with a Tier III weapon in the bag is no longer Tier I.
+            int smuggler = GearScore.Of(fresh.Characters[0].Equipment, new[] { Rare(4), Rare(4), Rare(4) });
+            Assert.False(t1.Admits(smuggler));
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => DungeonTier.For(4));
+        }
+
+        [Fact]
+        public void HigherTiersDropHigherLevelLootMoreUniquesAndRoundTrip()
+        {
+            double Avg(int tier)
+            {
+                double sum = 0; int n = 0, uniques = 0;
+                for (int seed = 1; seed <= 12; seed++)
+                {
+                    var layout = DungeonGenerator.Generate(DungeonTier.For(tier).Apply(DungeonSettings.ForTeams(4)), seed);
+                    foreach (var it in layout.Items) { sum += it.ItemLevel; n++; if (it.Rarity == Rarity.Unique) uniques++; }
+                }
+                return sum / n;
+            }
+            double a1 = Avg(1), a2 = Avg(2), a3 = Avg(3);
+            Assert.True(a1 + 1.5 < a2 && a2 + 1.5 < a3, $"{a1:0.00} {a2:0.00} {a3:0.00}");
+            var s3 = DungeonTier.For(3).Apply(DungeonSettings.ForTeams(4));
+            Assert.Equal(3, s3.Tier); Assert.Equal(4, s3.ItemLevelOffset); Assert.Equal(2f, s3.UniqueChanceMultiplier);
+            Assert.True(s3.Combat.PlayerDps > DungeonSettings.ForTeams(4).Combat.PlayerDps, "the tuner assumes geared players");
+            var back = SettingsCodec.FromBytes(SettingsCodec.ToBytes(s3));
+            Assert.Equal(3, back.Tier); Assert.Equal(4, back.ItemLevelOffset); Assert.Equal(2f, back.UniqueChanceMultiplier);
+            Assert.Equal(SettingsCodec.ToBytes(s3), SettingsCodec.ToBytes(back));
+            Assert.Equal(1, VerticalSlice.Tiers);
+            Assert.Equal(AccountRules.StartingClasses, VerticalSlice.Classes);
+        }
+
+        [Fact]
+        public void MatchmakerKeepsTiersApart()
+        {
+            var mm = new Matchmaker(teamsPerMatch: 4, minTeamsAfterWait: 2, maxWaitSeconds: 90f);
+            for (int g = 0; g < 3; g++) mm.Enqueue(new QueuedGroup(g, new[] { g * 10 + 1 }, 0f, tier: 1));
+            for (int g = 10; g < 14; g++) mm.Enqueue(new QueuedGroup(g, new[] { g * 10 + 1 }, 1f, tier: 3));
+            var m = mm.TryForm(2f);
+            Assert.NotNull(m);
+            Assert.Equal(3, m.Tier);
+            Assert.All(m.Teams, t => Assert.Equal(3, t.Tier));
+            Assert.Equal(3, m.Settings.Tier);
+            Assert.Equal(4, m.Settings.ItemLevelOffset);
+            Assert.Null(mm.TryForm(3f));                                        // three Tier I groups: not enough yet
+            var late = mm.TryForm(100f);                                       // waited long enough to go with three
+            Assert.Equal(1, late.Tier); Assert.Equal(3, late.Teams.Count);
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => new QueuedGroup(99, new[] { 1 }, 0f, tier: 7));
+        }
+
+        [Fact]
+        public void AccountLevelsGateClassesHandOffsAndTheBank()
+        {
+            Assert.Equal(0, AccountRules.XpToReach(1));
+            Assert.Equal(2250, AccountRules.XpToReach(5));
+            Assert.Equal(8250, AccountRules.XpToReach(10));
+            Assert.Equal(1, AccountRules.LevelFor(0)); Assert.Equal(4, AccountRules.LevelFor(2249)); Assert.Equal(5, AccountRules.LevelFor(2250));
+            var p = PlayerProfile.NewAccount("acct", "Ash", ClassArchetype.DefaultRoster.First(c => c.Name == "Mender"));
+            Assert.Equal(1, p.AccountLevel);
+            Assert.False(p.CanHandOff); Assert.False(p.BankUnlocked);
+            Assert.Equal(new[] { "Warden", "Marksman", "Mender" }, p.PlayableClasses.Select(c => c.Name).ToArray());
+            Assert.Throws<System.InvalidOperationException>(() => p.CreateCharacter("r", ClassArchetype.DefaultRoster.First(c => c.Name == "Reaver")));
+            // Fifteen extractions and a few kills: a weekend.
+            for (int i = 0; i < 15; i++) p.AddAccountXp(AccountRules.XpPerExtraction);
+            p.AddAccountXp(AccountRules.XpPerPlayerKill * 5 + AccountRules.XpPerBossKill * 5 + AccountRules.XpPerFinalBossKill);
+            Assert.True(p.AccountLevel >= 5, $"level {p.AccountLevel}");
+            Assert.True(p.CanHandOff && p.BankUnlocked);
+            Assert.False(p.ClassUnlocked(ClassArchetype.DefaultRoster.First(c => c.Name == "Reaver")));
+            p.AddAccountXp(AccountRules.XpToReach(10) - p.AccountXp);
+            Assert.Equal(new[] { "Warden", "Reaver", "Marksman", "Mender" }, p.PlayableClasses.Select(c => c.Name).ToArray());
+            p.AddAccountXp(AccountRules.XpToReach(20) - p.AccountXp);
+            Assert.Equal(6, p.PlayableClasses.Count());
+            Assert.Equal(0, FightRules.SecurePouchSlots);
+            Assert.Equal("Free to play", Monetisation.Model); Assert.False(Monetisation.BattlePass); Assert.False(Monetisation.PaidPower);
+            Assert.Contains(Roadmap.SeasonTwo, r => r.Contains("contracts"));
+        }
+
+        [Fact]
+        public void TransferLedgerFlagsOneWayFlows()
+        {
+            var ledger = new TransferLedger();
+            var t = new System.DateTime(2027, 1, 1);
+            ledger.Record(t, "seller", "buyer", 150); ledger.Record(t, "seller", "buyer", 150); ledger.Record(t, "seller", "buyer", 60);
+            ledger.Record(t, "a", "b", 500);                                     // one big gift between friends: not enough transfers
+            ledger.Record(t, "c", "d", 200); ledger.Record(t, "d", "c", 190); ledger.Record(t, "c", "d", 50); // two-way trading: net small
+            var flagged = ledger.Flagged().ToList();
+            Assert.Single(flagged);
+            Assert.Equal(("seller", "buyer", 360, 3), flagged[0]);
+        }
+
+        [Fact]
+        public void SeasonKeepsFourBoardsPerTier()
+        {
+            var s = new Season(2, new System.DateTime(2027, 1, 1), new System.DateTime(2027, 4, 1));
+            s.RecordExtraction("a", 600, tier: 1); s.RecordExtraction("b", 3000, tier: 3); s.RecordExtraction("a", 100, tier: 3);
+            s.RecordKill("b", tier: 3); s.RecordKill("b", tier: 1); s.RecordBossKill("a", finalBoss: false, tier: 1); s.RecordBossKill("a", finalBoss: true, tier: 3);
+            Assert.Equal("b", s.Leaderboard().First().account);                                 // main board, all tiers
+            Assert.Equal(("a", 600L), s.Leaderboard(LeaderboardKind.ExtractedValue, tier: 1, top: 10).First());
+            Assert.Equal(("b", 3000L), s.Leaderboard(LeaderboardKind.ExtractedValue, tier: 3, top: 10).First());
+            Assert.Equal(2, s.Leaderboard(LeaderboardKind.PlayerKills).First().value);
+            Assert.Equal(1, s.Leaderboard(LeaderboardKind.BossKills, tier: 1, top: 10).Single().value);
+            Assert.Equal("a", s.Leaderboard(LeaderboardKind.FinalBossKills).Single().account);
+            Assert.Empty(s.Leaderboard(LeaderboardKind.FinalBossKills, tier: 2, top: 10));
+        }
+
+        [Fact]
+        public void TheDungeonAnnouncesExactlyTwoThings()
+        {
+            var layout = DungeonGenerator.Generate(DungeonSettings.ForTeams(4), 3);
+            Assert.NotNull(Announcer.For(new MatchEvent(MatchEventKind.BossKilled, 1, layout.FinalBossRoom.Id, 0), layout));
+            Assert.Contains("fallen", Announcer.For(new MatchEvent(MatchEventKind.BossKilled, 1, layout.FinalBossRoom.Id, 0), layout).Value.Text);
+            Assert.NotNull(Announcer.For(new MatchEvent(MatchEventKind.BossExitOpened, 2), layout));
+            Assert.Null(Announcer.For(new MatchEvent(MatchEventKind.BossKilled, 1, layout.BossRooms.First().Id, 0), layout));   // a room boss is nobody else's business
+            Assert.Null(Announcer.For(new MatchEvent(MatchEventKind.PlayerExtracted, 1, 1, 0), layout));
+            Assert.Null(Announcer.For(new MatchEvent(MatchEventKind.PlayerDied, 1, 1, 2, 0), layout));
+        }
+
+        private static (MatchState st, DungeonLayout layout) Fresh()
+        {
+            var d = MatchDescriptor.Create(7, DungeonSettings.ForTeams(8), new MatchRules(), out var layout);
+            var st = new MatchState(d, layout);
+            st.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out _);
+            for (int p = 1; p <= 6; p++) st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, p, (p - 1) / 3), out _);
+            return (st, layout);
+        }
+
+        [Fact]
+        public void HandOffsNeedTheSameRoomAndTheAccountGateAndAreLogged()
+        {
+            var (st, layout) = Fresh();
+            string why;
+            var room = layout.FinalBossRoom;
+            int item = st.Index.Items.First(kv => st.Index.ItemRoom[kv.Key] == room.Id).Key;
+            st.Apply(new MatchEvent(MatchEventKind.BossKilled, 5, room.Id, 0), out _);
+            st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 6, 1, room.Id), out _);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootStarted, 7, 1, room.Id, 0), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ContainerOpened, 9, room.Id, 1), out why));   // alone in range: no roll
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 10, item, 1), out why));
+
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemGiven, 11, item, 1, 2), out why));
+            Assert.Contains("same room", why);
+            st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 11, 2, room.Id), out _);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemGiven, 12, item, 1, 2), out why));     // both level 1
+            Assert.Contains("account level", why);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.AccountLevelReported, 12, 1, AccountRules.HandOffLevel), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemGiven, 12, item, 1, 2), out why), "receiver still day one");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.AccountLevelReported, 12, 2, 7), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemGiven, 12, item, 2, 1), out why), "not the giver's item");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ItemGiven, 13, item, 1, 2), out why));
+            Assert.Equal(2, st.ItemOwner[item]);
+            Assert.Single(st.Transfers);
+            Assert.Equal((1, 2), (st.Transfers[0].from, st.Transfers[0].to));
+            Assert.Equal(st.Index.Items[item].Value, st.Transfers[0].value);
+
+            // Drop to the floor: anyone standing in the room may pick it up, enemies included; nobody elsewhere can.
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ItemDropped, 14, item, 2), out why));
+            Assert.False(st.ItemOwner.ContainsKey(item));
+            Assert.Equal(room.Id, st.FloorItems[item]);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 15, item, 4), out why));
+            Assert.Contains("not in that room", why);
+            st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 15, 4, room.Id), out _);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 16, item, 4), out why));
+            Assert.Equal(4, st.ItemOwner[item]);
+            Assert.Empty(st.FloorItems);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ItemDropped, 17, item, 4), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.RoundEnded, 1200), out why));
+            Assert.Contains(item, st.DestroyedItems);                                                       // the floor does not survive the round
+
+            var replay = MatchState.Replay(MatchDescriptor.FromBytes(st.Descriptor.ToBytes()), st.Descriptor.BuildAndVerify(), MatchState.LogFromBytes(st.LogToBytes()));
+            Assert.Equal(st.Transfers.Count, replay.Transfers.Count);
+            Assert.Equal(st.AccountLevel, replay.AccountLevel);
+        }
+
+        [Fact]
+        public void ChestSilverSplitsAcrossNearTeammatesAndMobPilesDoNot()
+        {
+            var (st, layout) = Fresh();
+            string why;
+            var spawn = layout.Rooms[st.Descriptor.TeamSpawnRooms[0]];
+            var chest = layout.Rooms.First(r => r.Type == RoomType.Standard && r.Loot.Count > 0 && r.Silver > 0 && !st.Index.RoomsWithin(r.Id, 2).Contains(spawn.Id));
+            st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 1, 1, chest.Id), out _);
+            st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 1, 2, chest.Id), out _);                 // 3 stays at spawn
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootStarted, 2, 1, chest.Id, 0), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ContainerOpened, 4, chest.Id, 1), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.SilverPicked, 5, 1, chest.Id), out why));
+            int share = chest.Silver / 2, rest = chest.Silver - share * 2;
+            Assert.Equal(share + rest, st.PlayerSilver[1]);
+            Assert.Equal(share, st.PlayerSilver[2]);
+            Assert.False(st.PlayerSilver.ContainsKey(3));
+            Assert.Equal(chest.Silver, st.PlayerSilver[1] + st.PlayerSilver[2]);
+
+            var pile = layout.Rooms.FirstOrDefault(r => r.Mobs != null && r.Loot.Count == 0 && r.Silver > 0);
+            if (pile != null)
+            {
+                st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 6, 1, pile.Id), out _);
+                st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 6, 2, pile.Id), out _);
+                int before = st.PlayerSilver[1];
+                Assert.True(st.Apply(new MatchEvent(MatchEventKind.SilverPicked, 7, 1, pile.Id), out why));
+                Assert.Equal(before + pile.Silver, st.PlayerSilver[1]);                                      // the pile is the picker's
+                Assert.Equal(share, st.PlayerSilver[2]);
+            }
+        }
+
+        [Fact]
+        public void DeadPlayersMayLeaveAndForfeitTheirResurrection()
+        {
+            var (st, layout) = Fresh();
+            string why;
+            int shrine = layout.Rooms.First(r => r.HasShrine).Id;
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerLeft, 1, 2), out why), "the living do not leave early");
+            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 2, 2, 4, 0), out _);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerLeft, 3, 2), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerLeft, 3, 2), out why));
+            st.Souls[1] = 2;
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 4, 2, 1, shrine), out why));
+            Assert.Contains("left", why);
+            Assert.Equal(2, st.SoulsOf(1));                                                                  // nothing spent
         }
     }
 }

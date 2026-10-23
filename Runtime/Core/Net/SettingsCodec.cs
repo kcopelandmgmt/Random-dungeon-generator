@@ -11,7 +11,7 @@ namespace DungeonGen.Core.Net
     /// </summary>
     public static class SettingsCodec
     {
-        public const int Version = 1;
+        public const int Version = 2;
 
         public static void Write(BinaryWriter w, DungeonSettings s)
         {
@@ -32,6 +32,7 @@ namespace DungeonGen.Core.Net
             var c = s.Combat;
             w.Write(c.PlayerDps); w.Write(c.PlayerHealth); w.Write(c.PartySustain); w.Write(c.GoodGearMultiplier); w.Write(c.PartySize); w.Write(c.TuningMargin);
             w.Write(c.RoomBossPlayerEquivalents); w.Write(c.RoomBossFightSeconds); w.Write(c.FinalBossFightSeconds); w.Write(c.EnrageAfterMultiple);
+            w.Write(s.Tier); w.Write(s.ItemLevelOffset); w.Write(s.UniqueChanceMultiplier);
         }
 
         public static DungeonSettings Read(BinaryReader r)
@@ -57,6 +58,7 @@ namespace DungeonGen.Core.Net
             var c = s.Combat;
             c.PlayerDps = r.ReadSingle(); c.PlayerHealth = r.ReadSingle(); c.PartySustain = r.ReadSingle(); c.GoodGearMultiplier = r.ReadSingle(); c.PartySize = r.ReadInt32(); c.TuningMargin = r.ReadSingle();
             c.RoomBossPlayerEquivalents = r.ReadSingle(); c.RoomBossFightSeconds = r.ReadSingle(); c.FinalBossFightSeconds = r.ReadSingle(); c.EnrageAfterMultiple = r.ReadSingle();
+            if (version >= 2) { s.Tier = r.ReadInt32(); s.ItemLevelOffset = r.ReadInt32(); s.UniqueChanceMultiplier = r.ReadSingle(); }
             return s;
         }
 

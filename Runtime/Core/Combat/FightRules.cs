@@ -92,6 +92,8 @@ namespace DungeonGen.Core.Combat
         // --- A new account -------------------------------------------------------------
         public const long StartingSilver = 200;
         public const int StartingHealthPotions = 2;
+        /// <summary>No Tarkov pouch. Nothing you carry survives dying: not gear, not keys, not silver, not souls.</summary>
+        public const int SecurePouchSlots = 0;
     }
 
     public enum AbilitySlot { Bolt, Zone, Mobility, Passive }
