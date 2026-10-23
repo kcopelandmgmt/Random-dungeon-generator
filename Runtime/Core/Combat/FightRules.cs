@@ -36,6 +36,11 @@ namespace DungeonGen.Core.Combat
         /// <summary>One ultimate per spec. It is armed at a shrine for souls, lasts one use, and never leaves the dungeon. It competes with resurrection and consumables for the same currency.</summary>
         public const int SoulsToArmUltimate = 2;
         public const int UltimateUsesPerArming = 1;
+        /// <summary>Ultimates obey full friendly fire like everything else. No exceptions.</summary>
+        public const bool UltimatesObeyFriendlyFire = true;
+        /// <summary>An armed ultimate shows as a soft gold aura on the character, visible to everyone in line of sight, gone the instant it is used. Things worth taking glow.</summary>
+        public const bool ArmedUltimateAuraVisibleToAll = true;
+        public const bool ArmedUltimateAuraThroughWalls = false;
 
         // --- Silver in the dungeon --------------------------------------------------------
         /// <summary>Silver drops from mob packs and chests, weighs nothing, and all of it drops on death.</summary>

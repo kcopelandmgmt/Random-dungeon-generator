@@ -2159,3 +2159,57 @@ namespace DungeonGen.Tests
         }
     }
 }
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+    using DungeonGen.Core.Net;
+
+    public class UltimateDesignTests
+    {
+        [Fact]
+        public void EverySpecHasExactlyOneJobAndTheRulesAreStated()
+        {
+            var names = WeaponSpec.All.Select(s => s.Name).Concat(ElementKit.All.Select(k => k.Name)).ToList();
+            Assert.Equal(13, names.Count);
+            Assert.All(names, n => Assert.True(WeaponSpec.Ultimates.ContainsKey(n) && WeaponSpec.UltimateJobs.ContainsKey(n), n));
+            Assert.Equal(13, WeaponSpec.UltimateJobs.Count);
+            Assert.True(WeaponSpec.UltimateJobs.Values.Count(j => j == WeaponSpec.UltimateJob.DenySpace) >= 4);
+            Assert.True(WeaponSpec.UltimateJobs.Values.Count(j => j == WeaponSpec.UltimateJob.FindOrMark) >= 2);
+            Assert.True(FightRules.UltimatesObeyFriendlyFire);
+            Assert.True(FightRules.ArmedUltimateAuraVisibleToAll && !FightRules.ArmedUltimateAuraThroughWalls);
+            Assert.Contains("Absolute Zero", WeaponSpec.Ultimates["Cryomancy"]);
+            Assert.Contains("Blackout", WeaponSpec.Ultimates["Stormcalling"]);
+            Assert.Contains("Overwatch", WeaponSpec.Ultimates["Sharpshooter"]);
+            Assert.Contains("Suppression", WeaponSpec.Ultimates["Volleyer"]);
+            Assert.Contains("Last Breath", WeaponSpec.Ultimates["Warder"]);
+            Assert.Contains("Outbreak", WeaponSpec.Ultimates["Plaguebearer"]);
+        }
+
+        [Fact]
+        public void LastBreathRevivesInstantlyButNeverAFinishedPlayer()
+        {
+            var d = MatchDescriptor.Create(7, DungeonSettings.ForTeams(8), new MatchRules(), out var layout);
+            var st = new MatchState(d, layout);
+            st.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out _);
+            for (int p = 1; p <= 6; p++) st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, p, (p - 1) / 3), out _);
+            int shrine = layout.Rooms.First(r => r.HasShrine).Id;
+            string why;
+            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 1, 4, 1, 0), out _);
+            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 2, 5, 1, 0), out _);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.UltimateArmed, 3, 1, shrine), out why));
+            st.Apply(new MatchEvent(MatchEventKind.PlayerDowned, 10, 2, 6, 0), out _);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.LastBreath, 11, 3, 2), out why), "player 3 has no charge");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LastBreath, 11, 1, 2), out why));     // instant, no channel
+            Assert.DoesNotContain(2, st.Downed.Keys);
+            Assert.Equal(0, st.UltimateCharges[1]);
+            st.Souls[0] = 2;
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.UltimateArmed, 12, 1, shrine), out why));
+            st.Apply(new MatchEvent(MatchEventKind.PlayerDowned, 20, 3, 6, 0), out _);
+            st.Apply(new MatchEvent(MatchEventKind.PlayerFinished, 22, 3, 6, 0), out _);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.LastBreath, 23, 1, 3), out why));
+            Assert.Contains("shrine", why);
+            Assert.Equal(1, st.UltimateCharges[1]);                                                 // the charge is not wasted on a refusal
+        }
+    }
+}

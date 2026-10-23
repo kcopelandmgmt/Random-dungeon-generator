@@ -39,6 +39,7 @@ namespace DungeonGen.Core.Net
         SilverLooted,      // playerId, corpseOf: takes everything on the corpse's purse (corpse must be opened)
         UltimateArmed,     // playerId, shrineRoomId: two of the team's souls arm the spec's ultimate for one use
         UltimateUsed,      // playerId
+        LastBreath,        // reviverId, downedId: the Warder's ultimate; instant revive, consumes the charge, never on a finished player
         PlayerDisconnected,// playerId: the character stands still, killable; the reconnect window starts
         PlayerReconnected, // playerId: within the window; the client replays the log
         RoundEnded,        // t: anyone still inside dies and drops everything
@@ -399,6 +400,17 @@ namespace DungeonGen.Core.Net
                     if (DeadPlayers.Contains(e.A) || Downed.ContainsKey(e.A)) { rejection = "player not standing"; return false; }
                     if (!UltimateCharges.TryGetValue(e.A, out int charges) || charges <= 0) { rejection = "ultimate not armed"; return false; }
                     UltimateCharges[e.A] = charges - 1; break;
+                case MatchEventKind.LastBreath:
+                    {
+                        if (DeadPlayers.Contains(e.A) || Downed.ContainsKey(e.A)) { rejection = "reviver not standing"; return false; }
+                        if (!UltimateCharges.TryGetValue(e.A, out int lb) || lb <= 0) { rejection = "ultimate not armed"; return false; }
+                        if (!Downed.ContainsKey(e.B)) { rejection = DeadPlayers.Contains(e.B) ? "finished players need a shrine" : "target is not downed"; return false; }
+                        if (!PlayerTeam.TryGetValue(e.A, out int rt) || !PlayerTeam.TryGetValue(e.B, out int dt) || rt != dt) { rejection = "only a teammate"; return false; }
+                        UltimateCharges[e.A] = lb - 1;
+                        Downed.Remove(e.B);
+                        foreach (var r in Revives.Where(kv => kv.Value.downed == e.B).Select(kv => kv.Key).ToList()) Revives.Remove(r);
+                        break;
+                    }
                 case MatchEventKind.PlayerDisconnected:
                     if (!PlayerTeam.ContainsKey(e.A) || DeadPlayers.Contains(e.A) || ExtractedPlayers.Contains(e.A)) { rejection = "player not in play"; return false; }
                     Disconnected[e.A] = e.Time; Channels.Remove(e.A); break;

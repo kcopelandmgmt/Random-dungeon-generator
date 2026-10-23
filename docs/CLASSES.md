@@ -83,24 +83,25 @@ Every weapon drop in the dungeon is a potential build change for someone.
 ## Ultimates (earned)
 
 One per spec, armed at a shrine for two of the team's souls, one use, lost on death, never
-leaves the dungeon. It is the same currency as resurrection and shrine consumables, so it is
-always a choice.
+leaves the dungeon. Two souls is also a teammate's life, so every ultimate changes what the room
+is rather than doing more damage. They obey full friendly fire, no exceptions, and an armed one is
+a soft gold aura visible to anyone in line of sight.
 
-| Spec | Ultimate |
-|------|----------|
-| Sentinel | **Aegis**: 5 s, cannot be moved, allies within 5 m take half damage |
-| Breaker | **Cave-In**: collapse the doorway you stand in; rubble blocks everything for 15 s |
-| Berserker | **Bloodbath**: 8 s, every hit heals 20% of its damage, cannot be downed; fall at the end if at zero |
-| Duelist | **Perfect Guard**: 3 s, every hit parried and reflected; the first attacker is Staggered |
-| Sharpshooter | **Deadman's Mark**: next shot passes through walls, triple damage to the first player hit |
-| Volleyer | **Storm of Arrows**: 8 m circle, 6 s, hits every second and Chills |
-| Assassin | **Death Mark**: mark a player 10 s; your hits crit, your team sees them through walls |
-| Trapper | **Lockdown**: every doorway of your room tripwired for 20 s |
-| Warder | **Communion**: allies within 8 m healed to full over 3 s and Purged |
-| Plaguebearer | **Pestilence**: 6 m cloud, 8 s; enemies at max Poison, allies heal 5%/s |
-| Pyromancy | **Inferno**: your room burns for 6 s, Burn to everyone inside each second |
-| Cryomancy | **Glacier**: 8 m ice wall for 10 s that nothing passes; touching it Chills |
-| Stormcalling | **Thunderclap**: Stagger everyone within 10 m, Stun the Chilled, interrupt any boss channel |
+| Job | Spec | Ultimate |
+|-----|------|----------|
+| Deny space | Breaker | **Cave-In**: collapse the doorway you stand in; rubble blocks everything for 15 s |
+| Deny space | Trapper | **Lockdown**: every doorway of your room tripwired for 20 s |
+| Deny space | Pyromancy | **Inferno**: your room burns for 6 s, Burn to everyone inside each second. Everyone. |
+| Deny space | Volleyer | **Suppression**: 10 m zone, 8 s; inside it, Chill and no channels (no extract, revive, loot) |
+| Deny space | Stormcalling | **Blackout**: 8 s, nobody within 10 m can channel anything, bosses included |
+| Swing a fight | Sentinel | **Aegis**: 5 s, cannot be moved, allies within 5 m take half damage |
+| Swing a fight | Duelist | **Perfect Guard**: 3 s, every hit parried and reflected; first attacker Staggered |
+| Swing a fight | Berserker | **Bloodbath**: 8 s, hits heal 20%, cannot be downed; fall at the end if at zero |
+| Swing a fight | Cryomancy | **Absolute Zero**: Freeze everyone within 8 m for 2 s, ignoring diminishing returns |
+| Swing a fight | Warder | **Last Breath**: revive a downed ally instantly, both at full health; never a finished player |
+| Swing a fight | Plaguebearer | **Outbreak**: enemies within 10 m go to max Poison and spread it by touch for 10 s |
+| Find or mark | Assassin | **Death Mark**: a player your team sees through walls for 10 s; your hits on them crit |
+| Find or mark | Sharpshooter | **Overwatch**: 10 s, every enemy entering your line of sight is shot once automatically |
 
 ## Composition notes
 

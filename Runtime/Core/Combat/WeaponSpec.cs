@@ -31,21 +31,39 @@ namespace DungeonGen.Core.Combat
             Ultimate = ultimate ?? (Ultimates.TryGetValue(name, out var u) ? u : null);
         }
 
+        /// <summary>
+        /// Every ultimate has one of three jobs: deny space (change the layout for a while), swing a
+        /// fight, or find or mark (beat the vision rule). All of them obey full friendly fire: Inferno
+        /// burns your team, Absolute Zero freezes them, Blackout stops their channels. Position first.
+        /// </summary>
         public static readonly IReadOnlyDictionary<string, string> Ultimates = new Dictionary<string, string>
         {
-            ["Sentinel"] = "Aegis: for 5 s you cannot be moved and allies within 5 m take half damage.",
+            // deny space
             ["Breaker"] = "Cave-In: collapse the doorway you stand in; rubble blocks everything, bodies and abilities, for 15 s.",
-            ["Berserker"] = "Bloodbath: for 8 s every hit heals 20% of its damage and you cannot be downed; if you are at zero when it ends, you fall.",
+            ["Trapper"] = "Lockdown: every doorway of the room you stand in is tripwired for 20 s; the first to cross each is rooted and revealed.",
+            ["Pyromancy"] = "Inferno: the room you stand in burns for 6 s, applying Burn to everyone inside every second. Everyone.",
+            ["Volleyer"] = "Suppression: a 10 m zone for 8 s; anyone inside is Chilled and cannot start a channel: no extraction, no revive, no loot.",
+            ["Stormcalling"] = "Blackout: for 8 s nobody within 10 m can channel anything: no extraction, no revive, no loot, no boss channel.",
+            // swing a fight
+            ["Sentinel"] = "Aegis: for 5 s you cannot be moved and allies within 5 m take half damage.",
             ["Duelist"] = "Perfect Guard: for 3 s every hit on you is parried and reflected; the first attacker is Staggered.",
-            ["Sharpshooter"] = "Deadman's Mark: your next shot passes through walls and deals triple damage to the first player it hits.",
-            ["Volleyer"] = "Storm of Arrows: an 8 m circle for 6 s, hitting every second and Chilling.",
+            ["Berserker"] = "Bloodbath: for 8 s every hit heals 20% of its damage and you cannot be downed; if you are at zero when it ends, you fall.",
+            ["Cryomancy"] = "Absolute Zero: Freeze everyone within 8 m for 2 s, ignoring diminishing returns.",
+            ["Warder"] = "Last Breath: revive a downed ally instantly, no channel, both of you at full health. Never works on a finished player.",
+            ["Plaguebearer"] = "Outbreak: every enemy within 10 m goes to maximum Poison and spreads it to anything they touch for 10 s.",
+            // find or mark
             ["Assassin"] = "Death Mark: mark a player for 10 s; your hits on them are critical and your team sees them through walls.",
-            ["Trapper"] = "Lockdown: every doorway of the room you stand in is tripwired for 20 s.",
-            ["Warder"] = "Communion: allies within 8 m are healed to full over 3 s and Purged.",
-            ["Plaguebearer"] = "Pestilence: a 6 m cloud for 8 s; enemies inside sit at maximum Poison stacks, allies heal 5% a second.",
-            ["Pyromancy"] = "Inferno: the room you stand in burns for 6 s, applying Burn to everyone inside every second.",
-            ["Cryomancy"] = "Glacier: an 8 m wall of ice for 10 s that nothing passes; enemies touching it are Chilled.",
-            ["Stormcalling"] = "Thunderclap: Stagger everyone within 10 m, Stun the Chilled, and interrupt any boss channel.",
+            ["Sharpshooter"] = "Overwatch: for 10 s, every enemy who enters your line of sight is shot once automatically.",
+        };
+
+        /// <summary>Which job an ultimate does. Used by the HUD and by tests that keep every spec to exactly one.</summary>
+        public enum UltimateJob { DenySpace, SwingFight, FindOrMark }
+
+        public static readonly IReadOnlyDictionary<string, UltimateJob> UltimateJobs = new Dictionary<string, UltimateJob>
+        {
+            ["Breaker"] = UltimateJob.DenySpace, ["Trapper"] = UltimateJob.DenySpace, ["Pyromancy"] = UltimateJob.DenySpace, ["Volleyer"] = UltimateJob.DenySpace, ["Stormcalling"] = UltimateJob.DenySpace,
+            ["Sentinel"] = UltimateJob.SwingFight, ["Duelist"] = UltimateJob.SwingFight, ["Berserker"] = UltimateJob.SwingFight, ["Cryomancy"] = UltimateJob.SwingFight, ["Warder"] = UltimateJob.SwingFight, ["Plaguebearer"] = UltimateJob.SwingFight,
+            ["Assassin"] = UltimateJob.FindOrMark, ["Sharpshooter"] = UltimateJob.FindOrMark,
         };
 
         public static WeaponSpec For(string className, ItemBase weapon)

@@ -3,6 +3,23 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-23 · Ultimates, settled — LOCKED AND BUILT
+
+* **Every ultimate has one of three jobs:** deny space (Cave-In, Lockdown, Inferno, Suppression,
+  Blackout), swing a fight (Aegis, Perfect Guard, Bloodbath, Absolute Zero, Last Breath, Outbreak),
+  find or mark (Death Mark, Overwatch). The yardstick: two souls is a teammate's life; an ultimate
+  must change what the room is, not just do more damage. (`WeaponSpec.UltimateJobs`.)
+* **Six reworked** from the first draft: Glacier → **Absolute Zero** (Freeze 8 m for 2 s, ignores
+  diminishing returns); Thunderclap → **Blackout** (no channels within 10 m for 8 s); Deadman's
+  Mark → **Overwatch** (auto-shoot everyone entering line of sight for 10 s); Storm of Arrows →
+  **Suppression** (10 m zone, Chill, no channels); Communion → **Last Breath** (instant revive of a
+  downed ally, both at full health, never a finished one; `LastBreath` event); Pestilence →
+  **Outbreak** (max Poison that spreads by touch).
+* **Ultimates obey full friendly fire. No exceptions.** Inferno burns your team.
+* **An armed ultimate is a soft gold aura on the character, visible to everyone in line of sight,
+  not through walls, gone the instant it is used.** Things worth taking glow: Keybearer bosses,
+  armed players.
+
 ## 2026-10-23 · Economy-in-the-dungeon and ultimates — LOCKED AND BUILT
 
 1. **Silver drops in the dungeon, weightless.** A pile per mob pack (15 base), a purse per chest
