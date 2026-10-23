@@ -23,6 +23,9 @@ namespace DungeonGen.Core.Net
         public int Seed { get; }
         public IReadOnlyList<QueuedGroup> Teams { get; }
         public FormedMatch(int seed, IReadOnlyList<QueuedGroup> teams) { Seed = seed; Teams = teams; }
+
+        /// <summary>The dungeon is sized to the teams actually present: four teams get the 4-team preset, eight the 8-team one.</summary>
+        public DungeonSettings Settings => DungeonSettings.ForTeams(Teams.Count);
     }
 
     /// <summary>

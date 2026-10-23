@@ -612,6 +612,15 @@ which worn half is destroyed; extraction needs a channel started at that gate, u
 enough ago; the round end destroys whatever was left inside; a team's minimap is the rooms the
 server has told it it saw; a shrine sells a consumable for one of the team's souls.
 
+## Silver, regen and ultimates (locked, built)
+
+Silver lies in every room with a mob pack or a chest (`Room.Silver`, rolled by `LootPlacer`,
+weightless), is picked up once per room, drops in full on death and is destroyed if left inside.
+Health never regenerates on its own; Stamina and Mana do. Each spec has one **earned ultimate**:
+two of the team's souls at a shrine arm it for one use, it dies with you and never leaves the
+dungeon (`WeaponSpec.Ultimates`, `UltimateArmed` / `UltimateUsed`). The matchmaker's match carries
+settings sized to the teams it formed.
+
 ## Fight rules (locked, built)
 
 `FightRules` holds them; `docs/DECISIONS.md` has the list. Abilities cost Stamina (physical

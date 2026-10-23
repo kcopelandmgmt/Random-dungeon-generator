@@ -31,6 +31,7 @@ namespace DungeonGen.Core.Net
                 }
                 if (r.Mobs != null) h.Add(r.Mobs.Mob.Name).Add(r.Mobs.Count).Add(r.Mobs.TierMultiplier);
                 h.Add(r.HasShrine);
+                if (includeServerOnly) h.Add(r.Silver);
             }
             foreach (var c in l.Corridors) { h.Add(c.RoomA).Add(c.RoomB).Add(c.Length).Add(c.IsLoop); }
             if (l.BossExit != null) h.Add(l.BossExit.RoomId).Add(l.BossExit.Cell.X).Add(l.BossExit.Cell.Y);

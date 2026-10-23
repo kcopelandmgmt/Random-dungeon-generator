@@ -35,6 +35,10 @@ namespace DungeonGen.Core.Net
         LootStarted,       // playerId, roomId or corpse playerId (B), kind (C: 0 chest, 1 corpse, 2 key): the channel begins
         LootInterrupted,   // playerId
         DoorsOpened,       // t: the 10 s countdown ended; spawn doors unseal for everyone
+        SilverPicked,      // playerId, roomId: takes the room's silver, once (needs an open container channel for chests; mob piles are free)
+        SilverLooted,      // playerId, corpseOf: takes everything on the corpse's purse (corpse must be opened)
+        UltimateArmed,     // playerId, shrineRoomId: two of the team's souls arm the spec's ultimate for one use
+        UltimateUsed,      // playerId
         PlayerDisconnected,// playerId: the character stands still, killable; the reconnect window starts
         PlayerReconnected, // playerId: within the window; the client replays the log
         RoundEnded,        // t: anyone still inside dies and drops everything
@@ -111,6 +115,13 @@ namespace DungeonGen.Core.Net
         /// <summary>playerId → (target, kind, started) for a loot channel in progress.</summary>
         public Dictionary<int, (int target, int kind, float started)> Loots { get; } = new Dictionary<int, (int, int, float)>();
         public bool DoorsOpen { get; private set; }
+        /// <summary>playerId → silver carried. Weightless; all of it drops on death.</summary>
+        public Dictionary<int, int> PlayerSilver { get; } = new Dictionary<int, int>();
+        public HashSet<int> SilverTakenRooms { get; } = new HashSet<int>();
+        public Dictionary<int, int> CorpseSilver { get; } = new Dictionary<int, int>();
+        public Dictionary<int, int> ExtractedSilver { get; } = new Dictionary<int, int>();
+        /// <summary>playerId → uses of the ultimate remaining this round.</summary>
+        public Dictionary<int, int> UltimateCharges { get; } = new Dictionary<int, int>();
         /// <summary>playerId → time the connection dropped. The server kills the character when the window passes.</summary>
         public Dictionary<int, float> Disconnected { get; } = new Dictionary<int, float>();
         /// <summary>playerId → total value walked out with.</summary>
@@ -258,6 +269,8 @@ namespace DungeonGen.Core.Net
                     DeadPlayers.Add(e.A);
                     Channels.Remove(e.A); Loots.Remove(e.A); Downed.Remove(e.A); Revives.Remove(e.A);
                     Disconnected.Remove(e.A);
+                    UltimateCharges.Remove(e.A);                                   // an armed ultimate dies with you
+                    if (PlayerSilver.TryGetValue(e.A, out int purse) && purse > 0) { CorpseSilver[e.A] = purse; PlayerSilver.Remove(e.A); }   // all of it
                     // Everything they held goes onto their corpse, open to anyone; the server then rolls which half of the worn gear is destroyed.
                     {
                         var held = ItemOwner.Where(kv => kv.Value == e.A).Select(kv => kv.Key).ToList();
@@ -291,6 +304,8 @@ namespace DungeonGen.Core.Net
                         Channels.Remove(e.A);
                         ExtractedPlayers.Add(e.A);
                         ExtractedValue[e.A] = ItemOwner.Where(kv => kv.Value == e.A).Sum(kv => (long)(ItemValue.TryGetValue(kv.Key, out int v) ? v : 0));
+                        if (PlayerSilver.TryGetValue(e.A, out int carried)) { ExtractedSilver[e.A] = carried; PlayerSilver.Remove(e.A); }
+                        UltimateCharges.Remove(e.A);                                   // never leaves the dungeon
                         // A vault key is worthless outside this dungeon: extracting with one destroys it.
                         foreach (var k in KeyHolder.Where(kv => kv.Value == e.A).Select(kv => kv.Key).ToList()) { KeyHolder.Remove(k); DestroyedKeys.Add(k); }
                         break;
@@ -349,6 +364,41 @@ namespace DungeonGen.Core.Net
                 case MatchEventKind.LootInterrupted:
                     if (!Loots.Remove(e.A)) { rejection = "not looting"; return false; }
                     break;
+                case MatchEventKind.SilverPicked:
+                    {
+                        if (DeadPlayers.Contains(e.A) || Downed.ContainsKey(e.A) || ExtractedPlayers.Contains(e.A)) { rejection = "player cannot loot"; return false; }
+                        if (e.B < 0 || e.B >= Layout.Rooms.Count) { rejection = "no such room"; return false; }
+                        if (SilverTakenRooms.Contains(e.B)) { rejection = "silver already taken"; return false; }
+                        var room = Layout.Rooms[e.B];
+                        if (room.Silver <= 0) { rejection = "no silver here"; return false; }
+                        if (room.Loot.Count > 0 && !OpenedContainers.Contains(e.B)) { rejection = "the purse is in the chest"; return false; }
+                        SilverTakenRooms.Add(e.B);
+                        PlayerSilver[e.A] = (PlayerSilver.TryGetValue(e.A, out int ps) ? ps : 0) + room.Silver;
+                        break;
+                    }
+                case MatchEventKind.SilverLooted:
+                    {
+                        if (DeadPlayers.Contains(e.A) || Downed.ContainsKey(e.A)) { rejection = "player cannot loot"; return false; }
+                        if (!OpenedCorpses.Contains(e.B)) { rejection = "corpse not opened"; return false; }
+                        if (!CorpseSilver.TryGetValue(e.B, out int cs) || cs <= 0) { rejection = "no silver on the corpse"; return false; }
+                        CorpseSilver.Remove(e.B);
+                        PlayerSilver[e.A] = (PlayerSilver.TryGetValue(e.A, out int ps2) ? ps2 : 0) + cs;
+                        break;
+                    }
+                case MatchEventKind.UltimateArmed:
+                    {
+                        if (DeadPlayers.Contains(e.A) || Downed.ContainsKey(e.A) || !PlayerTeam.TryGetValue(e.A, out int team)) { rejection = "player not standing"; return false; }
+                        if (e.B < 0 || e.B >= Layout.Rooms.Count || !Layout.Rooms[e.B].HasShrine) { rejection = "no shrine there"; return false; }
+                        if (UltimateCharges.TryGetValue(e.A, out int have) && have > 0) { rejection = "already armed"; return false; }
+                        if (!Souls.TryGetValue(team, out int souls) || souls < Combat.FightRules.SoulsToArmUltimate) { rejection = $"team needs {Combat.FightRules.SoulsToArmUltimate} souls"; return false; }
+                        Souls[team] = souls - Combat.FightRules.SoulsToArmUltimate;
+                        UltimateCharges[e.A] = Combat.FightRules.UltimateUsesPerArming;
+                        break;
+                    }
+                case MatchEventKind.UltimateUsed:
+                    if (DeadPlayers.Contains(e.A) || Downed.ContainsKey(e.A)) { rejection = "player not standing"; return false; }
+                    if (!UltimateCharges.TryGetValue(e.A, out int charges) || charges <= 0) { rejection = "ultimate not armed"; return false; }
+                    UltimateCharges[e.A] = charges - 1; break;
                 case MatchEventKind.PlayerDisconnected:
                     if (!PlayerTeam.ContainsKey(e.A) || DeadPlayers.Contains(e.A) || ExtractedPlayers.Contains(e.A)) { rejection = "player not in play"; return false; }
                     Disconnected[e.A] = e.Time; Channels.Remove(e.A); break;
@@ -365,6 +415,7 @@ namespace DungeonGen.Core.Net
                         foreach (var k in KeyHolder.Where(kv => kv.Value == p).Select(kv => kv.Key).ToList()) KeyHolder.Remove(k);
                         var held = ItemOwner.Where(kv => kv.Value == p).Select(kv => kv.Key).ToList();
                         foreach (int it in held) { ItemOwner.Remove(it); DestroyedItems.Add(it); }   // nothing left behind survives the round
+                        PlayerSilver.Remove(p); UltimateCharges.Remove(p);
                     }
                     Ended = true; break;
             }

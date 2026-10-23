@@ -80,6 +80,28 @@ A class holding a weapon it has no spec for fights with basic attacks at the off
 Shortbow is shared by Marksman and Shade: the drop is contested and the class decides the kit.
 Every weapon drop in the dungeon is a potential build change for someone.
 
+## Ultimates (earned)
+
+One per spec, armed at a shrine for two of the team's souls, one use, lost on death, never
+leaves the dungeon. It is the same currency as resurrection and shrine consumables, so it is
+always a choice.
+
+| Spec | Ultimate |
+|------|----------|
+| Sentinel | **Aegis**: 5 s, cannot be moved, allies within 5 m take half damage |
+| Breaker | **Cave-In**: collapse the doorway you stand in; rubble blocks everything for 15 s |
+| Berserker | **Bloodbath**: 8 s, every hit heals 20% of its damage, cannot be downed; fall at the end if at zero |
+| Duelist | **Perfect Guard**: 3 s, every hit parried and reflected; the first attacker is Staggered |
+| Sharpshooter | **Deadman's Mark**: next shot passes through walls, triple damage to the first player hit |
+| Volleyer | **Storm of Arrows**: 8 m circle, 6 s, hits every second and Chills |
+| Assassin | **Death Mark**: mark a player 10 s; your hits crit, your team sees them through walls |
+| Trapper | **Lockdown**: every doorway of your room tripwired for 20 s |
+| Warder | **Communion**: allies within 8 m healed to full over 3 s and Purged |
+| Plaguebearer | **Pestilence**: 6 m cloud, 8 s; enemies at max Poison, allies heal 5%/s |
+| Pyromancy | **Inferno**: your room burns for 6 s, Burn to everyone inside each second |
+| Cryomancy | **Glacier**: 8 m ice wall for 10 s that nothing passes; touching it Chills |
+| Stormcalling | **Thunderclap**: Stagger everyone within 10 m, Stun the Chilled, interrupt any boss channel |
+
 ## Composition notes
 
 * Party size is 3. Warden / Reaver / Mender is the reference trio the boss numbers were checked against.

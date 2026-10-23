@@ -30,6 +30,11 @@ namespace DungeonGen.Core.Stages
                     default: count = rng.Chance(0.5f) ? 2 : 1; source = LootSource.Chest; break;
                 }
                 count = (int)System.Math.Round(count * s.LootDensity);
+                // Silver: a purse per chest, a pile per mob pack, bigger for bosses and vaults, scaled by tier with a little variance.
+                int tierMult = 1 + room.LootTier;
+                int silver = source == LootSource.Vault ? Combat.FightRules.SilverPerVaultBase : source == LootSource.Boss || source == LootSource.FinalBoss ? Combat.FightRules.SilverPerBossChestBase : Combat.FightRules.SilverPerChestBase;
+                if (room.Mobs != null) silver += Combat.FightRules.SilverPerMobPackBase;
+                room.Silver = (int)System.Math.Round(silver * tierMult * (0.8f + rng.NextFloat() * 0.4f));
                 if (source == LootSource.Chest || source == LootSource.LootRoom)
                     foreach (var c in Consumable.All)
                         if (rng.Chance(c.ChestChance)) room.Consumables.Add(c);

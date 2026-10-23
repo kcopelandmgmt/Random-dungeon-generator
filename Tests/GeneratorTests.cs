@@ -2055,3 +2055,107 @@ namespace DungeonGen.Tests
         }
     }
 }
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+    using DungeonGen.Core.Items;
+    using DungeonGen.Core.Net;
+
+    public class SilverAndUltimateTests
+    {
+        private static (MatchState st, DungeonLayout layout) Fresh(int seed = 7)
+        {
+            var d = MatchDescriptor.Create(seed, DungeonSettings.ForTeams(8), new MatchRules(), out var layout);
+            var st = new MatchState(d, layout);
+            st.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out _);
+            for (int p = 1; p <= 6; p++) st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, p, (p - 1) / 3), out _);
+            return (st, layout);
+        }
+
+        [Fact]
+        public void SilverLiesWhereMobsAndChestsAreAndScalesWithTier()
+        {
+            var layout = DungeonGenerator.Generate(DungeonSettings.ForTeams(8), 7);
+            Assert.All(layout.Rooms.Where(r => r.Type == RoomType.Spawn || r.Type == RoomType.Extract), r => Assert.Equal(0, r.Silver));
+            Assert.All(layout.Rooms.Where(r => r.Mobs != null || r.Loot.Count > 0), r => Assert.True(r.Silver > 0));
+            var vault = layout.VaultRooms.First(); var plain = layout.Rooms.First(r => r.Type == RoomType.Standard && r.LootTier <= 1);
+            Assert.True(vault.Silver > plain.Silver * 3);
+            Assert.Equal(0f, FightRules.SilverWeightKg);
+            Assert.Equal(LayoutFingerprint.Compute(layout), LayoutFingerprint.Compute(DungeonGenerator.Generate(DungeonSettings.ForTeams(8), 7)));
+        }
+
+        [Fact]
+        public void SilverIsPickedOnceDropsInFullOnDeathAndIsLootable()
+        {
+            var (st, layout) = Fresh();
+            string why;
+            var mobRoom = layout.Rooms.First(r => r.Mobs != null && r.Loot.Count > 0);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.SilverPicked, 5, 1, mobRoom.Id), out why), "purse is in the chest");
+            Assert.True(Ch.OpenChest(st, 5, mobRoom.Id, 1, out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.SilverPicked, 8, 1, mobRoom.Id), out why));
+            Assert.Equal(mobRoom.Silver, st.PlayerSilver[1]);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.SilverPicked, 9, 2, mobRoom.Id), out why), "already taken");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 20, 1, 4, mobRoom.Id), out why));
+            Assert.False(st.PlayerSilver.ContainsKey(1));
+            Assert.Equal(mobRoom.Silver, st.CorpseSilver[1]);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.SilverLooted, 21, 4, 1), out why), "corpse not opened");
+            Assert.True(Ch.OpenCorpse(st, 21, 1, 4, out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.SilverLooted, 25, 4, 1), out why));
+            Assert.Equal(mobRoom.Silver, st.PlayerSilver[4]);
+            st.Apply(new MatchEvent(MatchEventKind.ExtractsOpened, 240), out _);
+            int gate = layout.ExtractRooms.First().Id;
+            st.Apply(new MatchEvent(MatchEventKind.ExtractStarted, 300, 4, gate), out _);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerExtracted, 310, 4, gate, 1), out why));
+            Assert.Equal(mobRoom.Silver, st.ExtractedSilver[4]);
+        }
+
+        [Fact]
+        public void NoHealthRegenButResourcesRefill()
+        {
+            Assert.Equal(0f, FightRules.HealthRegenPerSecond);
+            Assert.True(FightRules.ResourcesRegenerate);
+            Assert.True(FightRules.ResourceRegenPerSecond > 0f);
+        }
+
+        [Fact]
+        public void EverySpecHasAnUltimateAndItIsEarnedAtAShrine()
+        {
+            Assert.All(WeaponSpec.All, s => Assert.False(string.IsNullOrEmpty(s.Ultimate)));
+            Assert.All(ElementKit.All, k => Assert.False(string.IsNullOrEmpty(k.Ultimate)));
+            Assert.Equal(13, WeaponSpec.Ultimates.Count);
+            Assert.Equal(13, WeaponSpec.Ultimates.Values.Distinct().Count());
+
+            var (st, layout) = Fresh();
+            int shrine = layout.Rooms.First(r => r.HasShrine).Id;
+            string why;
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.UltimateUsed, 1, 1), out why), "not armed");
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.UltimateArmed, 2, 1, shrine), out why), "no souls");
+            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 3, 4, 1, 0), out _);
+            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 4, 5, 1, 0), out _);
+            Assert.Equal(2, st.Souls[0]);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.UltimateArmed, 5, 1, layout.ExtractRooms.First().Id), out why), "not a shrine");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.UltimateArmed, 5, 1, shrine), out why));
+            Assert.Equal(0, st.Souls[0]);                                                     // the same two souls a resurrection would have cost
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 6, 4, 1, shrine), out why), "souls spent on the ultimate");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.UltimateUsed, 7, 1), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.UltimateUsed, 8, 1), out why), "one use");
+            st.Souls[0] = 2;
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.UltimateArmed, 9, 1, shrine), out why));
+            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 10, 1, 6, 0), out _);
+            Assert.False(st.UltimateCharges.ContainsKey(1));                                 // dies with you
+        }
+
+        [Fact]
+        public void FormedMatchesAreSizedToTheirTeams()
+        {
+            var mm = new Matchmaker(8, 4, 90f);
+            for (int g = 0; g < 4; g++) mm.Enqueue(new QueuedGroup(g, new[] { g * 3 + 1 }, g));
+            var m = mm.TryForm(200f);
+            Assert.NotNull(m);
+            Assert.Equal(4, m.Teams.Count);
+            Assert.Equal(4, m.Settings.SpawnCount);
+            Assert.Equal(DungeonSettings.ForTeams(4).Width, m.Settings.Width);
+        }
+    }
+}

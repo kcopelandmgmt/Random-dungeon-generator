@@ -27,6 +27,27 @@ namespace DungeonGen.Core.Combat
         public static float AbilityCost(float pool, AbilitySlot slot) =>
             pool * (slot == AbilitySlot.Bolt ? BoltCostFraction : slot == AbilitySlot.Zone ? ZoneCostFraction : slot == AbilitySlot.Mobility ? MobilityCostFraction : 0f);
 
+        // --- Health never comes back on its own; resources do ------------------------------
+        /// <summary>No natural health regeneration, in or out of combat. Menders, potions and lifesteal are the only healing.</summary>
+        public const float HealthRegenPerSecond = 0f;
+        public const bool ResourcesRegenerate = true;
+
+        // --- Ultimates: earned, never given --------------------------------------------------
+        /// <summary>One ultimate per spec. It is armed at a shrine for souls, lasts one use, and never leaves the dungeon. It competes with resurrection and consumables for the same currency.</summary>
+        public const int SoulsToArmUltimate = 2;
+        public const int UltimateUsesPerArming = 1;
+
+        // --- Silver in the dungeon --------------------------------------------------------
+        /// <summary>Silver drops from mob packs and chests, weighs nothing, and all of it drops on death.</summary>
+        public const bool SilverDropsInDungeon = true;
+        public const float SilverWeightKg = 0f;
+        public const float SilverDroppedOnDeathFraction = 1f;
+        /// <summary>Base silver per mob pack and per chest, scaled by loot tier (×(1 + tier)).</summary>
+        public const int SilverPerMobPackBase = 15;
+        public const int SilverPerChestBase = 20;
+        public const int SilverPerBossChestBase = 80;
+        public const int SilverPerVaultBase = 150;
+
         // --- Downed, not dead ------------------------------------------------------------
         /// <summary>At zero health a player is downed for this long. If nobody revives or finishes them, they die.</summary>
         public const float DownedSeconds = 60f;

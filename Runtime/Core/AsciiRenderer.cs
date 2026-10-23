@@ -82,7 +82,7 @@ namespace DungeonGen.Core
                 if (layout.Items.Count > 0)
                 {
                     var byRarity = layout.Items.GroupBy(i => i.Rarity).OrderBy(g => g.Key);
-                    sb.AppendLine($"Loot: {layout.Items.Count} items; " + string.Join(", ", byRarity.Select(g => $"{g.Count()} {g.Key}")));
+                    sb.AppendLine($"Loot: {layout.Items.Count} items; " + string.Join(", ", byRarity.Select(g => $"{g.Count()} {g.Key}")) + $"; {layout.Rooms.Sum(r => r.Silver)} silver lying around");
                     foreach (var r in layout.Rooms.Where(r => r.Loot.Count > 0 && (r.Type == RoomType.Vault || r.IsBossRoom)).OrderBy(r => r.Type))
                         foreach (var it in r.Loot) sb.AppendLine($"  room {r.Id,2} {r.Type,-9} {it}");
                 }

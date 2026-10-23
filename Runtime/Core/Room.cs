@@ -36,6 +36,9 @@ namespace DungeonGen.Core
         /// <summary>A resurrection shrine stands here (hub rooms). Two player-kill souls bring a dead teammate back, naked.</summary>
         public bool HasShrine { get; set; }
 
+        /// <summary>Silver lying in this room: the mob pack's drop plus the chest's purse. Weightless; picked up once; all of it drops on death.</summary>
+        public int Silver { get; set; }
+
         /// <summary>Consumables found in this room's chests, beside the gear.</summary>
         public List<Items.Consumable> Consumables { get; } = new List<Items.Consumable>();
 

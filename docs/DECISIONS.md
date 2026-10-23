@@ -3,6 +3,22 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-23 · Economy-in-the-dungeon and ultimates — LOCKED AND BUILT
+
+1. **Silver drops in the dungeon, weightless.** A pile per mob pack (15 base), a purse per chest
+   (20), more from boss chests (80) and vaults (150), all ×(1 + loot tier). Picked up once per
+   room (`SilverPicked`; a chest's purse needs the chest open). **All of it drops on death** onto
+   the corpse (`SilverLooted`). Extracted silver is recorded; silver left inside at round end is gone.
+2. **No natural health regeneration**, in or out of combat. Menders, potions and lifesteal are the
+   only healing. **Resources (Stamina, Mana) do regenerate.**
+3. **Ultimates are earned, never given.** One per spec (thirteen in `WeaponSpec.Ultimates`), armed
+   at a shrine for **two of the team's souls** (`UltimateArmed`), one use (`UltimateUsed`), lost on
+   death, never leaves the dungeon. It competes with resurrection and consumables for the same
+   currency, so a team that has won fights chooses between a second life, potions, or one big
+   moment. Solos can arm one too.
+4. **The dungeon is sized to the teams present:** the matchmaker's formed match carries
+   `ForTeams(teams.Count)`.
+
 ## 2026-10-22 · Fight rules — LOCKED AND BUILT (`FightRules`)
 
 1. **Abilities cost a resource and have a cooldown.** Physical classes (Warden, Reaver, Marksman,

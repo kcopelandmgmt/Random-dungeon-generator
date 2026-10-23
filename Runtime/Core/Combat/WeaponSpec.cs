@@ -21,12 +21,32 @@ namespace DungeonGen.Core.Combat
         public string Mobility { get; }
         public string Passive { get; }
         public string DungeonJob { get; }
+        /// <summary>Earned, never given: armed at a shrine for two souls, one use, lost on death, never leaves the dungeon.</summary>
+        public string Ultimate { get; }
         public IReadOnlyList<string> Abilities => new[] { Bolt, Zone, Mobility, Passive };
 
-        public WeaponSpec(string cls, string weapon, string name, string tagline, string bolt, string zone, string mobility, string passive, string job)
+        public WeaponSpec(string cls, string weapon, string name, string tagline, string bolt, string zone, string mobility, string passive, string job, string ultimate = null)
         {
             ClassName = cls; WeaponBase = weapon; Name = name; Tagline = tagline; Bolt = bolt; Zone = zone; Mobility = mobility; Passive = passive; DungeonJob = job;
+            Ultimate = ultimate ?? (Ultimates.TryGetValue(name, out var u) ? u : null);
         }
+
+        public static readonly IReadOnlyDictionary<string, string> Ultimates = new Dictionary<string, string>
+        {
+            ["Sentinel"] = "Aegis: for 5 s you cannot be moved and allies within 5 m take half damage.",
+            ["Breaker"] = "Cave-In: collapse the doorway you stand in; rubble blocks everything, bodies and abilities, for 15 s.",
+            ["Berserker"] = "Bloodbath: for 8 s every hit heals 20% of its damage and you cannot be downed; if you are at zero when it ends, you fall.",
+            ["Duelist"] = "Perfect Guard: for 3 s every hit on you is parried and reflected; the first attacker is Staggered.",
+            ["Sharpshooter"] = "Deadman's Mark: your next shot passes through walls and deals triple damage to the first player it hits.",
+            ["Volleyer"] = "Storm of Arrows: an 8 m circle for 6 s, hitting every second and Chilling.",
+            ["Assassin"] = "Death Mark: mark a player for 10 s; your hits on them are critical and your team sees them through walls.",
+            ["Trapper"] = "Lockdown: every doorway of the room you stand in is tripwired for 20 s.",
+            ["Warder"] = "Communion: allies within 8 m are healed to full over 3 s and Purged.",
+            ["Plaguebearer"] = "Pestilence: a 6 m cloud for 8 s; enemies inside sit at maximum Poison stacks, allies heal 5% a second.",
+            ["Pyromancy"] = "Inferno: the room you stand in burns for 6 s, applying Burn to everyone inside every second.",
+            ["Cryomancy"] = "Glacier: an 8 m wall of ice for 10 s that nothing passes; enemies touching it are Chilled.",
+            ["Stormcalling"] = "Thunderclap: Stagger everyone within 10 m, Stun the Chilled, and interrupt any boss channel.",
+        };
 
         public static WeaponSpec For(string className, ItemBase weapon)
         {

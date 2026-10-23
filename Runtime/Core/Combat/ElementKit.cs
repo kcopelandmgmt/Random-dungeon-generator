@@ -18,6 +18,8 @@ namespace DungeonGen.Core.Combat
         public string Mobility { get; }
         public string Passive { get; }
         public StatusEffectDefinition OnHit => StatusEffectDefinition.OnHitFor(Element);
+        /// <summary>The element's earned ultimate; see WeaponSpec.Ultimates.</summary>
+        public string Ultimate => WeaponSpec.Ultimates[Name];
         public IReadOnlyList<string> Abilities => new[] { Bolt, Zone, Mobility, Passive };
 
         public ElementKit(DamageType element, string name, string tagline, string bolt, string zone, string mobility, string passive)
