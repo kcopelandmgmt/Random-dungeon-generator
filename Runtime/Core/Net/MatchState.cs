@@ -274,10 +274,10 @@ namespace DungeonGen.Core.Net
                             if (!Loots.TryGetValue(e.B, out var lc) || lc.kind != 1 || lc.target != e.A) { rejection = "no corpse channel"; return false; }
                             if (e.Time - lc.started < Combat.FightRules.CorpseLootSeconds - 0.01f) { rejection = $"corpse takes {Combat.FightRules.CorpseLootSeconds:0} s"; return false; }
                             Loots.Remove(e.B);
-                            // The kill's soul is on the corpse: whoever loots it first takes it, never the dead player's own team.
-                            if (CorpseSouls.Contains(e.A) && PlayerTeam.TryGetValue(e.B, out int looterTeam) && PlayerTeam.TryGetValue(e.A, out int deadTeam) && looterTeam != deadTeam)
-                            { CorpseSouls.Remove(e.A); GrantSoul(e.B); }
                         }
+                        // The kill's soul is on the corpse: the first ENEMY of the dead player to loot it takes it, even if their own team rifled the body first.
+                        if (CorpseSouls.Contains(e.A) && PlayerTeam.TryGetValue(e.B, out int looterTeam) && PlayerTeam.TryGetValue(e.A, out int deadTeam) && looterTeam != deadTeam)
+                        { CorpseSouls.Remove(e.A); GrantSoul(e.B); }
                         OpenedCorpses.Add(e.A); break;
                     }
                 case MatchEventKind.ExtractStarted:

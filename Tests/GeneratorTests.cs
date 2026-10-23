@@ -1324,35 +1324,32 @@ namespace DungeonGen.Tests
         {
             var (st, layout) = Fresh();
             string why;
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 10, 4, -1, 0), out why));     // killed by a mob: no soul anywhere
-            Assert.Empty(st.Souls); Assert.DoesNotContain(4, st.CorpseSouls);
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 11, 2, 1, 0), out why));      // teammate kill: no soul on that corpse
-            Assert.DoesNotContain(2, st.CorpseSouls);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 10, 2, -1, 0), out why));     // killed by a mob: no soul anywhere
+            Assert.Empty(st.Souls); Assert.DoesNotContain(2, st.CorpseSouls);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 11, 6, 4, 0), out why));      // teammate kill: no soul on that corpse
+            Assert.DoesNotContain(6, st.CorpseSouls);
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 12, 5, 1, 0), out why));      // player 1 kills player 5
             Assert.Empty(st.Souls);                                                                      // the blow itself grants nothing
             Assert.Contains(5, st.CorpseSouls);                                                          // the soul lies on the corpse
-            Assert.True(Ch.OpenCorpse(st, 13, 5, 6, out why));                                           // 5's own teammate loots first: items yes, soul no
-            Assert.Equal(0, st.SoulsOf(6)); Assert.Contains(5, st.CorpseSouls);
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.CorpseOpened, 17, 5, 3), out why));       // player 3 (team 0) later: the corpse is already open, so no first opening, soul stays
-            Assert.Equal(0, st.SoulsOf(3)); Assert.Contains(5, st.CorpseSouls);
-
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 18, 6, 3, 0), out why));      // player 3 kills player 6
-            Assert.True(Ch.OpenCorpse(st, 19, 6, 1, out why));                                           // player 1 loots it: the soul is player 1's, not the killer's
-            Assert.Equal(1, st.SoulsOf(1)); Assert.Equal(0, st.SoulsOf(3)); Assert.DoesNotContain(6, st.CorpseSouls);
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.CorpseOpened, 23, 6, 3), out why));
-            Assert.Equal(0, st.SoulsOf(3));                                                              // a corpse holds one soul
+            Assert.True(Ch.OpenCorpse(st, 13, 5, 4, out why));                                           // 5's own teammate loots first: items yes, soul no
+            Assert.Equal(0, st.SoulsOf(4)); Assert.Contains(5, st.CorpseSouls);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.CorpseOpened, 17, 5, 3), out why));       // player 3 (team 0, not the killer) loots: the soul is theirs
+            Assert.Equal(1, st.SoulsOf(3)); Assert.Equal(0, st.SoulsOf(1)); Assert.DoesNotContain(5, st.CorpseSouls);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.CorpseOpened, 18, 5, 1), out why));       // the killer comes by later: nothing left
+            Assert.Equal(0, st.SoulsOf(1));                                                              // a corpse holds one soul
 
             var boss = layout.BossRooms.First();
             Assert.False(Ch.OpenChest(st, 24, boss.Id, 1, out why));                                      // boss alive: chest stays shut
             Assert.Contains("alive", why);
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.BossKilled, 26, boss.Id, 1), out why));   // team 1 lands the kill...
             Assert.True(Ch.OpenChest(st, 27, boss.Id, 1, out why));                                      // ...player 1 opens the chest first
-            Assert.Equal(2, st.SoulsOf(1));                                                              // and takes the boss's soul
+            Assert.Equal(1, st.SoulsOf(1));                                                              // and takes the boss's soul
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.BossKilled, 31, boss.Id, 0), out why), "a boss dies once");
             Assert.False(FightRules.SoulsTransferable);
 
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 32, 2, 1, layout.Rooms.First(r => r.HasShrine).Id), out why));   // spends both on teammate 2
-            Assert.Equal(0, st.SoulsOf(1));
+            st.Souls[3] = 2;
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 32, 2, 3, layout.Rooms.First(r => r.HasShrine).Id), out why));   // player 3 spends both on teammate 2
+            Assert.Equal(0, st.SoulsOf(3));
             st.Souls[1] = 2;
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 41, 1, 4, 0), out why));      // player 4 kills player 1, who carries two
             Assert.Equal(0, st.SoulsOf(1));                                                              // both burn

@@ -3,6 +3,22 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-23 · After the audit: four rulings — LOCKED AND BUILT
+
+1. **A player kill's soul lies on the corpse.** The blow grants nothing. The first ENEMY of the dead
+   player to loot the corpse takes the soul, whoever landed the kill or the finish, and even if the
+   dead player's own team rifled the body first; that team can take the gear but never the soul.
+   A teammate kill or a mob kill leaves no soul. (`MatchState.CorpseSouls`, granted in
+   `CorpseOpened`; `TeamView.Corpse.HasSoul` so the HUD can mark a corpse that still holds one.)
+2. **The boss chest soul stays with whoever clicks the loot**, and **souls are never items**: no
+   dropping, giving or trading (`FightRules.SoulsTransferable = false`). Taken, spent, or burned.
+3. **Hand-offs have no account gate.** Day one, give or drop freely. The RMT guard is the tier
+   walls, durability and the transfer ledger. Account levels now gate exactly one thing: the three
+   earned classes.
+4. **Thin queues above Tier I: two teams may start after three minutes**, in a dungeon sized for
+   two (`Matchmaker.LongWaitSeconds` = 180, `MinTeamsAfterLongWait` = 2). Tier I keeps four teams
+   after 90 seconds.
+
 ## 2026-10-23 · Audit: contradictions found and fixed — BUILT
 
 A deliberate pass over every decision against the code found these. All fixed.
@@ -31,15 +47,8 @@ A deliberate pass over every decision against the code found these. All fixed.
 
 Known and accepted, not changed:
 
-* **Souls are personal but downing is teamwork.** The finisher gets the soul. A team decides who
-  finishes; that is a choice, not a bug.
-* **The boss chest soul goes to the opener, not to a roll.** "Whoever loots it gets it" was the
-  instruction; the roll covers the gear in the chest, not the soul.
-* **Hand-offs open at level 5, so a day-one Need winner cannot pass a piece to a friend.** The
-  mule guard wins; a floor drop is also gated.
-* **Three tiers × six regions is eighteen queues.** Tier III queues will be thin at launch; the
-  matchmaker already goes with four teams after 90 s. Watch it; a two-team floor after three
-  minutes is one constant if needed.
+* (The finisher soul, the boss chest soul, the hand-off gate and the thin queues were put to the
+  designer and ruled on; see "After the audit" above.)
 * **Affix tiers cap at item level 4**, so Tier III gear is better bases and more uniques, not
   bigger affixes. Tuning, not contradiction.
 
