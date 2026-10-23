@@ -1320,36 +1320,46 @@ namespace DungeonGen.Tests
         }
 
         [Fact]
-        public void SoulsArePersonalComeFromKillsAndBossChestsAndBurnOnDeath()
+        public void SoulsArePersonalLieOnCorpsesAndInBossChestsAndBurnOnDeath()
         {
             var (st, layout) = Fresh();
             string why;
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 10, 4, -1, 0), out why));     // killed by a mob: nobody gains
-            Assert.Empty(st.Souls);
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 11, 2, 1, 0), out why));      // teammate kill: nothing
-            Assert.Empty(st.Souls);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 10, 4, -1, 0), out why));     // killed by a mob: no soul anywhere
+            Assert.Empty(st.Souls); Assert.DoesNotContain(4, st.CorpseSouls);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 11, 2, 1, 0), out why));      // teammate kill: no soul on that corpse
+            Assert.DoesNotContain(2, st.CorpseSouls);
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 12, 5, 1, 0), out why));      // player 1 kills player 5
-            Assert.Equal(1, st.SoulsOf(1));
-            Assert.Equal(0, st.SoulsOf(3));                                                              // player 1's soul, not the team's
+            Assert.Empty(st.Souls);                                                                      // the blow itself grants nothing
+            Assert.Contains(5, st.CorpseSouls);                                                          // the soul lies on the corpse
+            Assert.True(Ch.OpenCorpse(st, 13, 5, 6, out why));                                           // 5's own teammate loots first: items yes, soul no
+            Assert.Equal(0, st.SoulsOf(6)); Assert.Contains(5, st.CorpseSouls);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.CorpseOpened, 17, 5, 3), out why));       // player 3 (team 0) later: the corpse is already open, so no first opening, soul stays
+            Assert.Equal(0, st.SoulsOf(3)); Assert.Contains(5, st.CorpseSouls);
+
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 18, 6, 3, 0), out why));      // player 3 kills player 6
+            Assert.True(Ch.OpenCorpse(st, 19, 6, 1, out why));                                           // player 1 loots it: the soul is player 1's, not the killer's
+            Assert.Equal(1, st.SoulsOf(1)); Assert.Equal(0, st.SoulsOf(3)); Assert.DoesNotContain(6, st.CorpseSouls);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.CorpseOpened, 23, 6, 3), out why));
+            Assert.Equal(0, st.SoulsOf(3));                                                              // a corpse holds one soul
 
             var boss = layout.BossRooms.First();
-            Assert.False(Ch.OpenChest(st, 13, boss.Id, 1, out why));                                      // boss alive: chest stays shut
+            Assert.False(Ch.OpenChest(st, 24, boss.Id, 1, out why));                                      // boss alive: chest stays shut
             Assert.Contains("alive", why);
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.BossKilled, 20, boss.Id, 1), out why));   // team 1 lands the kill...
-            Assert.Equal(0, st.SoulsOf(6));                                                              // ...and the kill itself grants nothing
-            Assert.True(Ch.OpenChest(st, 21, boss.Id, 1, out why));                                      // player 1 (team 0) opens the chest first
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.BossKilled, 26, boss.Id, 1), out why));   // team 1 lands the kill...
+            Assert.True(Ch.OpenChest(st, 27, boss.Id, 1, out why));                                      // ...player 1 opens the chest first
             Assert.Equal(2, st.SoulsOf(1));                                                              // and takes the boss's soul
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ContainerOpened, 30, boss.Id, 6), out why));
-            Assert.Equal(0, st.SoulsOf(6));                                                              // a chest holds one soul
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.BossKilled, 31, boss.Id, 0), out why), "a boss dies once");
+            Assert.False(FightRules.SoulsTransferable);
 
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 41, 1, 6, 0), out why));      // player 6 kills player 1, who carries two
-            Assert.Equal(0, st.SoulsOf(1));                                                              // both of player 1's souls burn
-            Assert.Equal(1, st.SoulsOf(6));                                                              // player 6 gets exactly one for the kill, not the victim's two
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 42, 6, 3, 0), out why));      // player 3 kills player 6
-            Assert.Equal(0, st.SoulsOf(6));                                                              // burned again
-            Assert.Equal(1, st.SoulsOf(3));
-            Assert.Equal(1, st.Souls.Values.Sum());                                                      // five kills and a boss chest, one soul left in the dungeon
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 32, 2, 1, layout.Rooms.First(r => r.HasShrine).Id), out why));   // spends both on teammate 2
+            Assert.Equal(0, st.SoulsOf(1));
+            st.Souls[1] = 2;
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 41, 1, 4, 0), out why));      // player 4 kills player 1, who carries two
+            Assert.Equal(0, st.SoulsOf(1));                                                              // both burn
+            Assert.Equal(0, st.SoulsOf(4));                                                              // the killer holds nothing until the corpse is looted
+            Assert.True(Ch.OpenCorpse(st, 42, 1, 4, out why));
+            Assert.Equal(1, st.SoulsOf(4));                                                              // exactly one, not the victim's two
+            Assert.Equal(1, st.Souls.Values.Sum());
         }
 
         [Fact]
@@ -1540,10 +1550,10 @@ namespace DungeonGen.Tests
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 10, 2, 4, 0), out why));                 // player 2 (team 0) dies to player 4
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 11, 2, 1, shrine), out why));   // reviver has no souls
             Assert.Contains("souls", why);
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 12, 4, 1, 0), out why));
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 13, 5, 3, 0), out why));                 // player 3 earned this one
+            Assert.True(Ch.KillAndLoot(st, 12, 4, 1));
+            Assert.True(Ch.KillAndLoot(st, 13, 5, 3));                                                              // player 3 earned this one
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 14, 2, 1, shrine), out why), "player 1 holds one soul; a teammate's does not count");
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 15, 6, 1, 0), out why));                 // now player 1 holds two
+            Assert.True(Ch.KillAndLoot(st, 15, 6, 1));                                                              // now player 1 holds two
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 16, 2, 1, plain), out why));    // not a shrine
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 16, 2, 4, shrine), out why));   // enemy (and dead) cannot res you
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 17, 2, 1, shrine), out why));
@@ -1629,9 +1639,9 @@ namespace DungeonGen.Tests
             var (st, layout) = Fresh();
             var shrine = layout.Rooms.First(r => r.HasShrine).Id;
             st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 1, 2, 4, 0), out _);
-            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 2, 4, 1, 0), out _);
-            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 3, 5, 1, 0), out _);
-            st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 4, 2, 1, shrine), out _);
+            Ch.KillAndLoot(st, 2, 4, 1);
+            Ch.KillAndLoot(st, 6, 5, 1);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 10, 2, 1, shrine), out _));
             var replay = MatchState.Replay(MatchDescriptor.FromBytes(st.Descriptor.ToBytes()), layout, MatchState.LogFromBytes(st.LogToBytes()));
             Assert.Equal(st.Souls, replay.Souls);
             Assert.Equal(st.DeadPlayers, replay.DeadPlayers);
@@ -1917,7 +1927,7 @@ namespace DungeonGen.Tests
             int shrine = layout.Rooms.First(r => r.HasShrine).Id;
             string why;
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.ShrinePurchase, 10, 1, 0, shrine), out why), "no souls");
-            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 11, 4, 1, 0), out _);
+            Ch.KillAndLoot(st, 11, 4, 1);
             Assert.Equal(1, st.SoulsOf(1));
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.ShrinePurchase, 12, 2, 0, shrine), out why), "a teammate's soul is not yours");
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.ShrinePurchase, 12, 1, 0, layout.ExtractRooms.First().Id), out why), "not a shrine");
@@ -2135,6 +2145,12 @@ namespace DungeonGen.Tests
             if (!st.Apply(new MatchEvent(MatchEventKind.LootStarted, t, by, room, 0), out why)) return false;
             return st.Apply(new MatchEvent(MatchEventKind.ContainerOpened, t + 2f, room, by), out why);
         }
+        /// <summary>Kill an enemy and loot the corpse: the only way a player kill yields a soul.</summary>
+        public static bool KillAndLoot(MatchState st, float t, int victim, int killer, int room = 0)
+        {
+            if (!st.Apply(new MatchEvent(MatchEventKind.PlayerDied, t, victim, killer, room), out _)) return false;
+            return OpenCorpse(st, t + 0.1f, victim, killer, out _);
+        }
         public static bool OpenCorpse(MatchState st, float t, int corpseOf, int by, out string why)
         {
             if (!st.Apply(new MatchEvent(MatchEventKind.LootStarted, t, by, corpseOf, 1), out why)) return false;
@@ -2201,7 +2217,9 @@ namespace DungeonGen.Tests
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDowned, 30, 3, 5, 0), out why));
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerFinished, 35, 3, 5, 0), out why));
             Assert.Contains(3, st.DeadPlayers);
-            Assert.Equal(1, st.SoulsOf(5));                                                              // finishing is the kill, and the soul is the finisher's
+            Assert.Contains(3, st.CorpseSouls);                                                          // finishing is the kill: the soul lies on the corpse
+            Assert.True(Ch.OpenCorpse(st, 36, 3, 4, out why));                                           // and whoever loots it first has it, finisher or not
+            Assert.Equal(1, st.SoulsOf(4)); Assert.Equal(0, st.SoulsOf(5));
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDowned, 40, 1, 6, 0), out why));
             Assert.Empty(st.DownedExpired(99));
             Assert.Contains(1, st.DownedExpired(101));
@@ -2349,8 +2367,8 @@ namespace DungeonGen.Tests
             string why;
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.UltimateUsed, 1, 1), out why), "not armed");
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.UltimateArmed, 2, 1, shrine), out why), "no souls");
-            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 3, 4, 1, 0), out _);
-            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 4, 5, 1, 0), out _);
+            Ch.KillAndLoot(st, 3, 4, 1);
+            Ch.KillAndLoot(st, 4, 5, 1);
             Assert.Equal(2, st.SoulsOf(1));
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.UltimateArmed, 5, 2, shrine), out why), "a teammate's souls are not yours");
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.UltimateArmed, 5, 1, layout.ExtractRooms.First().Id), out why), "not a shrine");
@@ -2414,9 +2432,9 @@ namespace DungeonGen.Tests
             for (int p = 1; p <= 6; p++) st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, p, (p - 1) / 3), out _);
             int shrine = layout.Rooms.First(r => r.HasShrine).Id;
             string why;
-            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 1, 4, 1, 0), out _);
-            st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 2, 5, 1, 0), out _);
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.UltimateArmed, 3, 1, shrine), out why));
+            Ch.KillAndLoot(st, 1, 4, 1);
+            Ch.KillAndLoot(st, 2, 5, 1);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.UltimateArmed, 6, 1, shrine), out why));   // player 1 looted both corpses
             st.Apply(new MatchEvent(MatchEventKind.PlayerDowned, 10, 2, 6, 0), out _);
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.LastBreath, 11, 3, 2), out why), "player 3 has no charge");
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.LastBreath, 11, 1, 2), out why));     // instant, no channel
@@ -2515,10 +2533,19 @@ namespace DungeonGen.Tests
             var late = mm.TryForm(100f);                                       // waited long enough to go with three
             Assert.Equal(1, late.Tier); Assert.Equal(3, late.Teams.Count);
             Assert.Throws<System.ArgumentOutOfRangeException>(() => new QueuedGroup(99, new[] { 1 }, 0f, tier: 7));
+
+            // Thin queues above Tier I: two teams may go after three minutes; Tier I never does.
+            var thin = new Matchmaker(teamsPerMatch: 8, minTeamsAfterWait: 4, maxWaitSeconds: 90f);
+            thin.Enqueue(new QueuedGroup(1, new[] { 1 }, 0f, tier: 3)); thin.Enqueue(new QueuedGroup(2, new[] { 2 }, 5f, tier: 3));
+            thin.Enqueue(new QueuedGroup(3, new[] { 3 }, 0f, tier: 1)); thin.Enqueue(new QueuedGroup(4, new[] { 4 }, 5f, tier: 1));
+            Assert.Null(thin.TryForm(179f));
+            var two = thin.TryForm(181f);
+            Assert.Equal(3, two.Tier); Assert.Equal(2, two.Teams.Count); Assert.Equal(2, two.Settings.SpawnCount);
+            Assert.Null(thin.TryForm(1000f));                                                            // the two Tier I groups wait for a third
         }
 
         [Fact]
-        public void AccountLevelsGateClassesHandOffsAndTheBank()
+        public void AccountLevelsGateOnlyTheEarnedClasses()
         {
             Assert.Equal(0, AccountRules.XpToReach(1));
             Assert.Equal(2250, AccountRules.XpToReach(5));
@@ -2526,14 +2553,12 @@ namespace DungeonGen.Tests
             Assert.Equal(1, AccountRules.LevelFor(0)); Assert.Equal(4, AccountRules.LevelFor(2249)); Assert.Equal(5, AccountRules.LevelFor(2250));
             var p = PlayerProfile.NewAccount("acct", "Ash", ClassArchetype.DefaultRoster.First(c => c.Name == "Mender"));
             Assert.Equal(1, p.AccountLevel);
-            Assert.False(p.CanHandOff);
             Assert.Equal(new[] { "Warden", "Marksman", "Mender" }, p.PlayableClasses.Select(c => c.Name).ToArray());
             Assert.Throws<System.InvalidOperationException>(() => p.CreateCharacter("r", ClassArchetype.DefaultRoster.First(c => c.Name == "Reaver")));
             // Fifteen extractions and a few kills: a weekend.
             for (int i = 0; i < 15; i++) p.AddAccountXp(AccountRules.XpPerExtraction);
             p.AddAccountXp(AccountRules.XpPerPlayerKill * 5 + AccountRules.XpPerBossKill * 5 + AccountRules.XpPerFinalBossKill);
             Assert.True(p.AccountLevel >= 5, $"level {p.AccountLevel}");
-            Assert.True(p.CanHandOff);
             Assert.False(p.ClassUnlocked(ClassArchetype.DefaultRoster.First(c => c.Name == "Reaver")));
             p.AddAccountXp(AccountRules.XpToReach(10) - p.AccountXp);
             Assert.Equal(new[] { "Warden", "Reaver", "Marksman", "Mender" }, p.PlayableClasses.Select(c => c.Name).ToArray());
@@ -2594,7 +2619,7 @@ namespace DungeonGen.Tests
         }
 
         [Fact]
-        public void HandOffsNeedTheSameRoomAndTheAccountGateAndAreLogged()
+        public void HandOffsNeedTheSameRoomHaveNoGateAndAreLogged()
         {
             var (st, layout) = Fresh();
             string why;
@@ -2609,11 +2634,8 @@ namespace DungeonGen.Tests
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemGiven, 11, item, 1, 2), out why));
             Assert.Contains("same room", why);
             st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 11, 2, room.Id), out _);
-            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemGiven, 12, item, 1, 2), out why));     // both level 1
-            Assert.Contains("account level", why);
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.AccountLevelReported, 12, 1, AccountRules.HandOffLevel), out why));
-            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemGiven, 12, item, 1, 2), out why), "receiver still day one");
-            Assert.True(st.Apply(new MatchEvent(MatchEventKind.AccountLevelReported, 12, 2, 7), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.AccountLevelReported, 12, 1, 1), out why));   // day-one accounts on both sides: no gate
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.AccountLevelReported, 12, 2, 1), out why));
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemGiven, 12, item, 2, 1), out why), "not the giver's item");
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.ItemGiven, 13, item, 1, 2), out why));
             Assert.Equal(2, st.ItemOwner[item]);
@@ -2831,7 +2853,11 @@ namespace DungeonGen.Tests
             Assert.Equal(-1, DeathRecap.For(st, 6, hits).Killer);                                   // still alive: empty recap
 
             var sum = RoundSummary.For(st, 1);
-            Assert.Equal(1, sum.PlayerKills); Assert.Equal(1, sum.SoulsEarned); Assert.False(sum.Extracted); Assert.False(sum.Died);
+            Assert.Equal(1, sum.PlayerKills); Assert.Equal(0, sum.SoulsEarned); Assert.False(sum.Extracted); Assert.False(sum.Died);   // the soul is on 4's corpse
+            Assert.True(Ch.OpenCorpse(st, 16, 4, 1, out _));
+            sum = RoundSummary.For(st, 1);
+            Assert.Equal(1, sum.SoulsEarned);
+            Assert.Equal(0, RoundSummary.For(st, 6).SoulsEarned);
             Assert.Equal(AccountRules.XpPerPlayerKill, sum.AccountXp);
             int shrine = layout.Rooms.First(r2 => r2.HasShrine).Id;
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.ShrinePurchase, 22, 1, 0, shrine), out _));
@@ -2961,7 +2987,8 @@ namespace DungeonGen.Tests
             Assert.Contains(boss.Id, v1.Explored); Assert.Contains(boss.Id, v1.DeadBosses);
             Assert.NotEmpty(v1.Items);
             Assert.Equal(1, v1.Members.First(m => m.Player == 4).Souls);
-            Assert.Equal(1, v0.Members.First(m => m.Player == 1).Souls);
+            Assert.Equal(0, v0.Members.First(m => m.Player == 1).Souls);                                 // the kill left the soul on 5's corpse
+            Assert.True(v1.Corpses.First(c => c.Player == 5).HasSoul);
             Assert.True(v1.Members.First(m => m.Player == 5).Dead);
             Assert.DoesNotContain(v0.Corpses, c => c.Player == 5);                                       // team 0 has not seen the room the corpse lies in
             var back = TeamView.FromBytes(v1.ToBytes());

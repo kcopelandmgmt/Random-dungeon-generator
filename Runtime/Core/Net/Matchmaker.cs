@@ -59,14 +59,18 @@ namespace DungeonGen.Core.Net
         public int TeamsPerMatch { get; }
         public int MinTeamsAfterWait { get; }
         public float MaxWaitSeconds { get; }
+        /// <summary>Tiers above I are thin at launch: after this long a Tier II or III match may start with <see cref="MinTeamsAfterLongWait"/> teams in a dungeon sized for them. Tier I keeps the normal floor.</summary>
+        public float LongWaitSeconds { get; }
+        public int MinTeamsAfterLongWait { get; }
         private readonly List<QueuedGroup> _queue = new List<QueuedGroup>();
         private int _seedCounter;
 
         public IReadOnlyList<QueuedGroup> Queue => _queue;
 
-        public Matchmaker(int teamsPerMatch = 8, int minTeamsAfterWait = 4, float maxWaitSeconds = 90f, int seedStart = 1)
+        public Matchmaker(int teamsPerMatch = 8, int minTeamsAfterWait = 4, float maxWaitSeconds = 90f, int seedStart = 1, float longWaitSeconds = 180f, int minTeamsAfterLongWait = 2)
         {
             TeamsPerMatch = teamsPerMatch; MinTeamsAfterWait = minTeamsAfterWait; MaxWaitSeconds = maxWaitSeconds; _seedCounter = seedStart;
+            LongWaitSeconds = longWaitSeconds; MinTeamsAfterLongWait = minTeamsAfterLongWait;
         }
 
         public void Enqueue(QueuedGroup g) => _queue.Add(g);
@@ -81,7 +85,8 @@ namespace DungeonGen.Core.Net
             {
                 var ordered = _queue.Where(g => g.Tier == key.Tier && g.Region == key.Region).OrderBy(g => g.QueuedAt).ThenBy(g => g.GroupId).ToList();
                 bool waited = now - ordered[0].QueuedAt >= MaxWaitSeconds;
-                int need = ordered.Count >= TeamsPerMatch ? TeamsPerMatch : waited && ordered.Count >= MinTeamsAfterWait ? ordered.Count : 0;
+                bool longWaited = key.Tier > 1 && now - ordered[0].QueuedAt >= LongWaitSeconds;
+                int need = ordered.Count >= TeamsPerMatch ? TeamsPerMatch : waited && ordered.Count >= MinTeamsAfterWait ? ordered.Count : longWaited && ordered.Count >= MinTeamsAfterLongWait ? ordered.Count : 0;
                 if (need == 0) continue;
                 var teams = ordered.Take(need).ToList();
                 foreach (var t in teams) _queue.Remove(t);

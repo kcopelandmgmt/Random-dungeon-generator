@@ -35,6 +35,8 @@ namespace DungeonGen.Core.Combat
         // --- Ultimates: earned, never given --------------------------------------------------
         /// <summary>One ultimate per spec. It is armed at a shrine for souls, lasts one use, and never leaves the dungeon. It competes with resurrection and consumables for the same currency.</summary>
         public const int SoulsToArmUltimate = 2;
+        /// <summary>A soul is never an item: it cannot be dropped, given or traded. It is taken from a boss chest or a corpse by whoever loots first, spent at a shrine, and burns with you.</summary>
+        public const bool SoulsTransferable = false;
         public const int UltimateUsesPerArming = 1;
         /// <summary>Ultimates obey full friendly fire like everything else. No exceptions.</summary>
         public const bool UltimatesObeyFriendlyFire = true;

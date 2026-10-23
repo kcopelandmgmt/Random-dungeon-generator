@@ -36,11 +36,10 @@ namespace DungeonGen.Core.Profile
         public List<Character> Characters { get; } = new List<Character>();
         /// <summary>Account-level unlocks: cosmetics and recipes only, never power.</summary>
         public HashSet<string> Unlocks { get; } = new HashSet<string>();
-        /// <summary>Account XP and the level it buys. Levels gate nothing but "not on day one": see <see cref="AccountRules"/>.</summary>
+        /// <summary>Account XP and the level it buys. Levels gate the three earned classes and nothing else: see <see cref="AccountRules"/>.</summary>
         public long AccountXp { get; private set; }
         public int AccountLevel => AccountRules.LevelFor(AccountXp);
         public void AddAccountXp(long xp) { if (xp > 0) AccountXp += xp; }
-        public bool CanHandOff => AccountRules.CanHandOff(AccountLevel);
         public bool ClassUnlocked(ClassArchetype cls) => AccountRules.ClassUnlocked(cls.Name, AccountLevel);
         public IEnumerable<ClassArchetype> PlayableClasses => ClassArchetype.DefaultRoster.Where(ClassUnlocked);
 

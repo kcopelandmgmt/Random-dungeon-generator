@@ -96,6 +96,21 @@ namespace DungeonGen.Core.Net
         public int Tier { get; private set; }
         public long AccountXp { get; private set; }
 
+        /// <summary>Was this the first opening of a corpse that carried a soul? The death that made it must have been an enemy player's kill, and no enemy opened it before.</summary>
+        private static bool CorpseHadSoul(MatchState st, MatchEvent open)
+        {
+            bool armed = false;
+            foreach (var e in st.Log)
+            {
+                if (e.Equals(open)) return armed;
+                if ((e.Kind == MatchEventKind.PlayerDied || e.Kind == MatchEventKind.PlayerFinished) && e.A == open.A)
+                    armed = e.B >= 0 && st.PlayerTeam.TryGetValue(e.B, out int kt) && st.PlayerTeam.TryGetValue(e.A, out int vt2) && kt != vt2;
+                else if (e.Kind == MatchEventKind.CorpseOpened && e.A == open.A && armed && st.PlayerTeam.TryGetValue(e.B, out int ot) && st.PlayerTeam.TryGetValue(e.A, out int vt3) && ot != vt3)
+                    armed = false;   // an enemy already took it
+            }
+            return false;
+        }
+
         public static RoundSummary For(MatchState st, int player)
         {
             var s = new RoundSummary { Player = player, Tier = st.Descriptor.Settings.Tier };
@@ -112,7 +127,10 @@ namespace DungeonGen.Core.Net
                 {
                     case MatchEventKind.PlayerDied:
                     case MatchEventKind.PlayerFinished:
-                        if (e.B == player && e.A != player && st.PlayerTeam.TryGetValue(e.A, out int vt) && vt != team) { s.PlayerKills++; s.SoulsEarned++; }
+                        if (e.B == player && e.A != player && st.PlayerTeam.TryGetValue(e.A, out int vt) && vt != team) s.PlayerKills++;   // the soul is on the corpse, not in the blow
+                        break;
+                    case MatchEventKind.CorpseOpened:
+                        if (e.B == player && st.PlayerTeam.TryGetValue(e.A, out int ct) && ct != team && CorpseHadSoul(st, e)) s.SoulsEarned++;
                         break;
                     case MatchEventKind.BossKilled:
                         if (e.B == team) { if (st.Layout.Rooms[e.A].Type == RoomType.FinalBoss) s.FinalBossKill = true; else s.BossKills++; }

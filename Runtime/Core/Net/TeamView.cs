@@ -29,7 +29,7 @@ namespace DungeonGen.Core.Net
         }
         public struct ItemInfo { public int Id, Room, Level, Value; public byte Rarity; public string Name; }
         public struct Roll { public int Item; public float Opened; public List<int> Eligible; public List<(int player, byte choice)> Choices; }
-        public struct Corpse { public int Player, Room, Silver; public bool Opened; public List<int> Items; }
+        public struct Corpse { public int Player, Room, Silver; public bool Opened, HasSoul; public List<int> Items; }
 
         public List<Member> Members = new List<Member>();
         public List<int> Explored = new List<int>();
@@ -83,7 +83,7 @@ namespace DungeonGen.Core.Net
                 bool ours = members.Contains(kv.Key);
                 if (!ours && !seen.Contains(room)) continue;
                 bool opened = st.OpenedCorpses.Contains(kv.Key);
-                v.Corpses.Add(new Corpse { Player = kv.Key, Room = room, Silver = st.CorpseSilver.TryGetValue(kv.Key, out int cs) ? cs : 0, Opened = opened, Items = opened ? kv.Value.OrderBy(i => i).ToList() : new List<int>() });
+                v.Corpses.Add(new Corpse { Player = kv.Key, Room = room, Silver = st.CorpseSilver.TryGetValue(kv.Key, out int cs) ? cs : 0, Opened = opened, HasSoul = st.CorpseSouls.Contains(kv.Key), Items = opened ? kv.Value.OrderBy(i => i).ToList() : new List<int>() });
             }
             return v;
         }
@@ -104,7 +104,7 @@ namespace DungeonGen.Core.Net
                 w.Write(Winners.Count); foreach (var x in Winners) { w.Write(x.item); w.Write(x.winner); }
                 w.Write(Keys.Count); foreach (var k in Keys) { w.Write(k.key); w.Write(k.holder); }
                 w.Write(Corpses.Count);
-                foreach (var c in Corpses) { w.Write(c.Player); w.Write(c.Room); w.Write(c.Silver); w.Write(c.Opened); WriteInts(w, c.Items); }
+                foreach (var c in Corpses) { w.Write(c.Player); w.Write(c.Room); w.Write(c.Silver); w.Write(c.Opened); w.Write(c.HasSoul); WriteInts(w, c.Items); }
             }
             return ms.ToArray();
         }
@@ -129,7 +129,7 @@ namespace DungeonGen.Core.Net
             n = r.ReadInt32(); for (int i = 0; i < n; i++) v.Winners.Add((r.ReadInt32(), r.ReadInt32()));
             n = r.ReadInt32(); for (int i = 0; i < n; i++) v.Keys.Add((r.ReadInt32(), r.ReadInt32()));
             n = r.ReadInt32();
-            for (int i = 0; i < n; i++) v.Corpses.Add(new Corpse { Player = r.ReadInt32(), Room = r.ReadInt32(), Silver = r.ReadInt32(), Opened = r.ReadBoolean(), Items = ReadInts(r) });
+            for (int i = 0; i < n; i++) v.Corpses.Add(new Corpse { Player = r.ReadInt32(), Room = r.ReadInt32(), Silver = r.ReadInt32(), Opened = r.ReadBoolean(), HasSoul = r.ReadBoolean(), Items = ReadInts(r) });
             return v;
         }
 

@@ -36,7 +36,7 @@ namespace DungeonGen.Core
         /// <summary>No countdown timer on anything for sale shorter than this. No FOMO under a week.</summary>
         public const int MinimumOfferDays = 7;
         /// <summary>Free accounts are cheap for mules and cheats, so the account level gates in AccountRules exist.</summary>
-        public const string Consequence = "Account levels gate hand-offs, the shared bank and the three earned classes";
+        public const string Consequence = "Account levels gate the three earned classes; the transfer ledger, the tier walls and durability box in real-money trading";
     }
 
     /// <summary>What is decided but deliberately not in the launch build.</summary>

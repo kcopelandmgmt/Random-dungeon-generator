@@ -46,8 +46,8 @@ namespace DungeonGen.Core.Net
         LootRolled,        // itemId, playerId, choice (0 Need, 1 Greed, 2 Pass): a teammate answers a group roll
         LootRollResolved,  // itemId, winnerPlayer (-1 everyone passed), winningRoll: the server's decision, after all answered or the window closed
         PlayerEnteredRoom, // playerId, roomId: the server reports the room a player is standing in (corridors keep the last room); decides who is near enough to roll
-        AccountLevelReported, // playerId, accountLevel: from the profile at spawn; gates hand-offs (AccountRules.HandOffLevel)
-        ItemGiven,         // itemId, fromPlayer, toPlayer: a hand-off, same room, both standing, both past the account gate; logged for RMT review
+        AccountLevelReported, // playerId, accountLevel: from the profile at spawn; informational (the ledger and the death recap use it), gates nothing in the round
+        ItemGiven,         // itemId, fromPlayer, toPlayer: a hand-off, same room, both standing, no gate; logged for RMT review
         ItemDropped,       // itemId, player: put on the floor of the room they stand in; anyone standing there may take it
         PlayerLeft,        // playerId: a dead player goes to the hub, forfeiting any resurrection
         KeyGiven,          // keyId, fromPlayer, toPlayer: a vault key handed to a player in the same room; no account gate, keys are worthless outside
@@ -148,8 +148,8 @@ namespace DungeonGen.Core.Net
             foreach (var r in v.Rolls) OpenRolls[r.Item] = new LootRoll { Opened = r.Opened, Eligible = new HashSet<int>(r.Eligible), Choices = r.Choices.ToDictionary(c => c.player, c => (Items.LootRollChoice)c.choice) };
             LootWinner.Clear(); foreach (var w in v.Winners) LootWinner[w.item] = w.winner;
             KeyHolder.Clear(); foreach (var k in v.Keys) KeyHolder[k.key] = k.holder;
-            Corpses.Clear(); OpenedCorpses.Clear(); CorpseSilver.Clear();
-            foreach (var c in v.Corpses) { Corpses[c.Player] = new HashSet<int>(c.Items); if (c.Opened) OpenedCorpses.Add(c.Player); if (c.Silver > 0) CorpseSilver[c.Player] = c.Silver; if (c.Room >= 0) PlayerRoom[c.Player] = c.Room; }
+            Corpses.Clear(); OpenedCorpses.Clear(); CorpseSilver.Clear(); CorpseSouls.Clear();
+            foreach (var c in v.Corpses) { Corpses[c.Player] = new HashSet<int>(c.Items); if (c.Opened) OpenedCorpses.Add(c.Player); if (c.Silver > 0) CorpseSilver[c.Player] = c.Silver; if (c.HasSoul) CorpseSouls.Add(c.Player); if (c.Room >= 0) PlayerRoom[c.Player] = c.Room; }
         }
         private int ValueOf(int item) => ItemValue.TryGetValue(item, out int v) ? v : Index.Items.TryGetValue(item, out var it) ? it.Value : 0;
         /// <summary>itemId → the teammate who won it (-1: everyone passed, free for anyone). Enemies are never bound by it.</summary>
@@ -189,6 +189,8 @@ namespace DungeonGen.Core.Net
         public int SoulsOf(int player) => Souls.TryGetValue(player, out int n) ? n : 0;
         private void GrantSoul(int player) { if (player >= 0 && PlayerTeam.ContainsKey(player)) Souls[player] = SoulsOf(player) + 1; }
         public HashSet<int> ResurrectedOnce { get; } = new HashSet<int>();
+        /// <summary>Corpses that carry a soul: players killed or finished by an enemy player. The first enemy to open the corpse takes it. The victim's own team never can.</summary>
+        public HashSet<int> CorpseSouls { get; } = new HashSet<int>();
         /// <summary>Keys destroyed because their holder extracted with them unused.</summary>
         public HashSet<int> DestroyedKeys { get; } = new HashSet<int>();
 
@@ -272,6 +274,9 @@ namespace DungeonGen.Core.Net
                             if (!Loots.TryGetValue(e.B, out var lc) || lc.kind != 1 || lc.target != e.A) { rejection = "no corpse channel"; return false; }
                             if (e.Time - lc.started < Combat.FightRules.CorpseLootSeconds - 0.01f) { rejection = $"corpse takes {Combat.FightRules.CorpseLootSeconds:0} s"; return false; }
                             Loots.Remove(e.B);
+                            // The kill's soul is on the corpse: whoever loots it first takes it, never the dead player's own team.
+                            if (CorpseSouls.Contains(e.A) && PlayerTeam.TryGetValue(e.B, out int looterTeam) && PlayerTeam.TryGetValue(e.A, out int deadTeam) && looterTeam != deadTeam)
+                            { CorpseSouls.Remove(e.A); GrantSoul(e.B); }
                         }
                         OpenedCorpses.Add(e.A); break;
                     }
@@ -402,9 +407,10 @@ namespace DungeonGen.Core.Net
                         foreach (int it in held) ItemOwner.Remove(it);
                         Corpses[e.A] = new HashSet<int>(held);
                     }
-                    // Exactly one soul to the killer, for an enemy player kill only, never a teammate.
+                    // An enemy player kill leaves exactly one soul ON THE CORPSE, whatever the victim held; the killer gets nothing for the blow itself.
+                    CorpseSouls.Remove(e.A);
                     if (e.B >= 0 && PlayerTeam.TryGetValue(e.B, out int killerTeam) && (!PlayerTeam.TryGetValue(e.A, out int victimTeam) || victimTeam != killerTeam))
-                        GrantSoul(e.B);
+                        CorpseSouls.Add(e.A);
                     // Their keys fall where they stand; the server re-issues KeyPickedUp when someone grabs them.
                     foreach (var k in KeyHolder.Where(kv => kv.Value == e.A).Select(kv => kv.Key).ToList()) KeyHolder.Remove(k);
                     break;
@@ -562,7 +568,6 @@ namespace DungeonGen.Core.Net
                         if (e.B == e.C) { rejection = "that is you"; return false; }
                         if (!ItemOwner.TryGetValue(e.A, out int owner) || owner != e.B) { rejection = "not your item"; return false; }
                         if (!PlayerRoom.TryGetValue(e.B, out int r1) || !PlayerRoom.TryGetValue(e.C, out int r2) || r1 != r2) { rejection = "not in the same room"; return false; }
-                        if (!Profile.AccountRules.CanHandOff(AccountLevelOf(e.B)) || !Profile.AccountRules.CanHandOff(AccountLevelOf(e.C))) { rejection = $"hand-offs open at account level {Profile.AccountRules.HandOffLevel}"; return false; }
                         ItemOwner[e.A] = e.C;
                         Transfers.Add((e.Time, e.A, e.B, e.C, ValueOf(e.A)));
                         break;

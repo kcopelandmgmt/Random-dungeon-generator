@@ -5,11 +5,10 @@ using System.Linq;
 namespace DungeonGen.Core.Profile
 {
     /// <summary>
-    /// Account levels. They mean nothing except "not on day one": the game is free to play, so a
-    /// fresh account costs nothing, and the thing a mule would want on day one (receiving gear from
-    /// another player) waits for a few sessions of real play. The three earned classes wait longer.
-    /// The shared bank is NOT gated: it moves gear between one account's own characters, which is
-    /// no use to a mule. Nothing here is power.
+    /// Account levels. They gate one thing: the three earned classes. Hand-offs are open from day one
+    /// (decided after the audit: the tier walls, durability and the transfer ledger are the RMT
+    /// guard, not a level), and the shared bank only moves gear between one account's own
+    /// characters. Nothing here is power.
     /// XP comes from doing the thing: extracting, killing enemy players, killing bosses. Never time.
     /// </summary>
     public static class AccountRules
@@ -23,8 +22,6 @@ namespace DungeonGen.Core.Profile
         public static long XpToReach(int level) => level <= 1 ? 0 : 150L * level * (level + 1) / 2;
         public static int LevelFor(long xp) { int l = 1; while (XpToReach(l + 1) <= xp) l++; return l; }
 
-        /// <summary>Hand-offs in the dungeon (giving and receiving) open here.</summary>
-        public const int HandOffLevel = 5;
 
         public static readonly IReadOnlyList<string> StartingClasses = new[] { "Warden", "Marksman", "Mender" };
         public static readonly IReadOnlyDictionary<string, int> ClassUnlockLevel = new Dictionary<string, int>
@@ -35,7 +32,6 @@ namespace DungeonGen.Core.Profile
         public static bool ClassUnlocked(string className, int accountLevel) =>
             StartingClasses.Contains(className) || (ClassUnlockLevel.TryGetValue(className, out int need) && accountLevel >= need);
         public static int LevelForClass(string className) => StartingClasses.Contains(className) ? 1 : ClassUnlockLevel.TryGetValue(className, out int n) ? n : int.MaxValue;
-        public static bool CanHandOff(int accountLevel) => accountLevel >= HandOffLevel;
     }
 
     /// <summary>
