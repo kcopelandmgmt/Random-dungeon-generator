@@ -3,6 +3,45 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-23 · Interiors, doors, hazards, mutators, events, bots — LOCKED AND BUILT
+
+Six additions, all deterministic from the seed and part of the public layout where they are
+layout, all validated events where they are play.
+
+1. **Room interiors** (`InteriorPlacer`). Pillars block sight and movement; low walls block
+   movement and projectiles, not sight. Spawns and extracts stay bare. A one-cell ring inside
+   every wall stays clear so no door is ever blocked, the centre stays clear for shrines and the
+   exit, and a feature that would split a room is dropped. Boss rooms get symmetric pillars, the
+   final boss a ring, everything else a few features by area. ASCII: `O` pillar, `-` low wall.
+2. **Closable doors** (`DoorRules`, `DoorClosed` / `DoorOpened`). Shut instantly from the room or
+   the room across the corridor; open with a 3-second channel broken by damage, from either side.
+   A shut door blocks sight and paths for players and mobs. Vault doors are locks, not doors.
+   Nobody breaks a door. Everyone who has explored the room or a neighbour hears it.
+3. **Hazards** (`HazardPlacer`, `HazardRules`). Spike traps (25% of max health, rearm in 10 s),
+   gas vents (poison while inside), pits (collapsed floor, impassable) and lava strips (burn while
+   inside), placed by depth: deeper rooms carry more. Never in spawns, extracts, shrine rooms or
+   boss rooms. Traps and vents are hidden to everyone but a Shade; a Shade alone disarms them
+   (2-second channel, permanent). Pits and lava are obvious and permanent. ASCII: `^` trap, `%`
+   vent, `_` pit, `~` lava.
+4. **Season mutators** (`Mutator`). One rule twist per season from season two, rotating in order:
+   Soulfeast (two souls per corpse and chest), Godless (shrines dark: no resurrection, ultimates or
+   shrine goods), Keybearers (every boss carries a key), Dusk (half sight range), Twin Vaults. Each
+   is one constant in `MatchRules` or `DungeonSettings`; `MatchDescriptor.CreateForSeason` applies
+   it to a copy. Season one has none.
+5. **Mid-round events** (`DungeonEventPlan`). One per round at the ten-minute mark, chosen from the
+   public seed so clients know what and where, announced to everyone: a roaming elite in a hub
+   carrying a relic (a unique rolled with the loot secret; when it dies the relic lies on the floor
+   for whoever stands there), a vault whose lock fails for sixty seconds (anyone at the door may
+   open it), or a shrine that resurrects for one soul for sixty seconds. The tutorial has none.
+6. **Tutorial bots** (`BotRules`, `BotDirector`). Two bots on their own team, Warden and Marksman,
+   that walk room by room to the loot room, open the chest, roll Need and take a piece, all as
+   validated events; they fight at half strength, never finish a downed player and never loot the
+   player's corpse. They exist in the tutorial and nowhere else: the matchmaker refuses a bot id.
+   The tutorial dungeon now has two spawns.
+
+Also: the console tool gained `--tier`, `--view TEAM`, `--no-interiors` and `--no-hazards`; the
+README was rewritten to match the code; `docs/BUILD_ORDER.md` lays out the engine work.
+
 ## 2026-10-23 · After the audit: four rulings — LOCKED AND BUILT
 
 1. **A player kill's soul lies on the corpse.** The blow grants nothing. The first ENEMY of the dead

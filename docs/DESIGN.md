@@ -654,6 +654,33 @@ queue region; `QueuedGroup.Region` and `Tier` key the matchmaker. `MatchRules.Ba
 and `PlayerSpawned` is refused once the doors are open. `Season.Starting` makes 91-day seasons.
 `Strings.Get(key)` serves every player-facing string with English fallback.
 
+## Interiors, doors and hazards (locked, built)
+
+`InteriorPlacer.Assign` runs after the rasterizer: it paints `TileType.Pillar` and
+`TileType.LowWall` inside rooms (never spawns or extracts), keeps a clear ring inside the walls,
+the centre and every door approach, and undoes any feature that fails `Connected`. `HazardPlacer`
+then places `Hazard`s by `DepthFromSpawn`, painting pits as `TileType.Pit`; `HazardRules` holds
+damage fractions, the Shade-only disarm and visibility. Both are hashed into the public
+fingerprint and reach clients with the layout. `LineOfSight` treats pillars and closed doors as
+opaque and low walls and pits as clear; `GridPath` treats all three tiles and closed doors as
+impassable. `LayoutIndex` numbers doors from `DoorRules.IdBase` and hazards from
+`HazardRules.IdBase`. `MatchState` validates `DoorClosed` / `DoorOpened` (reach, channel) and
+`HazardTriggered` / `HazardDisarmed` (armed, Shade, room, channel); `TeamView` carries closed doors
+near explored rooms and the hazards the team may see; the minimap marks all three.
+
+## Mutators, events and bots (locked, built)
+
+`Mutator.ForSeason(n)` is null for season one and rotates through five from season two;
+`MatchDescriptor.CreateForSeason` applies it to copies of the rules and settings, and the rules
+travel in the descriptor (`SoulMultiplier`, `ShrinesUsable`, `ResurrectionCost`, `SightRangeCells`,
+`MutatorName`). `DungeonEventPlan.For(descriptor, layout)` picks the round's event from a fork of
+the public seed; `RoundClock` raises `EventStarted` at the halfway mark and `EventEnded` a minute
+later for timed kinds; `MatchState` enforces the elite's room, the unsealed vault's door, the cheap
+shrine's price (`ResurrectionCostAt`), and drops the relic (`LayoutIndex.EventLootId`, rolled with
+the loot secret) on the floor on `EliteKilled`. `BotDirector.Step(now)` yields the tutorial bots'
+events: spawn, room hops along the shortest room path, chest channel and opening, Need rolls, the
+server-side roll resolution and one item each.
+
 ## Compass and minimap (locked, built)
 
 `Compass.Bearing` measures from +Y clockwise (0 north, 90 east). `CompassBar.Markers(state,

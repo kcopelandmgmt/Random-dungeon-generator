@@ -1,79 +1,44 @@
-# Procedural Dungeon Generator
+# Random Dungeon Generator
 
-Seeded, graph-based dungeon layouts for an extraction-style dungeon game
-(Albion Online hellgates × Path of Exile loot × Escape from Tarkov rounds).
-Every round gets a fresh dungeon; the same seed always rebuilds the same one.
+The rules engine for an extraction dungeon game: Albion Online hellgates for the full-loot PvP
+and the shared arena, Path of Exile for the random gear, Escape from Tarkov for the round. Up to
+eight teams of one to three drop into a dungeon nobody has seen, fight mobs, bosses and each
+other for twenty minutes, and walk out with what they can carry or lose all of it.
+
+Everything decided about the game is code here, with a test behind it, before any of it is a
+scene in Unity. The core is pure C# with no engine references, so it runs on a dedicated server,
+in the test suite and in a console tool. `docs/DECISIONS.md` is the log of every decision and why.
 
 ```
-seed ─► RoomPlacer ─► GraphBuilder ─► CorridorCarver ─► RoleAssigner ─► Rasterizer ─► DangerMapper ─► FairnessMapper ─► DungeonLayout
+seed ─► rooms ─► graph ─► corridors ─► roles ─► bosses ─► tiles ─► interiors ─► hazards ─► danger ─► mobs ─► shrines ─► loot ─► fairness
 ```
 
-See `docs/DESIGN.md` for the full explanation of how each stage works and why.
+## What is here
 
-## Layout of this repository
+| Area | Where | What it decides |
+|------|-------|-----------------|
+| Layout | `Runtime/Core/Stages`, `DungeonGenerator` | Ring placement for up to 8 teams, a final boss at the centre, boss rooms, vaults behind keys, shrines in hubs, room interiors (pillars, low walls), hazards by depth, fairness-ranked candidates. |
+| Combat | `Runtime/Core/Combat` | Five attributes, six damage types, resistances, status effects with diminishing returns, mob and boss archetypes tuned by a baseline, six classes with two weapon specs each and an earned ultimate, movement, fight rules (downed state, channels, souls). |
+| Items | `Runtime/Core/Items` | Bases, 24 affix families, rarity by source and tier, uniques with legendary affixes, durability with no repairs, salvage and crafting, consumables, need-over-greed group rolls, gear score. |
+| Round | `Runtime/Core/Net/MatchState` | The server's authoritative round: every change is a validated event. Souls on corpses and in boss chests, resurrection at shrines, closable doors, traps, hand-offs, extraction, the boss-gated exit, the mid-round event, round end. |
+| Views | `Runtime/Core/Net/TeamView`, `EventVisibility` | What each team may know. Clients never receive the log; loot is rolled from a server secret the seed cannot reproduce. |
+| Meta | `Runtime/Core/Profile` | Accounts and earned classes, the vendor, crafting, seasons with per-tier leaderboards and mutators, kill-XP and transfer ledgers, reports. |
+| Tiers | `DungeonTier`, `Items/GearScore` | Three dungeons walled by gear score both ways; separate queues per tier and region. |
+| HUD | `Runtime/Core/Hud` | Compass strip and explored-only minimap models; death recap and round summary from the log. |
+| Unity | `Runtime/Unity` | Config, builder, gizmos, camera, greybox HUDs, the match bootstrap and the transport seam (events and views per team). |
+| Tool | `Tools/AsciiPreview` | Prints dungeons, batch-validates seeds, rolls loot, simulates fights, crafting, wear, a networked round and a team's view. |
+| Tests | `Tests` | xUnit, 178 tests, 3,000+ seeds, every rule in the decision log. |
 
-| Path | What it is |
-|------|------------|
-| `Runtime/Core/` | Pure C# generator. No `UnityEngine` references, so it runs on a dedicated server, in unit tests and in the CLI. |
-| `Runtime/Unity/` | Unity glue: `DungeonConfig` (ScriptableObject), `DungeonBuilder` (spawns prefabs), `DungeonGizmos` (scene-view debug), `DungeonMatchBootstrap` + `IMatchTransport` (networked match). |
-| `Tools/AsciiPreview/` | Console app that prints a dungeon as ASCII and batch-validates thousands of seeds. |
-| `Tests/` | xUnit tests: determinism, connectivity, role counts, wall enclosure, 8-team fairness. |
-| `package.json` | Unity Package Manager manifest so the repo can be installed straight into a project. |
-
-## Installing into Unity
-
-1. In Unity (2021.3 or newer) open **Window ▸ Package Manager ▸ + ▸ Add package from git URL** and paste this repository's URL.
-   Or clone it and use **Add package from disk**, pointing at `package.json`.
-2. Create a config: **Assets ▸ Create ▸ Dungeon Gen ▸ Dungeon Config**. Tweak sizes, room counts, loop chance, spawn/extract counts.
-3. Add an empty GameObject, attach `DungeonBuilder` (and `DungeonGizmos` for the overlay), assign the config and some
-   floor/wall/door prefabs (cubes are fine to start), then press Play or right-click the component ▸ **Build**.
-
-`DungeonBuilder.SpawnPoints` and `ExtractPoints` give you world positions for squads and exit gates.
-`DungeonBuilder.RoomAt(worldPos)` tells you which room a player is in, with its `LootTier` and `Danger`.
-
-**Bosses, vaults, keys, classes.** Boss rooms carry an `Encounter` budget tuned for 2.5 players
-(`CombatBaseline`); the final boss at the center is tuned for a geared full party and opens a
-boss-gated exit (`Layout.BossExit`, `DungeonBuilder.OpenBossGatedExit()`). Vaults are locked
-dead-end rooms (`TileType.LockedDoor`) with a key hidden elsewhere (`Layout.Keys`). Each boss room rolls one of eight boss
-archetypes (never repeated in a dungeon) plus 0-2 affixes from the seed (`Room.Boss`). Players have five
-attributes (STR/DEX/INT/CON/SPI) and six damage types with resistances (`PlayerStats`,
-`StatFormulas`); every ordinary room holds a mob pack sized by danger (`Room.Mobs`) and rolled loot
-(`Room.Loot`: nine slots, Normal/Magic/Rare/Unique, prefix/suffix affixes, boss-themed uniques with legendary effects). Gear wears out with no repairs and death
-destroys half of what you wore (`DurabilityRules`); worn-out gear is sold or salvaged into scrap,
-essences and shards that craft new, still-random items (`CraftingRules`, `Crafter`). Six classes
-are in `docs/CLASSES.md` and `ClassArchetype.DefaultRoster`. Design details in `docs/DESIGN.md`.
-
-**Teams.** One spawn room per team, 1–16 supported. For more than 3–4 teams use the preset:
-`DungeonSettings.ForTeams(8)` in code, or set *Preset Teams* on the config asset and right-click ▸ **Apply Team Preset**.
-It switches to ring placement (spawns around the edge, extracts on an inner ring, vault in the center)
-and keeps the fairest of four candidate layouts per seed. `Layout.Fairness` reports every team's walk
-to its nearest extract and the vault.
-
-**Persistence and economy (locked).** `Runtime/Core/Profile`: flat characters, a profile with
-stash, silver and materials, a weight-only `Inventory`, the `Vendor`; `Net/Matchmaker` (teams of
-1–3, no brackets) and `Net/RoundClock`. `Combat/WeaponSpec`: two specs per class by weapon.
-
-**Presentation (locked).** Top-down camera over a 3D scene, fixed yaw, 2 m cells, mouse-aimed
-skillshots, line-of-sight fog computed in the core (`LineOfSight`) and a `TopDownCamera` rig.
-Decisions and reasoning live in `docs/DECISIONS.md`.
-
-**Multiplayer.** `Runtime/Core/Net`: `MatchDescriptor` (seed + settings + team spawns + rules +
-fingerprint, ~250 bytes), `LayoutFingerprint` and `SettingsCodec` for desync detection,
-`LayoutIndex` for stable network ids and interest management, `ClientView` to strip loot from what
-clients generate, and `MatchState` + `MatchEvent` as the server-validated, replayable round state.
-Unity: implement `IMatchTransport` over your netcode and attach it to `DungeonMatchBootstrap`.
-`dotnet run -- --net --seed 7 --teams 8` walks through a server/client round in the console.
-
-For multiplayer: the server calls `DungeonGenerator.Generate(settings, seed)`, sends only the `int` seed to clients,
-and every client calls `DungeonBuilder.Build(seed)` to reproduce the identical map.
-
-## Running the preview tool (no Unity needed)
+## Running the console tool (no Unity needed)
 
 ```bash
 cd Tools/AsciiPreview
-dotnet run -- --seed 42 --width 80 --height 50 --rooms 14
-dotnet run -- --teams 8 --seed 7     # 8-team arena preset
-dotnet run -- --batch 500            # generate 500 seeds, report failures / warnings / fairness / timings
+dotnet run -- --teams 8 --seed 7            # an 8-team dungeon as ASCII, with interiors and hazards
+dotnet run -- --teams 4 --seed 3 --tier 3   # the same preset stamped as Tier III: higher item levels, more uniques
+dotnet run -- --teams 4 --seed 3 --view 0   # what team 0 knows after a short round, next to what the server knows
+dotnet run -- --teams 2 --seed 3 --net      # a scripted server round: validated events, rejections, replay, views
+dotnet run -- --batch 500                   # 500 seeds: failures, warnings, fairness, timings
+dotnet run -- --fights | --stats | --loot | --roll 40 2 | --wear | --lifetime | --craft
 dotnet run -- --help
 ```
 
@@ -84,8 +49,22 @@ cd Tests
 dotnet test
 ```
 
+## Installing into Unity
+
+1. **Window ▸ Package Manager ▸ + ▸ Add package from git URL** with this repository, or clone and **Add package from disk** pointing at `package.json`. Unity 6 with URP is the target.
+2. **Assets ▸ Create ▸ Dungeon Gen ▸ Dungeon Config**, set *Preset Teams* and right-click ▸ **Apply Team Preset**.
+3. Attach `DungeonBuilder` to an empty object, assign the config and prefabs for floor, wall, door, locked door, pillar, low wall and pit, and press Play.
+4. For a networked round, implement `IMatchTransport` over Fishnet and attach it to `DungeonMatchBootstrap`. The server raises events; each team receives notifications and its view.
+
+## Where things are explained
+
+* `docs/DECISIONS.md`: every design decision, dated, with the reasoning and the code that enforces it.
+* `docs/DESIGN.md`: how each stage and system works.
+* `docs/CLASSES.md`: the six classes, their specs and ultimates.
+* `docs/BUILD_ORDER.md`: what gets built next, in what order, and what done means for each piece.
+
 ## Status
 
-v0.1 — layout generation only. Not yet here: room interior decoration, loot table rolling,
-enemy placement, locked/keyed gates, multi-floor dungeons. The `DungeonLayout` result
-already carries the data those systems need (room roles, loot tiers, danger field, door positions).
+The design is complete and enforced by tests. What does not exist yet is the game around it:
+room art, the ability and damage pipeline, mob and boss behaviour scripts, the Fishnet transport,
+PlayFab, Easy Anti-Cheat, the store and the menus. See `docs/BUILD_ORDER.md`.

@@ -19,9 +19,12 @@ namespace DungeonGen.Tools
             bool legend = true;
             string command = null; int rollN = 0, rollLevel = 0;
 
-            // --teams applies a whole preset, so it must be read before any individual overrides.
+            // --teams applies a whole preset, so it must be read before any individual overrides; --tier stamps the preset.
             for (int i = 0; i + 1 < args.Length; i++)
                 if (args[i] == "--teams") settings = DungeonSettings.ForTeams(int.Parse(args[i + 1]));
+            for (int i = 0; i + 1 < args.Length; i++)
+                if (args[i] == "--tier") DungeonTier.For(int.Parse(args[i + 1])).Apply(settings);
+            int viewTeam = -1;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -29,6 +32,10 @@ namespace DungeonGen.Tools
                 switch (args[i])
                 {
                     case "--teams": Next(); break;
+                    case "--tier": Next(); break;
+                    case "--view": viewTeam = int.Parse(Next()); command = "--view"; break;
+                    case "--no-interiors": settings.InteriorsEnabled = false; break;
+                    case "--no-hazards": settings.HazardsEnabled = false; break;
                     case "--ring": settings.SpawnPlacement = SpawnPlacement.Ring; break;
                     case "--fringe": settings.SpawnPlacement = SpawnPlacement.Fringe; break;
                     case "--candidates": settings.CandidateCount = int.Parse(Next()); break;
@@ -53,7 +60,7 @@ namespace DungeonGen.Tools
                     case "--batch": batch = int.Parse(Next()); break;
                     case "--no-legend": legend = false; break;
                     case "--help":
-                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear --lifetime --craft --net");
+                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear --lifetime --craft --net --tier 1..3 --view TEAM --no-interiors --no-hazards");
                         return 0;
                     default:
                         Console.Error.WriteLine("Unknown argument " + args[i]);
@@ -69,6 +76,7 @@ namespace DungeonGen.Tools
                 case "--lifetime": return PrintLifetimes(seed);
                 case "--craft": return CraftDemo(settings, seed);
                 case "--net": return NetDemo(settings, seed);
+                case "--view": return ViewDemo(settings, seed, viewTeam);
                 case "--roll": return RollItems(rollN, rollLevel, seed);
                 case "--loot":
                     {
@@ -178,7 +186,6 @@ namespace DungeonGen.Tools
             var vault = serverLayout.VaultRooms.First();
             var key = serverLayout.Keys.First(k => k.VaultRoomId == vault.Id);
             var firstItem = idx.Items.First(kv => idx.ItemRoom[kv.Key] == vault.Id).Key;
-            var E = DungeonGen.Core.Net.MatchEventKind.RoundStarted;
             void Try(DungeonGen.Core.Net.MatchEvent e) { bool ok = state.Apply(e, out string why); Console.WriteLine($"  {(ok ? "ok      " : "REJECT  ")}{e}{(ok ? "" : "  ← " + why)}"); }
             Console.WriteLine("EVENTS (server validates, clients mirror):");
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.RoundStarted, 0));
@@ -211,10 +218,48 @@ namespace DungeonGen.Tools
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ExtractStarted, 402, 2, serverLayout.FinalBossRoom.Id));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.PlayerExtracted, 410, 2, serverLayout.FinalBossRoom.Id, 1));
             var logBytes = state.LogToBytes();
-            var replayed = DungeonGen.Core.Net.MatchState.Replay(clientDesc, clientLayout, DungeonGen.Core.Net.MatchState.LogFromBytes(logBytes));
-            Console.WriteLine($"LATE JOINER replayed {replayed.Log.Count} events from {logBytes.Length} bytes: {replayed.ExtractedPlayers.Count} extracted, vault open: {replayed.OpenVaults.Count > 0}, boss exit open: {replayed.BossExitOpen}");
+            var replayed = DungeonGen.Core.Net.MatchState.Replay(d, serverLayout, DungeonGen.Core.Net.MatchState.LogFromBytes(logBytes));
+            Console.WriteLine($"SERVER REPLAY {replayed.Log.Count} events from {logBytes.Length} bytes: {replayed.ExtractedPlayers.Count} extracted, vault open: {replayed.OpenVaults.Count > 0}, boss exit open: {replayed.BossExitOpen}. The log never leaves the server.");
+            foreach (int team in new[] { 0, 1 })
+            {
+                var tv = DungeonGen.Core.Net.TeamView.For(state, team);
+                var mirror = new DungeonGen.Core.Net.MatchState(clientDesc, clientLayout);
+                mirror.LoadView(DungeonGen.Core.Net.TeamView.FromBytes(tv.ToBytes()));
+                Console.WriteLine($"TEAM {team} VIEW {tv.ToBytes().Length} bytes: {tv.Members.Count} member(s), {tv.Explored.Count} explored room(s), {tv.Items.Count} item(s) visible, {tv.Corpses.Count} corpse(s); mirror agrees: explored {mirror.Explored[team].Count}, items {mirror.KnownItems.Count}");
+            }
             var near = idx.RoomsWithin(serverLayout.SpawnRooms.First().Id, 2);
             Console.WriteLine($"INTEREST: a player in spawn room {serverLayout.SpawnRooms.First().Id} needs updates from {near.Count} of {serverLayout.Rooms.Count} rooms (2 hops).");
+            return 0;
+        }
+
+        /// <summary>--view TEAM: what one team knows after a short scripted round, next to what the server knows.</summary>
+        private static int ViewDemo(DungeonSettings settings, int seed, int team)
+        {
+            var d = DungeonGen.Core.Net.MatchDescriptor.Create(seed, settings, new DungeonGen.Core.Net.MatchRules(), out var layout, lootSecret: 424242);
+            var st = new DungeonGen.Core.Net.MatchState(d, layout);
+            st.Apply(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.RoundStarted, 0), out _);
+            int teams = d.TeamSpawnRooms.Count;
+            for (int t = 0; t < teams; t++) for (int p = 0; p < 2; p++) st.Apply(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.PlayerSpawned, 0, t * 10 + p + 1, t, p), out _);
+            st.Apply(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.DoorsOpened, 10), out _);
+            // Every team explores its spawn's neighbours; team 0 also walks to the nearest chest room and opens it.
+            for (int t = 0; t < teams; t++) foreach (int n in layout.Rooms[d.TeamSpawnRooms[t]].Neighbours) st.Apply(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.RoomSeen, 20, t, n), out _);
+            var chest = layout.Rooms.Where(r => r.Loot.Count > 0 && !r.IsBossRoom && r.Type != DungeonGen.Core.RoomType.Vault).OrderBy(r => System.Math.Abs(r.DepthFromSpawn - 2)).First();
+            st.Apply(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.RoomSeen, 30, 0, chest.Id), out _);
+            st.Apply(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.PlayerEnteredRoom, 30, 1, chest.Id), out _);
+            st.Apply(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.PlayerEnteredRoom, 30, 2, chest.Id), out _);
+            st.Apply(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.LootStarted, 31, 1, chest.Id, 0), out _);
+            st.Apply(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ContainerOpened, 33, chest.Id, 1), out _);
+            if (team < 0 || team >= teams) { Console.Error.WriteLine($"--view needs a team 0..{teams - 1}"); return 1; }
+            var v = DungeonGen.Core.Net.TeamView.For(st, team);
+            Console.WriteLine($"SERVER knows: {layout.Rooms.Count} rooms, {layout.Items.Count} items, {layout.Hazards.Count} hazards, {st.PlayerTeam.Count} players, {st.OpenRolls.Count} open roll(s), event loot: {layout.EventLoot?.Name}");
+            Console.WriteLine($"TEAM {team} VIEW ({v.ToBytes().Length} bytes):");
+            Console.WriteLine($"  clock {v.Time:0}s, doors {(v.DoorsOpen ? "open" : "sealed")}, extracts {(v.ExtractsOpen ? "open" : "closed")}, exit {(v.BossExitOpen ? "open" : "shut")}, final boss {(v.FinalBossDead ? "dead" : "alive")}");
+            foreach (var m in v.Members) Console.WriteLine($"  member {m.Player}: {DungeonGen.Core.Combat.ClassArchetype.DefaultRoster[m.Class].Name}, room {m.Room}, souls {m.Souls}, silver {m.Silver}{(m.Dead ? ", dead" : "")}");
+            Console.WriteLine($"  explored rooms: {string.Join(", ", v.Explored)}  (of {layout.Rooms.Count})");
+            Console.WriteLine($"  open containers seen: {string.Join(", ", v.OpenedContainers)}");
+            Console.WriteLine($"  items visible: {v.Items.Count}" + (v.Items.Count > 0 ? " → " + string.Join("; ", v.Items.Select(i => $"#{i.Id} {i.Name} ({(DungeonGen.Core.Items.Rarity)i.Rarity}, ilvl {i.Level})")) : ""));
+            Console.WriteLine($"  rolls open for this team: {v.Rolls.Count}; known hazards: {v.KnownHazards.Count}; closed doors: {v.ClosedDoors.Count}");
+            Console.WriteLine($"  NOT in the view: {st.PlayerTeam.Count - v.Members.Count} enemy players, their rooms and souls; {layout.Items.Count - v.Items.Count} items; {layout.Rooms.Count - v.Explored.Count} rooms; the event relic.");
             return 0;
         }
 

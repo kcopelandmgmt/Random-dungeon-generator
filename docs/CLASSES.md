@@ -38,6 +38,13 @@ Elementalist at 15, Shade at 20 (`AccountRules`). Account levels come from extra
 bosses and gate nothing else but hand-offs and the shared bank at level 5; no class is stronger
 for being earned.
 
+## The Shade and hazards
+
+Spike traps and gas vents are invisible to every class but the Shade. A Shade sees every hazard
+in rooms the team has explored and is the only class that can disarm a trap or seal a vent (a
+2-second channel, broken by damage, permanent). Pits and lava are obvious to everyone and cannot
+be disarmed. This is the Shade's third job after keys and the extract. (`HazardRules`.)
+
 ## Kits
 
 **Warden** — Shield Wall (block frontal damage 4s, allies behind take none) · Bulwark Slam (knockback cone, interrupts) · Hold the Line (root self, taunt, 40% DR for 6s) · Bastion (passive: immune to knockback in a doorway).
