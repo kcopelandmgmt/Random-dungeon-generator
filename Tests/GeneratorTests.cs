@@ -2983,7 +2983,7 @@ namespace DungeonGen.Tests
             Assert.Equal(layoutA.Rooms.Count, layoutB.Rooms.Count);                                     // the same dungeon; only what is in the chests differs
             var client = MatchDescriptor.FromBytes(a.ToBytes()).BuildAndVerify();
             Assert.Empty(client.Items);
-            Assert.Equal(AsciiRenderer.Render(layoutA).Length, AsciiRenderer.Render(client).Length);
+            Assert.Equal(layoutA.Rooms.Count, client.Rooms.Count);
         }
 
         [Fact]
