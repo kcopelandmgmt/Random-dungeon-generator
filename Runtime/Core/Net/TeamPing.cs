@@ -8,6 +8,8 @@ namespace DungeonGen.Core.Net
     /// <summary>Transient and team-only: never enters the match log, never reaches another team.</summary>
     public readonly struct TeamPing
     {
+        /// <summary>How long a ping stays on the compass and minimap.</summary>
+        public const float LifetimeSeconds = 8f;
         public readonly int FromPlayer;
         public readonly int Team;
         public readonly PingKind Kind;

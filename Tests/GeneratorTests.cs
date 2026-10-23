@@ -2670,3 +2670,108 @@ namespace DungeonGen.Tests
         }
     }
 }
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Hud;
+    using DungeonGen.Core.Net;
+
+    public class HudTests
+    {
+        [Fact]
+        public void CompassBearingsNorthIsUpEastIsRight()
+        {
+            var o = new GridPoint(10, 10);
+            Assert.Equal(0f, Compass.Bearing(o, new GridPoint(10, 20)));
+            Assert.Equal(90f, Compass.Bearing(o, new GridPoint(20, 10)));
+            Assert.Equal(180f, Compass.Bearing(o, new GridPoint(10, 0)));
+            Assert.Equal(270f, Compass.Bearing(o, new GridPoint(0, 10)));
+            Assert.Equal(45f, Compass.Bearing(o, new GridPoint(15, 15)), 3);
+            Assert.Equal(Cardinal.N, Compass.CardinalOf(359f)); Assert.Equal(Cardinal.N, Compass.CardinalOf(22f)); Assert.Equal(Cardinal.NE, Compass.CardinalOf(23f));
+            Assert.Equal(Cardinal.SW, Compass.CardinalOf(225f)); Assert.Equal("south-west", Compass.Name(Cardinal.SW));
+            Assert.Equal(-10f, Compass.Relative(350f, 0f), 3); Assert.Equal(180f, Compass.Relative(180f, 0f), 3); Assert.Equal(-90f, Compass.Relative(0f, 90f), 3);
+            Assert.True(CompassBar.InWindow(90f)); Assert.False(CompassBar.InWindow(91f));
+            Assert.Equal(0.5f, CompassBar.Position01(0f), 3); Assert.Equal(0f, CompassBar.Position01(-90f), 3); Assert.Equal(1f, CompassBar.Position01(90f), 3);
+            Assert.Equal(5f, Compass.DistanceCells(new GridPoint(0, 0), new GridPoint(3, 4)), 3);
+        }
+
+        private static (MatchState st, DungeonLayout layout) Fresh()
+        {
+            var d = MatchDescriptor.Create(7, DungeonSettings.ForTeams(8), new MatchRules(), out var layout);
+            var st = new MatchState(d, layout);
+            st.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out _);
+            for (int p = 1; p <= 6; p++) st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, p, (p - 1) / 3), out _);
+            return (st, layout);
+        }
+
+        [Fact]
+        public void CompassShowsOnlyWhatTheTeamHasSeenPlusTeammatesAndLivePings()
+        {
+            var (st, layout) = Fresh();
+            var spawn = layout.Rooms[st.Descriptor.TeamSpawnRooms[0]];
+            var me = spawn.Center;
+            var cells = new Dictionary<int, GridPoint> { [2] = me + new GridPoint(0, 5), [3] = me + new GridPoint(5, 0), [4] = me + new GridPoint(-5, 0) };
+            var pings = new List<TeamPing> { new TeamPing(2, 0, PingKind.Enemy, me + new GridPoint(0, -5), 10f), new TeamPing(4, 1, PingKind.Loot, me, 10f), new TeamPing(3, 0, PingKind.Boss, me + new GridPoint(3, 3), 1f) };
+            var markers = CompassBar.Markers(st, 1, me, cells, pings, now: 12f);
+            Assert.Single(markers, m => m.Kind == CompassMarkerKind.Spawn);                                  // own spawn, nothing else explored yet
+            Assert.Equal(2, markers.Count(m => m.Kind == CompassMarkerKind.Teammate));                       // 2 and 3; 4 is an enemy
+            Assert.Equal(0f, markers.First(m => m.Ref == 2 && m.Kind == CompassMarkerKind.Teammate).Bearing);
+            Assert.Single(markers, m => m.Kind == CompassMarkerKind.Ping);                                   // enemy team's ping hidden, the 11-second-old one expired
+            Assert.Equal(180f, markers.First(m => m.Kind == CompassMarkerKind.Ping).Bearing);
+            Assert.DoesNotContain(markers, m => m.Kind == CompassMarkerKind.Extract || m.Kind == CompassMarkerKind.BossRoom || m.Kind == CompassMarkerKind.Shrine);
+
+            var extract = layout.ExtractRooms.First(); var boss = layout.BossRooms.First(); var shrine = layout.Rooms.First(r => r.HasShrine); var vault = layout.VaultRooms.First();
+            foreach (var r in new[] { extract, boss, shrine, vault, layout.FinalBossRoom }) Assert.True(st.Apply(new MatchEvent(MatchEventKind.RoomSeen, 13, 0, r.Id), out _));
+            markers = CompassBar.Markers(st, 1, me, cells, pings, 13f);
+            Assert.Equal("Extract", markers.First(m => m.Kind == CompassMarkerKind.Extract).Label);
+            Assert.Equal("Vault (locked)", markers.First(m => m.Kind == CompassMarkerKind.Vault).Label);
+            Assert.Equal("Final boss", markers.First(m => m.Kind == CompassMarkerKind.FinalBoss).Label);
+            Assert.Single(markers, m => m.Kind == CompassMarkerKind.Shrine);
+            Assert.Equal(boss.Boss.Archetype.Name, markers.First(m => m.Kind == CompassMarkerKind.BossRoom).Label);
+            Assert.Empty(CompassBar.Markers(st, 4, me, cells, pings, 13f).Where(m => m.Kind != CompassMarkerKind.Teammate && m.Kind != CompassMarkerKind.Ping && m.Kind != CompassMarkerKind.Spawn && m.Ref != st.Descriptor.TeamSpawnRooms[1]));   // team 1 has seen none of it
+
+            st.Apply(new MatchEvent(MatchEventKind.ExtractsOpened, 240), out _);
+            st.Apply(new MatchEvent(MatchEventKind.BossKilled, 241, boss.Id, 1), out _);
+            st.Apply(new MatchEvent(MatchEventKind.BossKilled, 242, layout.FinalBossRoom.Id, 1), out _);
+            st.Apply(new MatchEvent(MatchEventKind.BossExitOpened, 243), out _);
+            markers = CompassBar.Markers(st, 1, me, cells, pings, 244f);
+            Assert.Equal("Extract (open)", markers.First(m => m.Kind == CompassMarkerKind.Extract).Label);
+            Assert.Equal("Boss (dead)", markers.First(m => m.Kind == CompassMarkerKind.BossRoom).Label);
+            Assert.Single(markers, m => m.Kind == CompassMarkerKind.BossExit);
+            Assert.Contains("north", CompassBar.Callout(markers.First(m => m.Ref == 2 && m.Kind == CompassMarkerKind.Teammate)));
+            Assert.Contains("10 m", CompassBar.Callout(markers.First(m => m.Ref == 2 && m.Kind == CompassMarkerKind.Teammate)));
+        }
+
+        [Fact]
+        public void MiniMapIsExploredRoomsOnlyWithCorridorsBetweenThem()
+        {
+            var (st, layout) = Fresh();
+            var spawn = layout.Rooms[st.Descriptor.TeamSpawnRooms[0]];
+            var me = spawn.Center;
+            var model = MiniMap.Build(st, 1, me, new Dictionary<int, GridPoint> { [2] = me, [5] = me }, new List<TeamPing>(), 1f);
+            Assert.Single(model.Rooms);
+            Assert.True(model.Rooms[0].IsTeamSpawn && model.Rooms[0].IsHere);
+            Assert.Empty(model.Corridors);
+            Assert.Equal(2, model.Markers.Count);                                                         // self and teammate 2; 5 is an enemy, never drawn
+            Assert.Contains(model.Markers, m => m.Kind == MiniMapMarkerKind.Self && m.Cell.Equals(me));
+
+            int next = spawn.Neighbours.First();
+            st.Apply(new MatchEvent(MatchEventKind.RoomSeen, 2, 0, next), out _);
+            var vault = layout.VaultRooms.First();
+            st.Apply(new MatchEvent(MatchEventKind.RoomSeen, 2, 0, vault.Id), out _);
+            model = MiniMap.Build(st, 1, me, null, null, 2f);
+            Assert.Equal(3, model.Rooms.Count);
+            Assert.Contains((System.Math.Min(spawn.Id, next), System.Math.Max(spawn.Id, next)), model.Corridors);
+            Assert.DoesNotContain(model.Corridors, c => c.a == vault.Id || c.b == vault.Id);              // its neighbour is unexplored
+            Assert.Equal(vault.Doors.Count, model.Markers.Count(m => m.Kind == MiniMapMarkerKind.LockedDoor));
+            Assert.DoesNotContain(model.Rooms, r => r.Id == layout.FinalBossRoom.Id);
+            Assert.True(model.Shows(spawn.Bounds));
+            Assert.False(model.Shows(new GridRect(me.X + MiniMapModel.ViewRadiusCells + 5, me.Y, 3, 3)));
+            // The other team's map is theirs alone.
+            var theirs = MiniMap.Build(st, 4, me, null, null, 2f);
+            Assert.Single(theirs.Rooms);
+            Assert.Equal(st.Descriptor.TeamSpawnRooms[1], theirs.Rooms[0].Id);
+            Assert.Equal(8f, TeamPing.LifetimeSeconds);
+        }
+    }
+}

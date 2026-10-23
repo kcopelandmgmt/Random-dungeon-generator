@@ -643,6 +643,16 @@ No sprint. One of each unique. A new account is the free kit, 200 silver and two
 round opens with a 10-second sealed countdown. `MatchState` validates all of it; `RoundClock`
 raises `DoorsOpened`.
 
+## Compass and minimap (locked, built)
+
+`Compass.Bearing` measures from +Y clockwise (0 north, 90 east). `CompassBar.Markers(state,
+player, cell, teammateCells, pings, now)` returns bearings and distances for teammates, live pings
+(`TeamPing.LifetimeSeconds` = 8) and every explored extract, boss, shrine, vault, final boss and
+open exit, with state-aware labels; `CompassBar.Callout` turns one into a line of speech.
+`MiniMap.Build` returns explored rooms, corridors between explored pairs and markers; the corner
+view is `MiniMapModel.ViewRadiusCells` (18) around the player, the full map ignores it. Both
+Unity HUDs (`CompassHud`, `MiniMapHud`) draw with OnGUI for the greybox and read only these models.
+
 ## Dungeon tiers, gear score and account levels (locked, built)
 
 Three tiers (`DungeonTier.All`), walled by gear score both ways: Tier I 0–60, Tier II 40–220,

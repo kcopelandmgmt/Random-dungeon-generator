@@ -3,6 +3,20 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-23 · Compass and minimap — LOCKED AND BUILT
+
+* **A compass strip across the top of the screen.** Cardinal letters at their bearings (north is
+  +Y, up the screen; the camera never rotates, so north is always up) and a marker for every
+  teammate, every live team ping (8 s), and every extract, boss room, shrine, vault, the final
+  boss and the centre exit **the team has seen**. Labels follow state: "Extract (open)", "Boss
+  (dead)", "Vault (locked)", "Exit (open)". Nothing unexplored is on it. It exists for callouts
+  ("shrine, north-east, 24 m") and for finding known things out of view, never for finding north.
+  (`Compass`, `CompassBar`, `CompassHud`.)
+* **The minimap in the corner, the full map on hold-Tab.** Explored rooms only, as decided
+  earlier; corridors drawn only between two explored rooms; markers for self, teammates, live
+  pings, locked vault doors and the open centre exit. Never an enemy. The corner map shows 18
+  cells around the player. (`MiniMap`, `MiniMapModel`, `MiniMapHud`.)
+
 ## 2026-10-23 · Tiers, hand-offs, account levels and the business — LOCKED AND BUILT
 
 1. **Three dungeon tiers, walled by gear score both ways.** Tier I admits gear score 0–60, Tier II
