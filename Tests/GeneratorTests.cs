@@ -1965,7 +1965,7 @@ namespace DungeonGen.Tests
             var d = MatchDescriptor.CreateTutorial(3, out var layout);
             Assert.True(d.Rules.IsTutorial);
             Assert.Equal(0, d.Rules.ExtractsOpenAfterSeconds);
-            Assert.Single(d.TeamSpawnRooms);
+            Assert.Equal(2, d.TeamSpawnRooms.Count);                                                   // the player's spawn and the bot team's
             Assert.Single(layout.BossRooms);
             Assert.Single(layout.VaultRooms);
             Assert.Equal(2, layout.ExtractRooms.Count());
@@ -3353,6 +3353,198 @@ namespace DungeonGen.Tests
             client.LoadView(TeamView.FromBytes(v0.ToBytes()));
             Assert.Contains(cell, client.ClosedDoors);
             Assert.Contains(MiniMap.Build(client, 1, room.Center, null, null, 12f).Markers, m => m.Kind == MiniMapMarkerKind.ClosedDoor && m.Ref == door);
+        }
+    }
+}
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+    using DungeonGen.Core.Items;
+    using DungeonGen.Core.Net;
+    using DungeonGen.Core.Profile;
+
+    public class SeasonContentTests
+    {
+        [Fact]
+        public void MutatorsRotateFromSeasonTwoAndEachBendsOneRule()
+        {
+            Assert.Null(Mutator.ForSeason(1));
+            Assert.Equal("Soulfeast", Mutator.ForSeason(2).Name);
+            Assert.Equal(Mutator.All[0].Name, Mutator.ForSeason(2 + Mutator.All.Count).Name);
+            Assert.Equal(5, Mutator.All.Count);
+            var s2 = Season.Starting(2, new System.DateTime(2027, 4, 1));
+            Assert.Equal("Soulfeast", s2.Mutator.Name);
+            Assert.Null(Season.Starting(1, new System.DateTime(2027, 1, 1)).Mutator);
+
+            var settings = DungeonSettings.ForTeams(4);
+            var d = MatchDescriptor.CreateForSeason(11, settings, new MatchRules(), s2, out var layout);
+            Assert.Equal(2, d.Rules.SoulMultiplier); Assert.Equal("Soulfeast", d.Rules.MutatorName);
+            var back = MatchDescriptor.FromBytes(d.ToBytes());
+            Assert.Equal(2, back.Rules.SoulMultiplier); Assert.Equal("Soulfeast", back.Rules.MutatorName); Assert.True(back.Rules.ShrinesUsable);
+            var st = new MatchState(d, layout);
+            st.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out _);
+            for (int p = 1; p <= 4; p++) st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, p, (p - 1) / 2), out _);
+            Assert.True(Ch.KillAndLoot(st, 5, 3, 1));
+            Assert.Equal(2, st.SoulsOf(1));                                                            // two souls per corpse
+
+            var godless = MatchDescriptor.CreateForSeason(11, settings, new MatchRules(), Season.Starting(3, new System.DateTime(2027, 7, 1)), out var l3);
+            Assert.False(godless.Rules.ShrinesUsable);
+            var g = new MatchState(godless, l3);
+            g.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out _);
+            for (int p = 1; p <= 4; p++) g.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, p, (p - 1) / 2), out _);
+            g.Souls[1] = 5;
+            int shrine = l3.Rooms.First(r => r.HasShrine).Id;
+            Assert.False(g.Apply(new MatchEvent(MatchEventKind.ShrinePurchase, 1, 1, 0, shrine), out string why)); Assert.Contains("dark", why);
+            Assert.False(g.Apply(new MatchEvent(MatchEventKind.UltimateArmed, 1, 1, shrine), out why)); Assert.Contains("dark", why);
+            g.Apply(new MatchEvent(MatchEventKind.PlayerDied, 2, 2, -1, 0), out _);
+            Assert.False(g.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 3, 2, 1, shrine), out why)); Assert.Contains("dark", why);
+
+            Assert.Equal(1f, MatchDescriptor.CreateForSeason(11, settings, new MatchRules(), Season.Starting(4, new System.DateTime(2027, 10, 1)), out _).Settings.KeyFromBossChance);   // Keybearers
+            Assert.Equal(1f, settings.KeyFromBossChance * 2, 3);                                      // the caller's settings were copied, not changed
+            Assert.Equal(6, MatchDescriptor.CreateForSeason(11, settings, new MatchRules(), Season.Starting(5, new System.DateTime(2028, 1, 1)), out _).Rules.SightRangeCells);   // Dusk
+            MatchDescriptor.CreateForSeason(11, settings, new MatchRules(), Season.Starting(6, new System.DateTime(2028, 4, 1)), out var twin);
+            Assert.Equal(2, twin.VaultRooms.Count());                                                   // Twin Vaults
+        }
+
+        [Fact]
+        public void OneMidRoundEventPerRoundAnnouncedToEveryoneAndDeterministic()
+        {
+            var settings = DungeonSettings.ForTeams(8);
+            int elites = 0, vaults = 0, shrines = 0;
+            for (int seed = 1; seed <= 24; seed++)
+            {
+                var d = MatchDescriptor.Create(seed, settings, new MatchRules(), out var layout);
+                var plan = d.Event(layout);
+                var again = MatchDescriptor.FromBytes(d.ToBytes()).Event(d.BuildAndVerify());
+                Assert.Equal((plan.Kind, plan.RoomId, plan.AtSeconds), (again.Kind, again.RoomId, again.AtSeconds));   // clients compute the same plan from the public layout
+                Assert.Equal(600f, plan.AtSeconds);
+                switch (plan.Kind)
+                {
+                    case DungeonEventKind.RoamingElite: elites++; Assert.True(layout.Rooms[plan.RoomId].Type == RoomType.Hub || layout.Rooms[plan.RoomId].Type == RoomType.Standard); break;
+                    case DungeonEventKind.VaultUnsealed: vaults++; Assert.Equal(RoomType.Vault, layout.Rooms[plan.RoomId].Type); Assert.True(plan.Timed); Assert.Equal(660f, plan.EndsAt); break;
+                    case DungeonEventKind.CheapShrine: shrines++; Assert.True(layout.Rooms[plan.RoomId].HasShrine); break;
+                    default: Assert.Fail("every round has an event"); break;
+                }
+            }
+            Assert.True(elites > 0 && vaults > 0 && shrines > 0, $"{elites} {vaults} {shrines}");
+            var tut = MatchDescriptor.CreateTutorial(3, out var tl);
+            Assert.Equal(DungeonEventKind.None, tut.Event(tl).Kind);
+
+            // The clock fires it halfway and closes a timed one a minute later.
+            var dd = MatchDescriptor.Create(1, settings, new MatchRules(), out var ll);
+            var p = dd.Event(ll);
+            var clock = new RoundClock(dd.Rules, p);
+            var fired = new List<MatchEvent>();
+            foreach (float t in new[] { 0f, 10f, 240f, 599f, 600f, 659f, 660f, 1200f }) fired.AddRange(clock.Tick(t));
+            Assert.Contains(fired, e => e.Kind == MatchEventKind.EventStarted && e.Time == 600f && e.A == (int)p.Kind && e.B == p.RoomId);
+            Assert.Equal(p.Timed ? 1 : 0, fired.Count(e => e.Kind == MatchEventKind.EventEnded));
+            Assert.NotNull(Announcer.For(fired.First(e => e.Kind == MatchEventKind.EventStarted), ll));
+            Assert.Null(EventVisibility.Audience(fired.First(e => e.Kind == MatchEventKind.EventStarted), new MatchState(dd, ll)));
+        }
+
+        private static (MatchState st, DungeonLayout layout, MatchDescriptor d) Fresh(int seed)
+        {
+            var d = MatchDescriptor.Create(seed, DungeonSettings.ForTeams(8), new MatchRules(), out var layout);
+            var st = new MatchState(d, layout);
+            st.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out _);
+            for (int p = 1; p <= 6; p++) st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, p, (p - 1) / 3), out _);
+            st.Apply(new MatchEvent(MatchEventKind.DoorsOpened, 10), out _);
+            return (st, layout, d);
+        }
+
+        [Fact]
+        public void TheEliteDropsItsRelicOnTheFloorForAnyone()
+        {
+            var (st, layout, d) = Fresh(2);
+            string why;
+            int hub = layout.Rooms.First(r => r.Type == RoomType.Hub || r.Type == RoomType.Standard).Id;
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.EliteKilled, 100, hub, 0), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.EventStarted, 600, (int)DungeonEventKind.RoamingElite, hub), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.EventStarted, 601, (int)DungeonEventKind.CheapShrine, hub), out why), "one per round");
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.EventEnded, 660, (int)DungeonEventKind.RoamingElite), out why), "the elite does not time out");
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.EliteKilled, 700, hub + 1 < layout.Rooms.Count ? hub + 1 : hub - 1, 1), out why), "wrong room");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.EliteKilled, 700, hub, 1), out why));
+            Assert.True(st.EliteDead && st.EventOver);
+            Assert.Equal(hub, st.FloorItems[LayoutIndex.EventLootId]);
+            Assert.NotNull(layout.EventLoot); Assert.Equal(Rarity.Unique, layout.EventLoot.Rarity);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 701, LayoutIndex.EventLootId, 1), out why), "not standing there");
+            st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 702, 1, hub), out _);                      // team 0 arrives first, though team 1 killed it
+            st.Apply(new MatchEvent(MatchEventKind.RoomSeen, 702, 0, hub), out _);
+            var v0 = TeamView.For(st, 0);
+            Assert.Contains(v0.Items, i => i.Id == LayoutIndex.EventLootId && i.Rarity == (byte)Rarity.Unique);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 703, LayoutIndex.EventLootId, 1), out why));
+            Assert.Equal(1, st.ItemOwner[LayoutIndex.EventLootId]);
+            Assert.Equal(layout.EventLoot.Value, st.ItemValue[LayoutIndex.EventLootId]);
+            Assert.Equal(new HashSet<int> { 1 }, EventVisibility.Audience(new MatchEvent(MatchEventKind.EliteKilled, 700, hub, 1), st));
+            // Clients never see the relic until it is on a floor they have explored.
+            var client = new MatchState(MatchDescriptor.FromBytes(d.ToBytes()), d.BuildAndVerify());
+            Assert.Null(client.Layout.EventLoot);
+        }
+
+        [Fact]
+        public void UnsealedVaultsAndCheapShrinesWorkOnlyInsideTheirMinute()
+        {
+            var (st, layout, d) = Fresh(2);
+            string why;
+            var vault = layout.VaultRooms.First();
+            st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 11, 1, vault.Neighbours.First()), out _);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.VaultOpened, 12, vault.Id, 1), out why), "no key, no event");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.EventStarted, 600, (int)DungeonEventKind.VaultUnsealed, vault.Id), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.VaultOpened, 601, vault.Id, 4), out why), "player 4 is at spawn, not at the door");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.VaultOpened, 601, vault.Id, 1), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.EventEnded, 660, (int)DungeonEventKind.VaultUnsealed), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.EventEnded, 661, (int)DungeonEventKind.VaultUnsealed), out why));
+
+            var (s2, l2, _) = Fresh(5);
+            int shrine = l2.Rooms.First(r => r.HasShrine).Id;
+            s2.Apply(new MatchEvent(MatchEventKind.PlayerDied, 20, 2, -1, 0), out _);
+            s2.Souls[1] = 1;
+            Assert.False(s2.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 21, 2, 1, shrine), out why));
+            Assert.True(s2.Apply(new MatchEvent(MatchEventKind.EventStarted, 600, (int)DungeonEventKind.CheapShrine, shrine), out why));
+            Assert.Equal(1, s2.ResurrectionCostAt(shrine));
+            Assert.Equal(2, s2.ResurrectionCostAt(shrine == 0 ? 1 : 0));
+            Assert.True(s2.Apply(new MatchEvent(MatchEventKind.PlayerResurrected, 601, 2, 1, shrine), out why));
+            Assert.Equal(0, s2.SoulsOf(1));
+            Assert.True(s2.Apply(new MatchEvent(MatchEventKind.EventEnded, 660, (int)DungeonEventKind.CheapShrine), out why));
+            Assert.Equal(2, s2.ResurrectionCostAt(shrine));
+            var view = TeamView.FromBytes(TeamView.For(s2, 1).ToBytes());
+            Assert.Equal((byte)DungeonEventKind.CheapShrine, view.EventKind); Assert.True(view.EventOver);
+        }
+
+        [Fact]
+        public void TutorialBotsWalkToTheLootRoomOpenTheChestAndObeyEveryRule()
+        {
+            var d = MatchDescriptor.CreateTutorial(3, out var layout);
+            Assert.Equal(1, d.Rules.BotTeams); Assert.True(d.Rules.IsTutorial); Assert.Equal(2, d.TeamSpawnRooms.Count);
+            var st = new MatchState(d, layout);
+            string why;
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, 1, 0), out why));                 // the human
+            var bots = new BotDirector(st, team: 1);
+            int applied = 0, rejected = 0; var reasons = new List<string>();
+            for (float t = 0f; t <= 300f; t += 1f)
+            {
+                if (t == 5f) st.Apply(new MatchEvent(MatchEventKind.DoorsOpened, 10), out _);
+                foreach (var e in bots.Step(t).ToList()) { if (st.Apply(e, out string r)) applied++; else { rejected++; reasons.Add($"{e}: {r}"); } }
+            }
+            Assert.All(bots.Bots, b => Assert.True(BotRules.IsBot(b)));
+            Assert.All(bots.Bots, b => Assert.Equal(1, st.PlayerTeam[b]));
+            Assert.Equal("Warden", st.ClassOf(bots.Bots[0]).Name); Assert.Equal("Marksman", st.ClassOf(bots.Bots[1]).Name);
+            Assert.All(bots.Bots, b => Assert.Equal(bots.TargetRoom, st.PlayerRoom[b]));                            // they walked there, room by room
+            Assert.Contains(bots.TargetRoom, st.OpenedContainers);                                                      // and opened the chest
+            Assert.True(st.ItemOwner.Values.Count(v => bots.Bots.Contains(v)) >= 1, "at least one bot took a piece");
+            Assert.True(applied > 6 && rejected == 0, $"{applied} applied, {rejected} rejected: bots only raise legal events. {string.Join(" | ", reasons)}");
+            Assert.False(BotRules.FinishDowned); Assert.False(BotRules.LootPlayerCorpses); Assert.True(BotRules.TutorialOnly);
+            // The player kills a bot and loots the corpse: a soul, like any player kill.
+            st.Apply(new MatchEvent(MatchEventKind.PlayerEnteredRoom, 301, 1, bots.TargetRoom), out _);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 302, bots.Bots[0], 1, bots.TargetRoom), out why));
+            Assert.True(Ch.OpenCorpse(st, 303, bots.Bots[0], 1, out why));
+            Assert.Equal(1, st.SoulsOf(1));
+            Assert.DoesNotContain(bots.Step(310f), e => e.A == bots.Bots[0]);                                        // the dead bot raises nothing more
+            // The matchmaker never seats a bot and the tutorial never has an event.
+            Assert.Equal(DungeonEventKind.None, d.Event(layout).Kind);
+            Assert.Throws<System.ArgumentException>(() => new QueuedGroup(1, new[] { BotRules.BotIdBase }, 0f));
         }
     }
 }

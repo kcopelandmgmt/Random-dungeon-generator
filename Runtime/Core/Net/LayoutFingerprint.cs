@@ -41,6 +41,7 @@ namespace DungeonGen.Core.Net
             if (includeServerOnly)
             {
                 foreach (var k in l.Keys) h.Add(k.KeyId).Add(k.VaultRoomId).Add(k.HolderRoomId).Add(k.DroppedByBoss);
+                if (l.EventLoot != null) h.Add(l.EventLoot.Name).Add(l.EventLoot.ItemLevel);
                 foreach (var r in l.Rooms) foreach (var c in r.Consumables) h.Add(c.Name);
                 foreach (var it in l.Items)
                 {

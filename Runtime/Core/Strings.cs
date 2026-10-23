@@ -23,6 +23,9 @@ namespace DungeonGen.Core
             ["hud.shrine"] = "Shrine", ["hud.spawn"] = "Spawn",
             ["death.by_dungeon"] = "Killed by the dungeon.", ["death.finished_by_dungeon"] = "Finished by the dungeon.",
             ["roll.need"] = "Need", ["roll.greed"] = "Greed", ["roll.pass"] = "Pass",
+            ["event.elite"] = "Something old walks the halls, and it carries a relic.",
+            ["event.vault"] = "A vault's lock has failed. It will not stay open long.",
+            ["event.shrine"] = "A shrine burns bright: one soul brings back the dead, for a little while.",
             ["report.cheating"] = "Cheating", ["report.rmt"] = "Real-money trading", ["report.abuse"] = "Abuse",
         };
         private static Dictionary<string, string> _active = new Dictionary<string, string>(English);

@@ -45,6 +45,8 @@ namespace DungeonGen.Core.Stages
                     layout.Items.Add(item);
                 }
             }
+            // The roaming elite's relic, rolled last so it never shifts the chests.
+            layout.EventLoot = LootRoller.RollUnique(System.Math.Max(3, (s.LootTiers - 1) + s.ItemLevelOffset), rng);
         }
     }
 }

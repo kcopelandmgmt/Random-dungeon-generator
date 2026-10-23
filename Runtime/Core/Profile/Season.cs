@@ -35,6 +35,8 @@ namespace DungeonGen.Core.Profile
         public const int LengthDays = 91;
         public Season(int number, DateTime startUtc, DateTime endUtc) { Number = number; StartUtc = startUtc; EndUtc = endUtc; }
         public static Season Starting(int number, DateTime startUtc) => new Season(number, startUtc, startUtc.AddDays(LengthDays));
+        /// <summary>This season's rule twist, or null in season one.</summary>
+        public Mutator Mutator => Mutator.ForSeason(Number);
         public Season Next() => Starting(Number + 1, EndUtc);
 
         public bool IsActive(DateTime nowUtc) => nowUtc >= StartUtc && nowUtc < EndUtc;

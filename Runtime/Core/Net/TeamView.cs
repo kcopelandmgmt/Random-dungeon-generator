@@ -21,6 +21,8 @@ namespace DungeonGen.Core.Net
         public int Team;
         public float Time;
         public bool Started, Ended, DoorsOpen, ExtractsOpen, BossExitOpen, FinalBossDead;
+        /// <summary>The mid-round event is public: everyone was told.</summary>
+        public byte EventKind; public int EventRoom = -1; public float EventStartedAt = -1f; public bool EventOver, EliteDead;
 
         public struct Member
         {
@@ -53,6 +55,7 @@ namespace DungeonGen.Core.Net
             var v = new TeamView { Team = team, Time = st.Time, Started = st.Started, Ended = st.Ended, DoorsOpen = st.DoorsOpen, ExtractsOpen = st.ExtractsOpen, BossExitOpen = st.BossExitOpen };
             var final = st.Layout.FinalBossRoom;
             v.FinalBossDead = final != null && st.DeadBosses.Contains(final.Id);
+            v.EventKind = (byte)st.ActiveEvent; v.EventRoom = st.EventRoom; v.EventStartedAt = st.EventStartedAt; v.EventOver = st.EventOver; v.EliteDead = st.EliteDead;
             var members = st.PlayerTeam.Where(kv => kv.Value == team).Select(kv => kv.Key).OrderBy(p => p).ToList();
             foreach (int p in members)
                 v.Members.Add(new Member
@@ -75,6 +78,12 @@ namespace DungeonGen.Core.Net
                 if (!inOpenChest && !onFloor) continue;
                 v.Items.Add(new ItemInfo { Id = kv.Key, Room = onFloor ? fr : room, Level = kv.Value.ItemLevel, Value = kv.Value.Value, Rarity = (byte)kv.Value.Rarity, Name = kv.Value.Name });
                 if (onFloor) v.FloorItems.Add(kv.Key);
+            }
+            if (st.Layout.EventLoot != null && st.FloorItems.TryGetValue(LayoutIndex.EventLootId, out int er) && seen.Contains(er))
+            {
+                var relic = st.Layout.EventLoot;
+                v.Items.Add(new ItemInfo { Id = LayoutIndex.EventLootId, Room = er, Level = relic.ItemLevel, Value = relic.Value, Rarity = (byte)relic.Rarity, Name = relic.Name });
+                v.FloorItems.Add(LayoutIndex.EventLootId);
             }
             foreach (var kv in st.OpenRolls.Where(kv => kv.Value.Eligible.Any(members.Contains)).OrderBy(kv => kv.Key))
                 v.Rolls.Add(new Roll { Item = kv.Key, Opened = kv.Value.Opened, Eligible = kv.Value.Eligible.OrderBy(p => p).ToList(), Choices = kv.Value.Choices.OrderBy(c => c.Key).Select(c => (c.Key, (byte)c.Value)).ToList() });
@@ -105,6 +114,7 @@ namespace DungeonGen.Core.Net
             using (var w = new BinaryWriter(ms))
             {
                 w.Write(Team); w.Write(Time); w.Write(Started); w.Write(Ended); w.Write(DoorsOpen); w.Write(ExtractsOpen); w.Write(BossExitOpen); w.Write(FinalBossDead);
+                w.Write(EventKind); w.Write(EventRoom); w.Write(EventStartedAt); w.Write(EventOver); w.Write(EliteDead);
                 w.Write(Members.Count);
                 foreach (var m in Members) { w.Write(m.Player); w.Write(m.Class); w.Write(m.Room); w.Write(m.Souls); w.Write(m.Silver); w.Write(m.UltimateCharges); w.Write(m.Dead); w.Write(m.Downed); w.Write(m.Extracted); w.Write(m.Left); w.Write(m.Disconnected); }
                 WriteInts(w, Explored); WriteInts(w, OpenedContainers); WriteInts(w, DeadBosses); WriteInts(w, OpenVaults); WriteInts(w, SilverTaken); WriteInts(w, FloorItems);
@@ -127,6 +137,7 @@ namespace DungeonGen.Core.Net
             using var ms = new MemoryStream(bytes);
             using var r = new BinaryReader(ms);
             var v = new TeamView { Team = r.ReadInt32(), Time = r.ReadSingle(), Started = r.ReadBoolean(), Ended = r.ReadBoolean(), DoorsOpen = r.ReadBoolean(), ExtractsOpen = r.ReadBoolean(), BossExitOpen = r.ReadBoolean(), FinalBossDead = r.ReadBoolean() };
+            v.EventKind = r.ReadByte(); v.EventRoom = r.ReadInt32(); v.EventStartedAt = r.ReadSingle(); v.EventOver = r.ReadBoolean(); v.EliteDead = r.ReadBoolean();
             int n = r.ReadInt32();
             for (int i = 0; i < n; i++) v.Members.Add(new Member { Player = r.ReadInt32(), Class = r.ReadInt32(), Room = r.ReadInt32(), Souls = r.ReadInt32(), Silver = r.ReadInt32(), UltimateCharges = r.ReadInt32(), Dead = r.ReadBoolean(), Downed = r.ReadBoolean(), Extracted = r.ReadBoolean(), Left = r.ReadBoolean(), Disconnected = r.ReadBoolean() });
             v.Explored = ReadInts(r); v.OpenedContainers = ReadInts(r); v.DeadBosses = ReadInts(r); v.OpenVaults = ReadInts(r); v.SilverTaken = ReadInts(r); v.FloorItems = ReadInts(r);
@@ -170,7 +181,10 @@ namespace DungeonGen.Core.Net
             switch (e.Kind)
             {
                 case MatchEventKind.RoundStarted: case MatchEventKind.DoorsOpened: case MatchEventKind.ExtractsOpened: case MatchEventKind.BossExitOpened: case MatchEventKind.RoundEnded:
+                case MatchEventKind.EventStarted: case MatchEventKind.EventEnded:
                     return null;
+                case MatchEventKind.EliteKilled:
+                    return new HashSet<int> { e.B };
                 case MatchEventKind.BossKilled:
                     return e.A >= 0 && e.A < st.Layout.Rooms.Count && st.Layout.Rooms[e.A].Type == RoomType.FinalBoss ? null : new HashSet<int> { e.B };
                 case MatchEventKind.PlayerSpawned: case MatchEventKind.PlayerDisconnected: case MatchEventKind.PlayerReconnected: case MatchEventKind.PlayerEnteredRoom:

@@ -17,6 +17,7 @@ namespace DungeonGen.Core.Net
         public QueuedGroup(int id, IReadOnlyList<int> players, float queuedAt, int tier = 1, string region = "auto")
         {
             if (players.Count < 1 || players.Count > 3) throw new ArgumentException("A group is 1 to 3 players.");
+            if (players.Any(BotRules.IsBot)) throw new ArgumentException("Bots never queue. They exist in the tutorial and nowhere else.");
             DungeonTier.For(tier);
             GroupId = id; PlayerIds = players; QueuedAt = queuedAt; Tier = tier; Region = region ?? "auto";
         }

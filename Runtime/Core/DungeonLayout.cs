@@ -29,6 +29,8 @@ namespace DungeonGen.Core
 
         /// <summary>Exit that opens when the final boss dies. Null if the layout has no final boss.</summary>
         public BossGatedExit BossExit { get; set; }
+        /// <summary>The roaming elite's relic: a unique rolled with the loot secret. Server-only. Used only when the round's event is the elite.</summary>
+        public Items.Item EventLoot { get; set; }
         /// <summary>Every hazard in the dungeon, in id order. Public layout.</summary>
         public List<Hazard> Hazards { get; } = new List<Hazard>();
 

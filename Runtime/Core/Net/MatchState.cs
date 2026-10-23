@@ -55,6 +55,9 @@ namespace DungeonGen.Core.Net
         DoorOpened,        // doorId, playerId: after a DoorRules.OpenSeconds channel (LootStarted kind 4), from either side
         HazardTriggered,   // hazardId, playerId: the server saw a player step on an armed trap or stand in a vent or lava; damage is the combat layer's
         HazardDisarmed,    // hazardId, playerId: a Shade, after a HazardRules.DisarmSeconds channel (LootStarted kind 3); permanent
+        EventStarted,      // kind (DungeonEventKind), roomId: the round's one mid-round event begins; announced to everyone
+        EventEnded,        // kind: a timed event's window closed
+        EliteKilled,       // roomId, byTeam: the roaming elite fell; its relic (LayoutIndex.EventLootId) is on the floor of that room for anyone standing there
     }
 
     /// <summary>
@@ -162,6 +165,7 @@ namespace DungeonGen.Core.Net
             foreach (var r in v.Rolls) OpenRolls[r.Item] = new LootRoll { Opened = r.Opened, Eligible = new HashSet<int>(r.Eligible), Choices = r.Choices.ToDictionary(c => c.player, c => (Items.LootRollChoice)c.choice) };
             LootWinner.Clear(); foreach (var w in v.Winners) LootWinner[w.item] = w.winner;
             KeyHolder.Clear(); foreach (var k in v.Keys) KeyHolder[k.key] = k.holder;
+            ActiveEvent = (DungeonEventKind)v.EventKind; EventRoom = v.EventRoom; EventStartedAt = v.EventStartedAt; EventOver = v.EventOver; EliteDead = v.EliteDead;
             ClosedDoors.Clear(); foreach (var c in v.ClosedDoors) ClosedDoors.Add(c);
             DisarmedHazards.Clear(); foreach (int h in v.DisarmedHazards) DisarmedHazards.Add(h);
             KnownHazards.Clear(); foreach (int h in v.KnownHazards) KnownHazards.Add(h);
@@ -204,8 +208,17 @@ namespace DungeonGen.Core.Net
         /// </summary>
         public Dictionary<int, int> Souls { get; } = new Dictionary<int, int>();
         public int SoulsOf(int player) => Souls.TryGetValue(player, out int n) ? n : 0;
-        private void GrantSoul(int player) { if (player >= 0 && PlayerTeam.ContainsKey(player)) Souls[player] = SoulsOf(player) + 1; }
+        private void GrantSoul(int player) { if (player >= 0 && PlayerTeam.ContainsKey(player)) Souls[player] = SoulsOf(player) + Descriptor.Rules.SoulMultiplier; }
         public HashSet<int> ResurrectedOnce { get; } = new HashSet<int>();
+        /// <summary>The round's mid-round event, once it has started. Kind None until then.</summary>
+        public DungeonEventKind ActiveEvent { get; private set; } = DungeonEventKind.None;
+        public int EventRoom { get; private set; } = -1;
+        public float EventStartedAt { get; private set; } = -1f;
+        public bool EventOver { get; private set; }
+        public bool EliteDead { get; private set; }
+        public bool EventOpen => ActiveEvent != DungeonEventKind.None && !EventOver;
+        /// <summary>What a resurrection costs right now: the rules' price, or one soul at the event shrine while that event is open.</summary>
+        public int ResurrectionCostAt(int shrineRoom) => EventOpen && ActiveEvent == DungeonEventKind.CheapShrine && shrineRoom == EventRoom ? 1 : Descriptor.Rules.ResurrectionCost;
         /// <summary>Doors players have shut. Cells, so LineOfSight and GridPath can take the set directly.</summary>
         public HashSet<GridPoint> ClosedDoors { get; } = new HashSet<GridPoint>();
         public HashSet<int> DisarmedHazards { get; } = new HashSet<int>();
@@ -334,6 +347,7 @@ namespace DungeonGen.Core.Net
                         if (DeadPlayers.Contains(e.A) || !PlayerTeam.ContainsKey(e.A)) { rejection = "player not alive"; return false; }
                         if (e.B < 0 || e.B >= Items.Consumable.All.Count) { rejection = "no such consumable"; return false; }
                         if (e.C < 0 || e.C >= Layout.Rooms.Count || !Layout.Rooms[e.C].HasShrine) { rejection = "no shrine there"; return false; }
+                        if (!Descriptor.Rules.ShrinesUsable) { rejection = "the shrines are dark"; return false; }
                         if (SoulsOf(e.A) < SoulsPerShrinePurchase) { rejection = "you have no souls"; return false; }
                         Souls[e.A] = SoulsOf(e.A) - SoulsPerShrinePurchase; break;
                     }
@@ -376,7 +390,9 @@ namespace DungeonGen.Core.Net
                         {
                             if (!Standing(e.B) || Downed.ContainsKey(e.B)) { rejection = "player cannot loot"; return false; }
                             if (!PlayerRoom.TryGetValue(e.B, out int standIn) || standIn != floorRoom) { rejection = "not in that room"; return false; }
-                            FloorItems.Remove(e.A); ItemOwner[e.A] = e.B; break;
+                            FloorItems.Remove(e.A); ItemOwner[e.A] = e.B;
+                            if (e.A == LayoutIndex.EventLootId && Layout.EventLoot != null && !ItemValue.ContainsKey(e.A)) ItemValue[e.A] = Layout.EventLoot.Value;
+                            break;
                         }
                         if (!Index.Items.ContainsKey(e.A)) { rejection = "no such item"; return false; }
                         if (ItemOwner.ContainsKey(e.A)) { rejection = "already taken"; return false; }
@@ -407,7 +423,8 @@ namespace DungeonGen.Core.Net
                     {
                         var vault = Layout.Rooms[e.A];
                         if (vault.Type != RoomType.Vault) { rejection = "not a vault"; return false; }
-                        if (!KeyHolder.TryGetValue(vault.RequiredKeyId, out int holder) || holder != e.B) { rejection = "player does not hold the key"; return false; }
+                        bool unsealed = EventOpen && ActiveEvent == DungeonEventKind.VaultUnsealed && EventRoom == e.A && Standing(e.B) && PlayerRoom.TryGetValue(e.B, out int vr) && Index.RoomsWithin(e.A, 1).Contains(vr);
+                        if (!unsealed && (!KeyHolder.TryGetValue(vault.RequiredKeyId, out int holder) || holder != e.B)) { rejection = "player does not hold the key"; return false; }
                         OpenVaults.Add(e.A); break;
                     }
                 case MatchEventKind.MobPackCleared:
@@ -481,8 +498,10 @@ namespace DungeonGen.Core.Net
                         if (!PlayerTeam.TryGetValue(e.A, out int team) || !PlayerTeam.TryGetValue(e.B, out int byTeam) || team != byTeam) { rejection = "only a teammate can resurrect"; return false; }
                         if (DeadPlayers.Contains(e.B) || ExtractedPlayers.Contains(e.B)) { rejection = "resurrector is out"; return false; }
                         if (e.C < 0 || e.C >= Layout.Rooms.Count || !Layout.Rooms[e.C].HasShrine) { rejection = "no shrine there"; return false; }
-                        if (SoulsOf(e.B) < SoulsPerResurrection) { rejection = $"resurrector needs {SoulsPerResurrection} souls"; return false; }
-                        Souls[e.B] = SoulsOf(e.B) - SoulsPerResurrection;
+                        if (!Descriptor.Rules.ShrinesUsable) { rejection = "the shrines are dark"; return false; }
+                        int cost = ResurrectionCostAt(e.C);
+                        if (SoulsOf(e.B) < cost) { rejection = $"resurrector needs {cost} souls"; return false; }
+                        Souls[e.B] = SoulsOf(e.B) - cost;
                         DeadPlayers.Remove(e.A); PlayerRoom[e.A] = e.C;
                         ResurrectedOnce.Add(e.A);
                         break;
@@ -560,6 +579,7 @@ namespace DungeonGen.Core.Net
                         if (DeadPlayers.Contains(e.A) || Downed.ContainsKey(e.A) || !PlayerTeam.ContainsKey(e.A)) { rejection = "player not standing"; return false; }
                         if (e.B < 0 || e.B >= Layout.Rooms.Count || !Layout.Rooms[e.B].HasShrine) { rejection = "no shrine there"; return false; }
                         if (UltimateCharges.TryGetValue(e.A, out int have) && have > 0) { rejection = "already armed"; return false; }
+                        if (!Descriptor.Rules.ShrinesUsable) { rejection = "the shrines are dark"; return false; }
                         if (SoulsOf(e.A) < Combat.FightRules.SoulsToArmUltimate) { rejection = $"you need {Combat.FightRules.SoulsToArmUltimate} souls"; return false; }
                         Souls[e.A] = SoulsOf(e.A) - Combat.FightRules.SoulsToArmUltimate;
                         UltimateCharges[e.A] = Combat.FightRules.UltimateUsesPerArming;
@@ -654,6 +674,26 @@ namespace DungeonGen.Core.Net
                         if (!Loots.TryGetValue(e.B, out var hc) || hc.kind != 3 || hc.target != e.A) { rejection = "no disarm channel"; return false; }
                         if (e.Time - hc.started < HazardRules.DisarmSeconds - 0.01f) { rejection = $"disarming takes {HazardRules.DisarmSeconds:0} s"; return false; }
                         Loots.Remove(e.B); DisarmedHazards.Add(e.A); break;
+                    }
+                case MatchEventKind.EventStarted:
+                    {
+                        if (!Started) { rejection = "not started"; return false; }
+                        if (ActiveEvent != DungeonEventKind.None) { rejection = "one event per round"; return false; }
+                        if (e.A <= 0 || e.A > (int)DungeonEventKind.CheapShrine) { rejection = "no such event"; return false; }
+                        if (e.B < 0 || e.B >= Layout.Rooms.Count) { rejection = "no such room"; return false; }
+                        ActiveEvent = (DungeonEventKind)e.A; EventRoom = e.B; EventStartedAt = e.Time; break;
+                    }
+                case MatchEventKind.EventEnded:
+                    if (ActiveEvent == DungeonEventKind.None || EventOver) { rejection = "no event open"; return false; }
+                    if (ActiveEvent == DungeonEventKind.RoamingElite) { rejection = "the elite leaves only by dying"; return false; }
+                    EventOver = true; break;
+                case MatchEventKind.EliteKilled:
+                    {
+                        if (ActiveEvent != DungeonEventKind.RoamingElite || EventOver) { rejection = "no elite walks"; return false; }
+                        if (e.A != EventRoom) { rejection = "the elite is not there"; return false; }
+                        EliteDead = true; EventOver = true;
+                        if (Layout.EventLoot != null) FloorItems[LayoutIndex.EventLootId] = e.A;   // the relic hits the floor for anyone standing there
+                        break;
                     }
                 case MatchEventKind.PlayerLeft:
                     if (!DeadPlayers.Contains(e.A)) { rejection = "only the dead leave early"; return false; }

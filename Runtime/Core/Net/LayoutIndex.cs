@@ -34,6 +34,8 @@ namespace DungeonGen.Core.Net
         private readonly Dictionary<int, (int, GridPoint)> _doors = new Dictionary<int, (int, GridPoint)>();
         private readonly Dictionary<GridPoint, int> _doorIds = new Dictionary<GridPoint, int>();
         public IReadOnlyDictionary<int, Hazard> Hazards => _hazards;
+        /// <summary>The roaming elite's relic. Not in Items: it reaches the floor only when the elite dies.</summary>
+        public const int EventLootId = 9000;
         private readonly Dictionary<int, Hazard> _hazards = new Dictionary<int, Hazard>();
 
         public LayoutIndex(DungeonLayout layout)

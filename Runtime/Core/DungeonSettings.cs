@@ -141,7 +141,7 @@ namespace DungeonGen.Core
             return new DungeonSettings
             {
                 Width = 96, Height = 96, TargetRoomCount = 14,
-                SpawnCount = 1, ExtractCount = 2, BossCount = 1, VaultCount = 1,
+                SpawnCount = 2, ExtractCount = 2, BossCount = 1, VaultCount = 1,   // one spawn for the player, one for the bot team
                 SpawnPlacement = SpawnPlacement.Ring, MinSpawnSeparation = 1, MinExtractDepth = 2,
                 LoopChance = 0.15f, CandidateCount = 2, MobDensity = 0.7f,
             };

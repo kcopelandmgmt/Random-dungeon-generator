@@ -27,10 +27,29 @@ namespace DungeonGen.Core.Net
         /// <summary>Nobody joins a round after the doors open. Reconnects are not joins.</summary>
         public const bool Backfill = false;
 
-        public static MatchRules Tutorial() => new MatchRules { RoundSeconds = 45 * 60, ExtractsOpenAfterSeconds = 0, TeamSize = 1, IsTutorial = true };
+        public static MatchRules Tutorial() => new MatchRules { RoundSeconds = 45 * 60, ExtractsOpenAfterSeconds = 0, TeamSize = BotRules.TeamSize, IsTutorial = true, MidRoundEvent = false, BotTeams = 1 };
 
-        public void Write(BinaryWriter w) { w.Write(RoundSeconds); w.Write(ExtractsOpenAfterSeconds); w.Write(BossExitStaysOpen); w.Write(TeamSize); w.Write(SpawnGraceSeconds); w.Write(ExtractChannelSeconds); w.Write(IsTutorial); w.Write(ReconnectWindowSeconds); }
-        public static MatchRules Read(BinaryReader r) => new MatchRules { RoundSeconds = r.ReadInt32(), ExtractsOpenAfterSeconds = r.ReadInt32(), BossExitStaysOpen = r.ReadBoolean(), TeamSize = r.ReadInt32(), SpawnGraceSeconds = r.ReadInt32(), ExtractChannelSeconds = r.ReadSingle(), IsTutorial = r.ReadBoolean(), ReconnectWindowSeconds = r.ReadInt32() };
+        /// <summary>Season mutators and events bend these; see <see cref="Profile.Mutator"/>.</summary>
+        public const int DefaultSightRangeCells = 12;
+        public int SoulMultiplier = 1;
+        public bool ShrinesUsable = true;
+        public int ResurrectionCost = MatchState.SoulsPerResurrection;
+        public int SightRangeCells = DefaultSightRangeCells;
+        public bool MidRoundEvent = true;
+        public string MutatorName = "";
+        /// <summary>Bot teams seated in this round. Only the tutorial has one.</summary>
+        public int BotTeams = 0;
+
+        public void Write(BinaryWriter w)
+        {
+            w.Write(RoundSeconds); w.Write(ExtractsOpenAfterSeconds); w.Write(BossExitStaysOpen); w.Write(TeamSize); w.Write(SpawnGraceSeconds); w.Write(ExtractChannelSeconds); w.Write(IsTutorial); w.Write(ReconnectWindowSeconds);
+            w.Write(SoulMultiplier); w.Write(ShrinesUsable); w.Write(ResurrectionCost); w.Write(SightRangeCells); w.Write(MidRoundEvent); w.Write(MutatorName ?? ""); w.Write(BotTeams);
+        }
+        public static MatchRules Read(BinaryReader r) => new MatchRules
+        {
+            RoundSeconds = r.ReadInt32(), ExtractsOpenAfterSeconds = r.ReadInt32(), BossExitStaysOpen = r.ReadBoolean(), TeamSize = r.ReadInt32(), SpawnGraceSeconds = r.ReadInt32(), ExtractChannelSeconds = r.ReadSingle(), IsTutorial = r.ReadBoolean(), ReconnectWindowSeconds = r.ReadInt32(),
+            SoulMultiplier = r.ReadInt32(), ShrinesUsable = r.ReadBoolean(), ResurrectionCost = r.ReadInt32(), SightRangeCells = r.ReadInt32(), MidRoundEvent = r.ReadBoolean(), MutatorName = r.ReadString(), BotTeams = r.ReadInt32(),
+        };
     }
 
     /// <summary>
@@ -41,7 +60,7 @@ namespace DungeonGen.Core.Net
     /// </summary>
     public sealed class MatchDescriptor
     {
-        public const int Version = 1;
+        public const int Version = 2;
 
         public int Seed { get; }
         public DungeonSettings Settings { get; }
@@ -59,6 +78,17 @@ namespace DungeonGen.Core.Net
 
         /// <summary>A new player's first dungeon: generated like any other, one team, no queue.</summary>
         public static MatchDescriptor CreateTutorial(int seed, out DungeonLayout layout) => Create(seed, DungeonSettings.ForTutorial(), MatchRules.Tutorial(), out layout);
+
+        /// <summary>A season's descriptor: the season's mutator applied to a copy of the settings and rules before generating.</summary>
+        public static MatchDescriptor CreateForSeason(int seed, DungeonSettings settings, MatchRules rules, Profile.Season season, out DungeonLayout layout, int lootSecret = 0)
+        {
+            var m = Profile.Mutator.ForSeason(season.Number);
+            if (m != null) { settings = SettingsCodec.FromBytes(SettingsCodec.ToBytes(settings)); m.Apply(rules, settings); }
+            return Create(seed, settings, rules, out layout, lootSecret);
+        }
+
+        /// <summary>The round's mid-round event, deterministic from this descriptor and the layout.</summary>
+        public DungeonEventPlan Event(DungeonLayout layout) => DungeonEventPlan.For(this, layout);
 
         /// <summary>
         /// Server side: generate, assign teams to spawns, fingerprint. The returned layout is the
@@ -111,7 +141,7 @@ namespace DungeonGen.Core.Net
             using var ms = new MemoryStream(bytes);
             using var r = new BinaryReader(ms);
             int version = r.ReadInt32();
-            if (version != Version) throw new InvalidDataException($"MatchDescriptor version {version}, expected {Version}.");
+            if (version != Version) throw new InvalidDataException($"MatchDescriptor version {version}, expected {Version}.");   // rules grew in v2
             int seed = r.ReadInt32();
             var settings = SettingsCodec.Read(r);
             int n = r.ReadInt32();
