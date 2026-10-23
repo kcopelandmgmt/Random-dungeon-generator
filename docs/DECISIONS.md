@@ -3,6 +3,28 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-23 · Need over greed — LOCKED AND BUILT
+
+* **Group loot is rolled, World of Warcraft style**, so a player who queued with strangers has a
+  fair shot. When a chest opens, every Magic-or-better piece in it goes to a roll among the opener's
+  living teammates. Each answers **Need, Greed or Pass** within 20 seconds; silence is a Pass.
+* **Anyone may Need.** Any Need beats any Greed. Among Needs everyone rolls a d100, and a player
+  whose *current* class wears the piece (its weapon is one of the class's two spec weapons, its
+  armour is the class's weight, jewellery fits everyone) adds **+50**. One on-class Need beats one
+  off-class Need about seven times in eight, and two about four times in five. The off-class
+  player still has a real chance; the on-class player is clearly favoured.
+* **Everyone passes: free for anyone on the team.** Solo players and one-player teams never roll.
+* **It binds teammates, not the dungeon.** Chests stay open to anyone. An enemy who reaches the
+  open chest can grab a piece mid-roll, which ends that roll, and can take the winner's piece off
+  their corpse. Rolling is a courtesy among teammates; full loot still rules.
+* **The server decides.** Clients send `LootRolled`; the server runs `LootRollRules.Resolve` with
+  its own RNG and publishes `LootRollResolved`, so nobody sees a number before choosing. The state
+  validates that a Need was not beaten by a Greed, that a passer never wins, and that nothing is
+  resolved before everyone standing has answered or the window has closed.
+* Why: randoms are most of the queue, and the only thing that makes "I need that" fair between
+  strangers is a roll everyone can see. Tying the bonus to the class you are playing, not the
+  classes you own, stops a player Needing plate for an alt in the bank.
+
 ## 2026-10-23 · Souls are personal — LOCKED AND BUILT
 
 * **A soul belongs to the player who earned it**, not the team. One for killing or finishing an

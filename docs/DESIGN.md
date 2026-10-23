@@ -397,6 +397,14 @@ chest items; loot rooms 3 (Magic floor); boss rooms 2 plus the boss's affix bonu
 `DungeonLayout.Items` carry the result. On the 8-team sample seed that is 48 items: 8 Normal,
 17 Magic, 19 Rare, 4 Unique.
 
+**Group rolls** (`LootRollRules`, `MatchState.OpenRolls`): when a chest is opened by a player
+with living teammates, every Magic+ piece in it goes to a need-over-greed roll among that team.
+Need, Greed or Pass within 20 s, silence is a Pass; any Need beats any Greed; among Needs a d100
+with +50 if the piece fits the player's current class (spec weapon, armour weight; jewellery
+fits all). The server resolves with its own RNG and publishes `LootRollResolved`; the winner
+alone may take the piece, unless everyone passed. Enemies are never bound: taking a piece
+mid-roll ends the roll, and a corpse is a corpse. Solo players never roll.
+
 **Equipment and the sheet.** `Equipment` holds nine slots; `Summarise()` folds every item into a
 `GearSummary` (weapon damage and profile, armour, resistances, attribute bonus, percentages),
 and `PlayerStats.For(class, equipment)` builds the sheet from it. The anchor still holds: a full

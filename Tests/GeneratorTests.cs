@@ -1088,6 +1088,7 @@ namespace DungeonGen.Tests
 
 namespace DungeonGen.Tests
 {
+    using DungeonGen.Core.Items;
     using DungeonGen.Core.Net;
 
     public class MultiplayerTests
@@ -1204,6 +1205,10 @@ namespace DungeonGen.Tests
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.ContainerOpened, 8, vault.Id, 1), out why), "no chest channel");
             Assert.True(Ch.OpenChest(st, 8, vault.Id, 1, out why));
             Assert.Contains(item, st.VisibleItemsIn(vault.Id));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 9, item, 1), out why), "players 1 and 2 are a group: the vault piece goes to a roll first");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootRolled, 9, item, 1, (int)LootRollChoice.Need), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootRolled, 9, item, 2, (int)LootRollChoice.Pass), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootRollResolved, 9, item, 1, 64), out why));
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 9, item, 1), out why));
             Assert.DoesNotContain(item, st.VisibleItemsIn(vault.Id));
             Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 10, item, 2), out why), "already taken");
@@ -1341,6 +1346,139 @@ namespace DungeonGen.Tests
             Assert.Equal(0, st.SoulsOf(6));                                                              // burned again
             Assert.Equal(1, st.SoulsOf(3));
             Assert.Equal(1, st.Souls.Values.Sum());                                                      // five kills and a boss chest, one soul left in the dungeon
+        }
+
+        [Fact]
+        public void NeedOverGreedRollsAmongTheOpenersTeamAndNeverBindsEnemies()
+        {
+            var d = MatchDescriptor.Create(7, DungeonSettings.ForTeams(8), new MatchRules(), out var layout);
+            var st = new MatchState(d, layout);
+            string why;
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out why));
+            int warden = 0, marksman = ClassArchetype.DefaultRoster.ToList().FindIndex(c => c.Name == "Marksman"), elementalist = ClassArchetype.DefaultRoster.ToList().FindIndex(c => c.Name == "Elementalist");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, 1, 0, warden), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, 2, 0, marksman), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, 3, 0, elementalist), out why));
+            for (int p = 4; p <= 6; p++) Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, p, 1, warden), out why));
+            Assert.Equal("Marksman", st.ClassOf(2).Name);
+
+            var room = layout.FinalBossRoom;                                                         // four Rare+ pieces: every one goes to a roll
+            var items = st.Index.Items.Where(kv => st.Index.ItemRoom[kv.Key] == room.Id).Select(kv => kv.Key).ToList();
+            Assert.True(items.Count >= 4);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.BossKilled, 10, room.Id, 1), out why));
+            Assert.True(Ch.OpenChest(st, 11, room.Id, 1, out why));                                   // player 1 opens: the roll is among 1, 2, 3
+            Assert.All(items, it => Assert.True(st.OpenRolls.ContainsKey(it)));
+            Assert.Equal(new HashSet<int> { 1, 2, 3 }, st.OpenRolls[items[0]].Eligible);
+
+            // Teammates cannot just grab; an enemy can, and that ends the roll for that piece.
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 14, items[0], 1), out why));
+            Assert.Contains("rolling", why);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.LootRolled, 14, items[0], 5, (int)LootRollChoice.Need), out why), "enemies do not roll");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 14, items[0], 5), out why));
+            Assert.False(st.OpenRolls.ContainsKey(items[0]));
+
+            // Need beats Greed; the server may not resolve until everyone standing has answered or the window closes.
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootRolled, 15, items[1], 1, (int)LootRollChoice.Need), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootRolled, 15, items[1], 2, (int)LootRollChoice.Greed), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.LootRolled, 15, items[1], 2, (int)LootRollChoice.Need), out why), "one answer each");
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.LootRollResolved, 16, items[1], 1, 50), out why));
+            Assert.Contains("waiting", why);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootRolled, 16, items[1], 3, (int)LootRollChoice.Pass), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.LootRollResolved, 17, items[1], 2, 99), out why));
+            Assert.Contains("Need beats", why);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.LootRollResolved, 17, items[1], 3, 99), out why), "a pass cannot win");
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.LootRollResolved, 17, items[1], -1, 0), out why), "someone rolled");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootRollResolved, 17, items[1], 1, 50), out why));
+            Assert.Equal(1, st.LootWinner[items[1]]);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 18, items[1], 2), out why));
+            Assert.Contains("won by", why);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 18, items[1], 1), out why));
+
+            // Everyone passes: free for anyone on the team.
+            foreach (int p in new[] { 1, 2, 3 }) Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootRolled, 19, items[2], p, (int)LootRollChoice.Pass), out why));
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.LootRollResolved, 19, items[2], 1, 10), out why), "nobody rolled, nobody wins");
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootRollResolved, 19, items[2], -1, 0), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 20, items[2], 3), out why));
+
+            // Silence is a pass once the window closes; a dead teammate is not waited for.
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootRolled, 21, items[3], 2, (int)LootRollChoice.Greed), out why));
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 22, 3, 5, room.Id), out why));
+            Assert.Equal(new[] { 1, 2 }, st.StillRolling(items[3]).OrderBy(x => x).ToArray());
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.LootRollResolved, 13 + LootRollRules.RollSeconds - 2f, items[3], 2, 40), out why), "player 1 still has time");   // the chest opened at t=13
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.LootRollResolved, 13 + LootRollRules.RollSeconds, items[3], 2, 40), out why));
+            var entries = st.RollEntries(items[1]).ToList();
+            Assert.Empty(entries);                                                                     // resolved rolls have no entries
+            Assert.Equal(2, st.LootWinner[items[3]]);
+
+            var replay = MatchState.Replay(MatchDescriptor.FromBytes(st.Descriptor.ToBytes()), st.Descriptor.BuildAndVerify(), MatchState.LogFromBytes(st.LogToBytes()));
+            Assert.Equal(st.LootWinner, replay.LootWinner);
+            Assert.Equal(st.PlayerClass, replay.PlayerClass);
+            Assert.Equal(st.ItemOwner, replay.ItemOwner);
+        }
+
+        [Fact]
+        public void SoloPlayersAndSoloTeamsNeverRoll()
+        {
+            var d = MatchDescriptor.Create(7, DungeonSettings.ForTeams(8), new MatchRules(), out var layout);
+            var st = new MatchState(d, layout);
+            st.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out _);
+            st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, 1, 0), out _);
+            st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, 4, 1), out _);
+            var room = layout.FinalBossRoom;
+            st.Apply(new MatchEvent(MatchEventKind.BossKilled, 10, room.Id, 0), out _);
+            Assert.True(Ch.OpenChest(st, 11, room.Id, 1, out string why));
+            Assert.Empty(st.OpenRolls);
+            int item = st.Index.Items.First(kv => st.Index.ItemRoom[kv.Key] == room.Id).Key;
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.ItemTaken, 14, item, 1), out why));
+        }
+
+        [Fact]
+        public void LootRollRulesFavourTheClassThatWearsIt()
+        {
+            var warden = ClassArchetype.DefaultRoster.First(c => c.Name == "Warden");
+            var shade = ClassArchetype.DefaultRoster.First(c => c.Name == "Shade");
+            var mender = ClassArchetype.DefaultRoster.First(c => c.Name == "Mender");
+            var longsword = ItemBase.Weapons.First(w => w.Name == "Longsword");
+            var daggers = ItemBase.Weapons.First(w => w.Name == "Twin Daggers");
+            var sceptre = ItemBase.Weapons.First(w => w.Name == "Holy Sceptre");
+            Assert.True(LootRollRules.FitsClass(warden, longsword));
+            Assert.False(LootRollRules.FitsClass(warden, daggers));
+            Assert.True(LootRollRules.FitsClass(shade, daggers));
+            Assert.True(LootRollRules.FitsClass(mender, sceptre));
+            Assert.False(LootRollRules.FitsClass(shade, sceptre));
+            var plate = ItemBase.Armours.First(a => a.Weight == ArmourWeight.Heavy);
+            var leather = ItemBase.Armours.First(a => a.Weight == ArmourWeight.Light);
+            Assert.True(LootRollRules.FitsClass(warden, plate));
+            Assert.False(LootRollRules.FitsClass(shade, plate));
+            Assert.True(LootRollRules.FitsClass(shade, leather));
+            Assert.True(LootRollRules.FitsClass(warden, ItemBase.Jewellery.First()));
+            Assert.True(LootRollRules.FitsClass(shade, ItemBase.Jewellery.First()));
+            Assert.False(LootRollRules.FitsClass(null, plate));
+
+            // Any Need beats any Greed, whatever the dice.
+            for (int seed = 1; seed <= 200; seed++)
+            {
+                var o = LootRollRules.Resolve(new[] { new LootRollRules.Entry(1, LootRollChoice.Greed, true), new LootRollRules.Entry(2, LootRollChoice.Need, false), new LootRollRules.Entry(3, LootRollChoice.Pass, true) }, new DungeonRandom(seed));
+                Assert.Equal(2, o.Winner);
+                Assert.False(o.Rolls.ContainsKey(1));
+            }
+            Assert.Equal(-1, LootRollRules.Resolve(new[] { new LootRollRules.Entry(1, LootRollChoice.Pass, true) }, new DungeonRandom(1)).Winner);
+            Assert.Equal(-1, LootRollRules.Resolve(Array.Empty<LootRollRules.Entry>(), new DungeonRandom(1)).Winner);
+
+            // One on-class Need against one off-class Need: the on-class player wins about seven times in eight, never always.
+            int onClassWins = 0, trials = 4000;
+            for (int seed = 1; seed <= trials; seed++)
+                if (LootRollRules.Resolve(new[] { new LootRollRules.Entry(1, LootRollChoice.Need, true), new LootRollRules.Entry(2, LootRollChoice.Need, false) }, new DungeonRandom(seed)).Winner == 1) onClassWins++;
+            double share = onClassWins / (double)trials, expected = LootRollRules.OnClassWinChance(1);
+            Assert.InRange(expected, 0.85, 0.90);
+            Assert.InRange(share, expected - 0.03, expected + 0.03);
+            // Two Greeds with a tie get re-rolled, so there is always exactly one winner.
+            for (int seed = 1; seed <= 500; seed++)
+            {
+                var o = LootRollRules.Resolve(new[] { new LootRollRules.Entry(1, LootRollChoice.Greed, false), new LootRollRules.Entry(2, LootRollChoice.Greed, false) }, new DungeonRandom(seed));
+                Assert.True(o.Winner == 1 || o.Winner == 2);
+                Assert.Equal(o.WinningRoll, o.Rolls[o.Winner]);
+            }
         }
 
         [Fact]

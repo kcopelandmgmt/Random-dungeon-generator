@@ -8,7 +8,7 @@ namespace DungeonGen.Core.Net
     public enum MatchEventKind : byte
     {
         RoundStarted,      // t
-        PlayerSpawned,     // playerId, team
+        PlayerSpawned,     // playerId, team, classIndex (into ClassArchetype.DefaultRoster; decides on-class Need bonuses)
         ExtractsOpened,    // t
         ContainerOpened,   // roomId, byTeam: the server reveals the room's items to that team
         ItemTaken,         // itemId, byPlayer
@@ -43,6 +43,8 @@ namespace DungeonGen.Core.Net
         PlayerDisconnected,// playerId: the character stands still, killable; the reconnect window starts
         PlayerReconnected, // playerId: within the window; the client replays the log
         RoundEnded,        // t: anyone still inside dies and drops everything
+        LootRolled,        // itemId, playerId, choice (0 Need, 1 Greed, 2 Pass): a teammate answers a group roll
+        LootRollResolved,  // itemId, winnerPlayer (-1 everyone passed), winningRoll: the server's decision, after all answered or the window closed
     }
 
     /// <summary>
@@ -81,6 +83,32 @@ namespace DungeonGen.Core.Net
         public bool BossExitOpen { get; private set; }
         public HashSet<int> OpenedContainers { get; } = new HashSet<int>();     // room ids
         public Dictionary<int, int> ItemOwner { get; } = new Dictionary<int, int>();   // itemId → playerId
+        /// <summary>playerId → class index into ClassArchetype.DefaultRoster, from PlayerSpawned.</summary>
+        public Dictionary<int, int> PlayerClass { get; } = new Dictionary<int, int>();
+        public Combat.ClassArchetype ClassOf(int player) => PlayerClass.TryGetValue(player, out int c) && c >= 0 && c < Combat.ClassArchetype.DefaultRoster.Count ? Combat.ClassArchetype.DefaultRoster[c] : null;
+
+        /// <summary>Group rolls in progress: itemId → who may answer, who has, and when it opened. See <see cref="Items.LootRollRules"/>.</summary>
+        public sealed class LootRoll
+        {
+            public float Opened;
+            public HashSet<int> Eligible = new HashSet<int>();
+            public Dictionary<int, Items.LootRollChoice> Choices = new Dictionary<int, Items.LootRollChoice>();
+        }
+        public Dictionary<int, LootRoll> OpenRolls { get; } = new Dictionary<int, LootRoll>();
+        /// <summary>itemId → the teammate who won it (-1: everyone passed, free for anyone). Enemies are never bound by it.</summary>
+        public Dictionary<int, int> LootWinner { get; } = new Dictionary<int, int>();
+        private bool Standing(int p) => PlayerTeam.ContainsKey(p) && !DeadPlayers.Contains(p) && !ExtractedPlayers.Contains(p);
+        /// <summary>Teammates still able to answer a roll.</summary>
+        public IEnumerable<int> StillRolling(int item) => OpenRolls.TryGetValue(item, out var r) ? r.Eligible.Where(Standing) : Enumerable.Empty<int>();
+        public bool RollCanResolve(int item, float now) => OpenRolls.TryGetValue(item, out var r) && (now - r.Opened >= Items.LootRollRules.RollSeconds - 0.01f || StillRolling(item).All(p => r.Choices.ContainsKey(p)));
+        /// <summary>The entries the server feeds to <see cref="Items.LootRollRules.Resolve"/>: live answers, with the item's class fit per player. Unanswered or dead = Pass.</summary>
+        public IEnumerable<Items.LootRollRules.Entry> RollEntries(int item)
+        {
+            if (!OpenRolls.TryGetValue(item, out var r)) yield break;
+            var b = Index.Items[item].Base;
+            foreach (int p in StillRolling(item))
+                yield return new Items.LootRollRules.Entry(p, r.Choices.TryGetValue(p, out var c) ? c : Items.LootRollChoice.Pass, Items.LootRollRules.FitsClass(ClassOf(p), b));
+        }
         public Dictionary<int, int> KeyHolder { get; } = new Dictionary<int, int>();   // keyId → playerId
         public HashSet<int> OpenVaults { get; } = new HashSet<int>();
         public HashSet<int> ClearedPacks { get; } = new HashSet<int>();
@@ -157,7 +185,7 @@ namespace DungeonGen.Core.Net
                     if (PlayerTeam.ContainsKey(e.A)) { rejection = "already spawned"; return false; }
                     if (e.B < 0 || e.B >= Descriptor.TeamSpawnRooms.Count) { rejection = "no such team"; return false; }
                     if (PlayerTeam.Count(kv => kv.Value == e.B) >= Descriptor.Rules.TeamSize) { rejection = "team full"; return false; }
-                    PlayerTeam[e.A] = e.B;
+                    PlayerTeam[e.A] = e.B; PlayerClass[e.A] = e.C;
                     if (!Explored.ContainsKey(e.B)) Explored[e.B] = new HashSet<int>();
                     Explored[e.B].Add(Descriptor.TeamSpawnRooms[e.B]);
                     break;
@@ -221,6 +249,14 @@ namespace DungeonGen.Core.Net
                             if (Layout.Rooms[e.A].IsBossRoom && !DeadBosses.Contains(e.A)) { rejection = "the boss is alive"; return false; }
                             Loots.Remove(e.B);
                             if (Layout.Rooms[e.A].IsBossRoom) for (int i = 0; i < SoulsPerBossChest; i++) GrantSoul(e.B);   // the boss's soul is in its chest
+                            // Need over greed: every Magic+ piece goes to a roll among the opener's living teammates. Solo players just take.
+                            if (PlayerTeam.TryGetValue(e.B, out int openerTeam))
+                            {
+                                var mates = PlayerTeam.Where(kv => kv.Value == openerTeam && Standing(kv.Key)).Select(kv => kv.Key).ToList();
+                                if (mates.Count >= 2)
+                                    foreach (var kv in Index.Items.Where(kv => Index.ItemRoom[kv.Key] == e.A && !ItemOwner.ContainsKey(kv.Key) && Items.LootRollRules.GoesToRoll(kv.Value)))
+                                        OpenRolls[kv.Key] = new LootRoll { Opened = e.Time, Eligible = new HashSet<int>(mates) };
+                            }
                         }
                         OpenedContainers.Add(e.A); break;
                     }
@@ -238,6 +274,13 @@ namespace DungeonGen.Core.Net
                         if (!Index.Items.ContainsKey(e.A)) { rejection = "no such item"; return false; }
                         if (ItemOwner.ContainsKey(e.A)) { rejection = "already taken"; return false; }
                         if (!OpenedContainers.Contains(Index.ItemRoom[e.A])) { rejection = "container not opened"; return false; }
+                        if (OpenRolls.TryGetValue(e.A, out var roll))
+                        {
+                            if (roll.Eligible.Contains(e.B)) { rejection = "your group is rolling for it"; return false; }
+                            OpenRolls.Remove(e.A);                                     // an enemy grabbed it mid-roll: full loot, roll over
+                        }
+                        if (LootWinner.TryGetValue(e.A, out int won) && won >= 0 && won != e.B && Standing(won) && PlayerTeam[won] == PlayerTeam[e.B]) { rejection = $"won by player {won}"; return false; }
+                        LootWinner.Remove(e.A);
                         ItemOwner[e.A] = e.B;
                         if (!ItemValue.ContainsKey(e.A)) ItemValue[e.A] = Index.Items[e.A].Value;
                         break;
@@ -429,6 +472,29 @@ namespace DungeonGen.Core.Net
                     if (!Disconnected.TryGetValue(e.A, out float dropped)) { rejection = "was not disconnected"; return false; }
                     if (e.Time - dropped > Descriptor.Rules.ReconnectWindowSeconds) { rejection = "reconnect window passed"; return false; }
                     Disconnected.Remove(e.A); break;
+                case MatchEventKind.LootRolled:
+                    {
+                        if (!OpenRolls.TryGetValue(e.A, out var roll)) { rejection = "no roll open"; return false; }
+                        if (!roll.Eligible.Contains(e.B) || !Standing(e.B)) { rejection = "not in this roll"; return false; }
+                        if (roll.Choices.ContainsKey(e.B)) { rejection = "already answered"; return false; }
+                        if (e.C < 0 || e.C > (int)Items.LootRollChoice.Pass) { rejection = "no such choice"; return false; }
+                        roll.Choices[e.B] = (Items.LootRollChoice)e.C; break;
+                    }
+                case MatchEventKind.LootRollResolved:
+                    {
+                        if (!OpenRolls.TryGetValue(e.A, out var roll)) { rejection = "no roll open"; return false; }
+                        if (!RollCanResolve(e.A, e.Time)) { rejection = "still waiting on answers"; return false; }
+                        var entries = RollEntries(e.A).ToList();
+                        bool anyNeed = entries.Any(x => x.Choice == Items.LootRollChoice.Need), anyBid = entries.Any(x => x.Choice != Items.LootRollChoice.Pass);
+                        if (e.B < 0) { if (anyBid) { rejection = "someone rolled"; return false; } }
+                        else
+                        {
+                            var w = entries.FirstOrDefault(x => x.Player == e.B);
+                            if (w.Player != e.B || w.Choice == Items.LootRollChoice.Pass) { rejection = "winner did not roll"; return false; }
+                            if (anyNeed && w.Choice != Items.LootRollChoice.Need) { rejection = "a Need beats a Greed"; return false; }
+                        }
+                        OpenRolls.Remove(e.A); LootWinner[e.A] = e.B; break;
+                    }
                 case MatchEventKind.RoundEnded:
                     // The clock is a weapon: anyone still inside dies and drops everything.
                     foreach (int p in PlayerTeam.Keys.Where(p => !DeadPlayers.Contains(p) && !ExtractedPlayers.Contains(p)).ToList())
