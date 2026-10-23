@@ -89,15 +89,21 @@ namespace DungeonGen.Core.Net
         public HashSet<int> ExtractedPlayers { get; } = new HashSet<int>();
         /// <summary>playerId → team, from PlayerSpawned.</summary>
         public Dictionary<int, int> PlayerTeam { get; } = new Dictionary<int, int>();
-        /// <summary>Souls per team: one per enemy player killed. Spent at shrines.</summary>
+        /// <summary>
+        /// Souls per PLAYER, not per team. One for killing or finishing an enemy, one for being the
+        /// first to open a boss chest. Spent from your own pocket at shrines (a reviver pays for the
+        /// revive, you arm your own ultimate). Burned, not dropped, when you die; gone when you extract.
+        /// </summary>
         public Dictionary<int, int> Souls { get; } = new Dictionary<int, int>();
+        public int SoulsOf(int player) => Souls.TryGetValue(player, out int n) ? n : 0;
+        private void GrantSoul(int player) { if (player >= 0 && PlayerTeam.ContainsKey(player)) Souls[player] = SoulsOf(player) + 1; }
         public HashSet<int> ResurrectedOnce { get; } = new HashSet<int>();
         /// <summary>Keys destroyed because their holder extracted with them unused.</summary>
         public HashSet<int> DestroyedKeys { get; } = new HashSet<int>();
 
         public const int SoulsPerResurrection = 2;
-        /// <summary>Killing a boss grants the killing team a soul, the same as killing a player. PvE teams can now resurrect, arm an ultimate or buy at a shrine.</summary>
-        public const int SoulsPerBossKill = 1;
+        /// <summary>A boss's soul is in its chest: whoever opens the chest first takes it, not whoever landed the kill.</summary>
+        public const int SoulsPerBossChest = 1;
         public const int SoulsPerShrinePurchase = 1;
         public const int BroughtItemIdBase = 100000;
 
@@ -196,11 +202,11 @@ namespace DungeonGen.Core.Net
                     Explored[e.A].Add(e.B); break;
                 case MatchEventKind.ShrinePurchase:
                     {
-                        if (DeadPlayers.Contains(e.A) || !PlayerTeam.TryGetValue(e.A, out int team)) { rejection = "player not alive"; return false; }
+                        if (DeadPlayers.Contains(e.A) || !PlayerTeam.ContainsKey(e.A)) { rejection = "player not alive"; return false; }
                         if (e.B < 0 || e.B >= Items.Consumable.All.Count) { rejection = "no such consumable"; return false; }
                         if (e.C < 0 || e.C >= Layout.Rooms.Count || !Layout.Rooms[e.C].HasShrine) { rejection = "no shrine there"; return false; }
-                        if (!Souls.TryGetValue(team, out int souls) || souls < SoulsPerShrinePurchase) { rejection = "team has no souls"; return false; }
-                        Souls[team] = souls - SoulsPerShrinePurchase; break;
+                        if (SoulsOf(e.A) < SoulsPerShrinePurchase) { rejection = "you have no souls"; return false; }
+                        Souls[e.A] = SoulsOf(e.A) - SoulsPerShrinePurchase; break;
                     }
                 case MatchEventKind.ExtractsOpened:
                     if (!Started) { rejection = "not started"; return false; }
@@ -212,7 +218,9 @@ namespace DungeonGen.Core.Net
                         {
                             if (!Loots.TryGetValue(e.B, out var lc) || lc.kind != 0 || lc.target != e.A) { rejection = "no chest channel"; return false; }
                             if (e.Time - lc.started < Combat.FightRules.ChestOpenSeconds - 0.01f) { rejection = $"chest takes {Combat.FightRules.ChestOpenSeconds:0} s"; return false; }
+                            if (Layout.Rooms[e.A].IsBossRoom && !DeadBosses.Contains(e.A)) { rejection = "the boss is alive"; return false; }
                             Loots.Remove(e.B);
+                            if (Layout.Rooms[e.A].IsBossRoom) for (int i = 0; i < SoulsPerBossChest; i++) GrantSoul(e.B);   // the boss's soul is in its chest
                         }
                         OpenedContainers.Add(e.A); break;
                     }
@@ -262,7 +270,6 @@ namespace DungeonGen.Core.Net
                         if (DeadBosses.Contains(e.A)) { rejection = "already dead"; return false; }
                         DeadBosses.Add(e.A);
                         if (room.Type == RoomType.FinalBoss) FinalBossKillerTeam = e.B;
-                        if (e.B >= 0) Souls[e.B] = (Souls.TryGetValue(e.B, out int bs) ? bs : 0) + SoulsPerBossKill;
                         break;
                     }
                 case MatchEventKind.BossExitOpened:
@@ -274,6 +281,7 @@ namespace DungeonGen.Core.Net
                     Channels.Remove(e.A); Loots.Remove(e.A); Downed.Remove(e.A); Revives.Remove(e.A);
                     Disconnected.Remove(e.A);
                     UltimateCharges.Remove(e.A);                                   // an armed ultimate dies with you
+                    Souls.Remove(e.A);                                             // every soul you carried burns: not dropped, not transferred
                     if (PlayerSilver.TryGetValue(e.A, out int purse) && purse > 0) { CorpseSilver[e.A] = purse; PlayerSilver.Remove(e.A); }   // all of it
                     // Everything they held goes onto their corpse, open to anyone; the server then rolls which half of the worn gear is destroyed.
                     {
@@ -281,9 +289,9 @@ namespace DungeonGen.Core.Net
                         foreach (int it in held) ItemOwner.Remove(it);
                         Corpses[e.A] = new HashSet<int>(held);
                     }
-                    // A soul for the killer's team, only for player kills, never for teammates.
+                    // Exactly one soul to the killer, for an enemy player kill only, never a teammate.
                     if (e.B >= 0 && PlayerTeam.TryGetValue(e.B, out int killerTeam) && (!PlayerTeam.TryGetValue(e.A, out int victimTeam) || victimTeam != killerTeam))
-                        Souls[killerTeam] = (Souls.TryGetValue(killerTeam, out int sv) ? sv : 0) + 1;
+                        GrantSoul(e.B);
                     // Their keys fall where they stand; the server re-issues KeyPickedUp when someone grabs them.
                     foreach (var k in KeyHolder.Where(kv => kv.Value == e.A).Select(kv => kv.Key).ToList()) KeyHolder.Remove(k);
                     break;
@@ -309,7 +317,7 @@ namespace DungeonGen.Core.Net
                         ExtractedPlayers.Add(e.A);
                         ExtractedValue[e.A] = ItemOwner.Where(kv => kv.Value == e.A).Sum(kv => (long)(ItemValue.TryGetValue(kv.Key, out int v) ? v : 0));
                         if (PlayerSilver.TryGetValue(e.A, out int carried)) { ExtractedSilver[e.A] = carried; PlayerSilver.Remove(e.A); }
-                        UltimateCharges.Remove(e.A);                                   // never leaves the dungeon
+                        UltimateCharges.Remove(e.A); Souls.Remove(e.A);               // neither leaves the dungeon
                         // A vault key is worthless outside this dungeon: extracting with one destroys it.
                         foreach (var k in KeyHolder.Where(kv => kv.Value == e.A).Select(kv => kv.Key).ToList()) { KeyHolder.Remove(k); DestroyedKeys.Add(k); }
                         break;
@@ -321,8 +329,8 @@ namespace DungeonGen.Core.Net
                         if (!PlayerTeam.TryGetValue(e.A, out int team) || !PlayerTeam.TryGetValue(e.B, out int byTeam) || team != byTeam) { rejection = "only a teammate can resurrect"; return false; }
                         if (DeadPlayers.Contains(e.B) || ExtractedPlayers.Contains(e.B)) { rejection = "resurrector is out"; return false; }
                         if (e.C < 0 || e.C >= Layout.Rooms.Count || !Layout.Rooms[e.C].HasShrine) { rejection = "no shrine there"; return false; }
-                        if (!Souls.TryGetValue(team, out int souls) || souls < SoulsPerResurrection) { rejection = $"team needs {SoulsPerResurrection} souls"; return false; }
-                        Souls[team] = souls - SoulsPerResurrection;
+                        if (SoulsOf(e.B) < SoulsPerResurrection) { rejection = $"resurrector needs {SoulsPerResurrection} souls"; return false; }
+                        Souls[e.B] = SoulsOf(e.B) - SoulsPerResurrection;
                         DeadPlayers.Remove(e.A);
                         ResurrectedOnce.Add(e.A);
                         break;
@@ -391,11 +399,11 @@ namespace DungeonGen.Core.Net
                     }
                 case MatchEventKind.UltimateArmed:
                     {
-                        if (DeadPlayers.Contains(e.A) || Downed.ContainsKey(e.A) || !PlayerTeam.TryGetValue(e.A, out int team)) { rejection = "player not standing"; return false; }
+                        if (DeadPlayers.Contains(e.A) || Downed.ContainsKey(e.A) || !PlayerTeam.ContainsKey(e.A)) { rejection = "player not standing"; return false; }
                         if (e.B < 0 || e.B >= Layout.Rooms.Count || !Layout.Rooms[e.B].HasShrine) { rejection = "no shrine there"; return false; }
                         if (UltimateCharges.TryGetValue(e.A, out int have) && have > 0) { rejection = "already armed"; return false; }
-                        if (!Souls.TryGetValue(team, out int souls) || souls < Combat.FightRules.SoulsToArmUltimate) { rejection = $"team needs {Combat.FightRules.SoulsToArmUltimate} souls"; return false; }
-                        Souls[team] = souls - Combat.FightRules.SoulsToArmUltimate;
+                        if (SoulsOf(e.A) < Combat.FightRules.SoulsToArmUltimate) { rejection = $"you need {Combat.FightRules.SoulsToArmUltimate} souls"; return false; }
+                        Souls[e.A] = SoulsOf(e.A) - Combat.FightRules.SoulsToArmUltimate;
                         UltimateCharges[e.A] = Combat.FightRules.UltimateUsesPerArming;
                         break;
                     }
@@ -430,7 +438,7 @@ namespace DungeonGen.Core.Net
                         foreach (var k in KeyHolder.Where(kv => kv.Value == p).Select(kv => kv.Key).ToList()) KeyHolder.Remove(k);
                         var held = ItemOwner.Where(kv => kv.Value == p).Select(kv => kv.Key).ToList();
                         foreach (int it in held) { ItemOwner.Remove(it); DestroyedItems.Add(it); }   // nothing left behind survives the round
-                        PlayerSilver.Remove(p); UltimateCharges.Remove(p);
+                        PlayerSilver.Remove(p); UltimateCharges.Remove(p); Souls.Remove(p);
                     }
                     Ended = true; break;
             }

@@ -3,6 +3,19 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-23 · Souls are personal — LOCKED AND BUILT
+
+* **A soul belongs to the player who earned it**, not the team. One for killing or finishing an
+  enemy player (never a teammate). **One in every boss chest: whoever opens it first takes it**,
+  not whoever landed the kill, and a boss chest cannot be opened while the boss lives.
+* **Spending is personal.** A reviver pays two of their *own* souls at the shrine; you arm your own
+  ultimate; a shrine consumable comes from your own pocket. A teammate's souls are not yours.
+* **Death burns every soul you carried.** Not dropped, not transferred. The killer gets exactly one
+  soul for the kill, whatever the victim held. Souls do not extract and do not survive the round.
+* Why: a player carrying two souls is carrying a resurrection, an ultimate, or two potions, and
+  losing a fight should cost that outright rather than hand it to the winner. It also means the
+  gold aura is honest: an armed player is worth one soul to kill, never more.
+
 ## 2026-10-23 · Ultimates, settled — LOCKED AND BUILT
 
 * **Every ultimate has one of three jobs:** deny space (Cave-In, Lockdown, Inferno, Suppression,
@@ -146,9 +159,8 @@ Answered in one sitting; each line is a decision, not a default. Code: `PlayerPr
    inside dies and drops everything (`RoundEnded` kills everyone not extracted). The clock is a weapon.
 3. **Resurrection, not spectating.** A dead teammate can be brought back at a **shrine** for
    **2 souls**; they return **naked**, and the team decides who gives up gear. Souls come from
-   **player kills and boss kills** (one per enemy player killed, never teammates; one per boss
-   killed, the final boss included), so a PvE team can earn a resurrection the hard way and PvP
-   has a reward beyond loot. (Boss souls added 2026-10-23.) **Once per player per round.** Shrines stand in hub rooms (at
+   **player kills and boss chests** (one per enemy player killed, never teammates; one in each
+   boss chest for whoever opens it first). Superseded in detail by "Souls are personal" above. **Once per player per round.** Shrines stand in hub rooms (at
    least one per dungeon), so a res is always a contested walk. (`PlayerResurrected`, `ShrinePlacer`.)
 4. **Keys are destroyed if extracted unused.** Nothing back. Use it or lose it.
 5. **Weight-only inventory.** No slot grid. Worn and carried kilograms count against carry

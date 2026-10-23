@@ -565,9 +565,10 @@ and `CandidateCount` if you go there.
 * **20-minute round, extracts open at 4** (`MatchRules`). `RoundEnded` kills everyone still
   inside and drops their keys: the clock is a weapon.
 * **Resurrection.** `PlayerSpawned` gives the state the roster; `PlayerDied` with a player killer
-  grants the killer's team a soul (never for teammates), and so does `BossKilled`; `PlayerResurrected` costs the team two
-  souls, needs a living teammate at a shrine room, works once per player per round, and brings the
-  player back **naked**. Shrines are placed by `ShrinePlacer` in every hub (at least one per
+  grants the killer one soul (never for teammates) and burns every soul the victim carried; opening
+  a boss chest first grants its opener one. Souls are per player. `PlayerResurrected` costs the
+  reviver two of their own souls, needs a living teammate at a shrine room, works once per player
+  per round, and brings the player back **naked**. Shrines are placed by `ShrinePlacer` in every hub (at least one per
   dungeon) and shown as † in the ASCII view.
 * **Keys die on extraction.** `PlayerExtracted` destroys every key the player held; a destroyed
   key cannot be picked up again.
@@ -610,14 +611,14 @@ comms), `Vendor.ClaimStarterKit` (the free floor), `CraftingRules.SilverFee` (th
 server ids; death moves everything held onto a corpse anyone can open after the server rolls
 which worn half is destroyed; extraction needs a channel started at that gate, undamaged, long
 enough ago; the round end destroys whatever was left inside; a team's minimap is the rooms the
-server has told it it saw; a shrine sells a consumable for one of the team's souls.
+server has told it it saw; a shrine sells a consumable for one of your own souls.
 
 ## Silver, regen and ultimates (locked, built)
 
 Silver lies in every room with a mob pack or a chest (`Room.Silver`, rolled by `LootPlacer`,
 weightless), is picked up once per room, drops in full on death and is destroyed if left inside.
 Health never regenerates on its own; Stamina and Mana do. Each spec has one **earned ultimate**:
-two of the team's souls at a shrine arm it for one use, it dies with you and never leaves the
+two of your own souls at a shrine arm it for one use, it dies with you and never leaves the
 dungeon (`WeaponSpec.Ultimates`, `UltimateArmed` / `UltimateUsed`). The matchmaker's match carries
 settings sized to the teams it formed.
 

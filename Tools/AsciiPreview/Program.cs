@@ -205,6 +205,9 @@ namespace DungeonGen.Tools
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.PlayerExtracted, 310, 2, serverLayout.FinalBossRoom.Id, 1));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.BossKilled, 400, serverLayout.FinalBossRoom.Id, 1));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.BossExitOpened, 401));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.LootStarted, 401, 2, serverLayout.FinalBossRoom.Id, 0));
+            Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ContainerOpened, 403, serverLayout.FinalBossRoom.Id, 2));
+            Console.WriteLine($"  player 2 carries {state.SoulsOf(2)} soul(s): the boss's soul was in its chest, and whoever opens it first takes it");
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.ExtractStarted, 402, 2, serverLayout.FinalBossRoom.Id));
             Try(new DungeonGen.Core.Net.MatchEvent(DungeonGen.Core.Net.MatchEventKind.PlayerExtracted, 410, 2, serverLayout.FinalBossRoom.Id, 1));
             var logBytes = state.LogToBytes();

@@ -82,7 +82,7 @@ Every weapon drop in the dungeon is a potential build change for someone.
 
 ## Ultimates (earned)
 
-One per spec, armed at a shrine for two of the team's souls, one use, lost on death, never
+One per spec, armed at a shrine for two of your own souls, one use, lost on death, never
 leaves the dungeon. Two souls is also a teammate's life, so every ultimate changes what the room
 is rather than doing more damage. They obey full friendly fire, no exceptions, and an armed one is
 a soft gold aura visible to anyone in line of sight.
