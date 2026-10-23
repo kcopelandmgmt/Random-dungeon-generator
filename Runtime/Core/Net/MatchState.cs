@@ -96,6 +96,8 @@ namespace DungeonGen.Core.Net
         public HashSet<int> DestroyedKeys { get; } = new HashSet<int>();
 
         public const int SoulsPerResurrection = 2;
+        /// <summary>Killing a boss grants the killing team a soul, the same as killing a player. PvE teams can now resurrect, arm an ultimate or buy at a shrine.</summary>
+        public const int SoulsPerBossKill = 1;
         public const int SoulsPerShrinePurchase = 1;
         public const int BroughtItemIdBase = 100000;
 
@@ -260,6 +262,7 @@ namespace DungeonGen.Core.Net
                         if (DeadBosses.Contains(e.A)) { rejection = "already dead"; return false; }
                         DeadBosses.Add(e.A);
                         if (room.Type == RoomType.FinalBoss) FinalBossKillerTeam = e.B;
+                        if (e.B >= 0) Souls[e.B] = (Souls.TryGetValue(e.B, out int bs) ? bs : 0) + SoulsPerBossKill;
                         break;
                     }
                 case MatchEventKind.BossExitOpened:

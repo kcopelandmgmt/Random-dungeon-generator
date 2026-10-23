@@ -1311,7 +1311,7 @@ namespace DungeonGen.Tests
         }
 
         [Fact]
-        public void SoulsComeOnlyFromEnemyPlayerKills()
+        public void SoulsComeFromEnemyPlayerKillsAndBossKills()
         {
             var (st, layout) = Fresh();
             string why;
@@ -1321,6 +1321,13 @@ namespace DungeonGen.Tests
             Assert.Empty(st.Souls);
             Assert.True(st.Apply(new MatchEvent(MatchEventKind.PlayerDied, 12, 5, 1, 0), out why));      // team 0 kills team 1
             Assert.Equal(1, st.Souls[0]);
+            var boss = layout.BossRooms.First();
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.BossKilled, 13, boss.Id, 1), out why));   // team 1 kills a boss
+            Assert.Equal(1, st.Souls[1]);
+            Assert.True(st.Apply(new MatchEvent(MatchEventKind.BossKilled, 14, layout.FinalBossRoom.Id, 1), out why));
+            Assert.Equal(2, st.Souls[1]);
+            Assert.False(st.Apply(new MatchEvent(MatchEventKind.BossKilled, 15, boss.Id, 0), out why), "a boss dies once");
+            Assert.Equal(MatchState.SoulsPerResurrection, st.Souls[1]);                                   // a pure PvE team can now resurrect
         }
 
         [Fact]

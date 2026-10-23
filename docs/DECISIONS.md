@@ -146,8 +146,9 @@ Answered in one sitting; each line is a decision, not a default. Code: `PlayerPr
    inside dies and drops everything (`RoundEnded` kills everyone not extracted). The clock is a weapon.
 3. **Resurrection, not spectating.** A dead teammate can be brought back at a **shrine** for
    **2 souls**; they return **naked**, and the team decides who gives up gear. Souls come from
-   **player kills only** (one per enemy player killed; never teammates), so PvE teams cannot res and
-   PvP has a reward beyond loot. **Once per player per round.** Shrines stand in hub rooms (at
+   **player kills and boss kills** (one per enemy player killed, never teammates; one per boss
+   killed, the final boss included), so a PvE team can earn a resurrection the hard way and PvP
+   has a reward beyond loot. (Boss souls added 2026-10-23.) **Once per player per round.** Shrines stand in hub rooms (at
    least one per dungeon), so a res is always a contested walk. (`PlayerResurrected`, `ShrinePlacer`.)
 4. **Keys are destroyed if extracted unused.** Nothing back. Use it or lose it.
 5. **Weight-only inventory.** No slot grid. Worn and carried kilograms count against carry

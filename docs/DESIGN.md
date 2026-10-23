@@ -565,7 +565,7 @@ and `CandidateCount` if you go there.
 * **20-minute round, extracts open at 4** (`MatchRules`). `RoundEnded` kills everyone still
   inside and drops their keys: the clock is a weapon.
 * **Resurrection.** `PlayerSpawned` gives the state the roster; `PlayerDied` with a player killer
-  grants the killer's team a soul (never for teammates); `PlayerResurrected` costs the team two
+  grants the killer's team a soul (never for teammates), and so does `BossKilled`; `PlayerResurrected` costs the team two
   souls, needs a living teammate at a shrine room, works once per player per round, and brings the
   player back **naked**. Shrines are placed by `ShrinePlacer` in every hub (at least one per
   dungeon) and shown as † in the ASCII view.
