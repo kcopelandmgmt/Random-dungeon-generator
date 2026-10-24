@@ -654,6 +654,21 @@ queue region; `QueuedGroup.Region` and `Tier` key the matchmaker. `MatchRules.Ba
 and `PlayerSpawned` is refused once the doors are open. `Season.Starting` makes 91-day seasons.
 `Strings.Get(key)` serves every player-facing string with English fallback.
 
+## The ability and damage pipeline (built, first tuning)
+
+`AbilityDefinition` is the unit; `AbilityBook.All` holds every ability, `AbilityBook.For(spec)`
+a spec's five. `FightSim` holds `Combatant`s (players from `PlayerStats`, mobs and bosses from
+the tuner's budgets) on a layout: `Cast(caster, abilityId, aim)` validates (alive, not hard
+controlled, right spec, armed ultimate, cooldown, resource, range, sight), selects targets by
+shape (`SelectTargets`, also exposed as `Preview` for brains and HUDs), spends and starts the
+cooldown, then `Affect`s each target: `Strike` (passives, crit, stances, mitigation in
+`ApplyDamage`, statuses in `ApplyStatus` with spread and chain, lifesteal, thorns), `Heal`,
+buffs, knockback. `Tick(dt)` regenerates resources, flushes damage over time once a second,
+pulses zones, bleeds out the downed and expires buffs. `Move` respects Chill, roots and solids.
+`FightBridge.ToMatchEvents` maps the simulator's downed, finished, died and revived to
+`MatchEvent`s. `FightLab` builds arenas and runs duels, team fights and party-versus-boss with
+`SimpleBrain`; the console tool exposes it as `--sim`.
+
 ## Interiors, doors and hazards (locked, built)
 
 `InteriorPlacer.Assign` runs after the rasterizer: it paints `TileType.Pillar` and

@@ -3,6 +3,41 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-24 · The ability and damage pipeline — BUILT, FIRST TUNING
+
+The first piece of engine work, done where it can be tested: every kit in the game now runs.
+
+1. **Abilities are data** (`AbilityBook`): four per spec (basic, bolt, zone, mobility) for the ten
+   weapon specs and three element kits, plus the thirteen ultimates, plus the mob and boss
+   stand-ins. Each is a shape (self, target, projectile, pierce, cone, circle, dash), a filter,
+   a range, a size, a damage multiple of the caster's DPS, an element, a status, a cooldown, a
+   duration for zones, a knockback, and a buff. Everything that damages obeys full friendly
+   fire. Passives that change numbers (Backstab, Deadeye, Execute, Frenzy, Momentum) are
+   implemented by name in the simulator.
+2. **The fight simulator** (`FightSim`) resolves a cast on the real grid: projectiles stop at
+   the first body and at anything solid (pillars, low walls, pits, locked and closed doors);
+   sight follows the same rules as the minimap; cones and circles need sight; dashes stop at
+   walls; knockbacks stop at walls. The damage step runs physical through armour and the rest
+   through resistances, then damage-reduction buffs; crits are 1.5× from a seeded RNG; statuses
+   apply with the target's resistances and diminishing returns; damage over time ticks once a
+   second from the hit that applied it; lifesteal, thorns, Bloodbath healing and Riposte and
+   Perfect Guard reflects are in. Zero health downs a player (mobs die); a downed player bleeds
+   out at 60 s; **only an enemy can finish a downed player** (a teammate's stray swing does
+   nothing to a body), at half of max health as decided. Stagger is an interrupt, Stun and
+   Freeze stop acting. Every hit goes to the `HitLog` the death recap reads.
+3. **The bridge** (`FightBridge`) turns downed, finished, dead and revived into the match events
+   the round state already validates, so the fight and the round agree through one door.
+4. **The fight lab** (`FightLab`, `SimpleBrain`, `--sim duels|teams|boss|trace|bosstrace`) runs
+   thousands of deterministic fights. Its brain avoids friendly fire with a target preview,
+   flanks instead of stacking, taunts and shield-walls as a tank, heals and sanctuaries as a
+   Mender, and turns a taunted boss on the Warden. First numbers: a geared trio beats the room
+   boss every time in about a minute (the tuner's target), a fresh trio four times in five in
+   about two minutes, a duo and a solo never. Healers lose duels, as designed. Mend was raised
+   from 0.6 to 1.0 of DPS after the lab showed Burn stacking outran it.
+5. **Still open for tuning:** the duel matrix is lopsided (Berserker and Duelist on top, the
+   Shade specs and Warder at the bottom), which is partly the plain brain not kiting or
+   stealthing and partly real. The numbers in the book are first tuning; the lab is the tool.
+
 ## 2026-10-23 · Interiors, doors, hazards, mutators, events, bots — LOCKED AND BUILT
 
 Six additions, all deterministic from the seed and part of the public layout where they are

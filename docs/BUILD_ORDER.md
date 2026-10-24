@@ -19,11 +19,11 @@ the round summary is right.
 3. **Fishnet transport** (1 week). Implement `IMatchTransport`: descriptor broadcast, events and
    views per team, pings. Done: `DungeonMatchBootstrap` hosts a round, clients load views, a
    reconnect gets the current view, and the `--net` demo's event sequence runs live.
-4. **Ability and damage pipeline** (3 weeks). The biggest piece. Server-side hit resolution for
-   skillshots and zones, `DamageProfile` through `Resistances`, status effects through
-   `StatusTracker`, resources and cooldowns, full friendly fire, the downed state and finishing.
-   Done: the three slice classes' six specs and their ultimates work as written in `CLASSES.md`,
-   and a `HitLog` feeds the death recap.
+4. **Ability and damage pipeline** (3 weeks). **Core half done** (`AbilityBook`, `FightSim`,
+   `FightBridge`, `FightLab`): every ability resolves on the grid with full friendly fire,
+   mitigation, statuses, downed and finishing, and the hit log feeds the death recap. Left: the
+   Unity side (casting from input, projectile and zone visuals, hit feedback) and tuning with
+   the lab. Done: the three slice classes' six specs and their ultimates play as written.
 5. **Mobs and bosses** (2 weeks). Pathing is `GridPath`; rules are `MobRules`. Done: packs leash,
    target nearest, obey taunts, never respawn; the two slice bosses use their archetype numbers
    and one affix each; the final boss opens the exit.

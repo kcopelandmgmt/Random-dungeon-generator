@@ -24,7 +24,7 @@ namespace DungeonGen.Tools
                 if (args[i] == "--teams") settings = DungeonSettings.ForTeams(int.Parse(args[i + 1]));
             for (int i = 0; i + 1 < args.Length; i++)
                 if (args[i] == "--tier") DungeonTier.For(int.Parse(args[i + 1])).Apply(settings);
-            int viewTeam = -1;
+            int viewTeam = -1; string simMode = "duels"; int simTier = 2, simSeeds = 40;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -34,6 +34,9 @@ namespace DungeonGen.Tools
                     case "--teams": Next(); break;
                     case "--tier": Next(); break;
                     case "--view": viewTeam = int.Parse(Next()); command = "--view"; break;
+                    case "--sim": simMode = Next(); command = "--sim"; break;
+                    case "--sim-tier": simTier = int.Parse(Next()); break;
+                    case "--sim-seeds": simSeeds = int.Parse(Next()); break;
                     case "--no-interiors": settings.InteriorsEnabled = false; break;
                     case "--no-hazards": settings.HazardsEnabled = false; break;
                     case "--ring": settings.SpawnPlacement = SpawnPlacement.Ring; break;
@@ -60,7 +63,7 @@ namespace DungeonGen.Tools
                     case "--batch": batch = int.Parse(Next()); break;
                     case "--no-legend": legend = false; break;
                     case "--help":
-                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear --lifetime --craft --net --tier 1..3 --view TEAM --no-interiors --no-hazards");
+                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear --lifetime --craft --net --tier 1..3 --view TEAM --no-interiors --no-hazards --sim duels|teams|boss|trace [--sim-tier N --sim-seeds N]");
                         return 0;
                     default:
                         Console.Error.WriteLine("Unknown argument " + args[i]);
@@ -77,6 +80,7 @@ namespace DungeonGen.Tools
                 case "--craft": return CraftDemo(settings, seed);
                 case "--net": return NetDemo(settings, seed);
                 case "--view": return ViewDemo(settings, seed, viewTeam);
+                case "--sim": return SimDemo(simMode, simTier, simSeeds, seed);
                 case "--roll": return RollItems(rollN, rollLevel, seed);
                 case "--loot":
                     {
@@ -230,6 +234,87 @@ namespace DungeonGen.Tools
             var near = idx.RoomsWithin(serverLayout.SpawnRooms.First().Id, 2);
             Console.WriteLine($"INTEREST: a player in spawn room {serverLayout.SpawnRooms.First().Id} needs updates from {near.Count} of {serverLayout.Rooms.Count} rooms (2 hops).");
             return 0;
+        }
+
+        /// <summary>--sim duels|teams|boss|trace: run the fight lab and print win rates, times and, for trace, one fight blow by blow.</summary>
+        private static int SimDemo(string mode, int tier, int seeds, int seed)
+        {
+            var specs = DungeonGen.Core.Combat.WeaponSpec.All.Select(w => w.Name).Concat(DungeonGen.Core.Combat.ElementKit.All.Select(k => k.Name)).ToList();
+            switch (mode)
+            {
+                case "duels":
+                    {
+                        Console.WriteLine($"DUELS, gear tier {tier}, {seeds} seeds each. Row beats column; 0.50 is even. Draws at 120 s count for neither.");
+                        Console.Write("              "); foreach (var b in specs) Console.Write($"{b.Substring(0, Math.Min(6, b.Length)),7}"); Console.WriteLine();
+                        var overall = new System.Collections.Generic.Dictionary<string, float>();
+                        foreach (var a in specs)
+                        {
+                            Console.Write($"{a,-14}"); float sum = 0; int n = 0;
+                            foreach (var b in specs)
+                            {
+                                if (a == b) { Console.Write("      -"); continue; }
+                                var (w, _, _) = DungeonGen.Core.Combat.FightLab.DuelSeries(a, b, tier, seeds);
+                                Console.Write($"{w,7:0.00}"); sum += w; n++;
+                            }
+                            overall[a] = sum / n; Console.WriteLine($"   avg {sum / n:0.00}");
+                        }
+                        Console.WriteLine("Strongest: " + string.Join(", ", overall.OrderByDescending(kv => kv.Value).Take(3).Select(kv => $"{kv.Key} {kv.Value:0.00}")) + "; weakest: " + string.Join(", ", overall.OrderBy(kv => kv.Value).Take(3).Select(kv => $"{kv.Key} {kv.Value:0.00}")));
+                        return 0;
+                    }
+                case "teams":
+                    {
+                        var trios = new[] { new[] { "Sentinel", "Sharpshooter", "Warder" }, new[] { "Breaker", "Berserker", "Plaguebearer" }, new[] { "Duelist", "Assassin", "Pyromancy" }, new[] { "Sentinel", "Volleyer", "Cryomancy" } };
+                        Console.WriteLine($"TRIOS, gear tier {tier}, {seeds} seeds each.");
+                        for (int i = 0; i < trios.Length; i++)
+                            for (int j = i + 1; j < trios.Length; j++)
+                            {
+                                int a = 0, draws = 0; float secs = 0;
+                                for (int s = 1; s <= seeds; s++) { var r = DungeonGen.Core.Combat.FightLab.TeamFight(trios[i], trios[j], tier, s); if (r.TimedOut) draws++; else if (r.WinnerTeam == 0) a++; secs += r.Seconds; }
+                                Console.WriteLine($"  {string.Join("/", trios[i]),-36} vs {string.Join("/", trios[j]),-36} {a / (float)Math.Max(1, seeds - draws),5:0.00}  avg {secs / seeds,5:0.0}s  draws {draws}");
+                            }
+                        return 0;
+                    }
+                case "boss":
+                    {
+                        Console.WriteLine($"PARTY VS ROOM BOSS (tuned for 2.5 players at x1.4 gear), {seeds} seeds. The tuner promises a geared trio wins with margin and a duo is a coin flip.");
+                        foreach (var (party, t) in new[] { (new[] { "Sentinel", "Berserker", "Warder" }, 2), (new[] { "Sentinel", "Berserker", "Warder" }, 0), (new[] { "Berserker", "Sharpshooter" }, 2), (new[] { "Berserker" }, 4), (new[] { "Sentinel", "Berserker", "Warder", "Volleyer" }, 1) })
+                        {
+                            int wins = 0; float secs = 0;
+                            for (int s = 1; s <= seeds; s++) { var r = DungeonGen.Core.Combat.FightLab.PartyVsBoss(party, t, s); if (r.WinnerTeam == 0) wins++; secs += r.Seconds; }
+                            Console.WriteLine($"  {string.Join("/", party),-40} tier {t}: win {wins / (float)seeds:0.00}, avg {secs / seeds:0.0}s");
+                        }
+                        return 0;
+                    }
+                case "bosstrace":
+                    {
+                        var b = new DungeonGen.Core.Combat.CombatBaseline();
+                        var budget = DungeonGen.Core.Combat.EncounterTuner.RoomBoss(b);
+                        Console.WriteLine("BUDGET " + budget);
+                        var sim = new DungeonGen.Core.Combat.FightSim(DungeonGen.Core.Combat.FightLab.OpenArena(16, 16), seed);
+                        var party = new[] { "Sentinel", "Berserker", "Warder" };
+                        for (int i = 0; i < party.Length; i++) { var c = sim.Add(DungeonGen.Core.Combat.FightLab.Player(1 + i, 0, party[i], tier, new DungeonGen.Core.Combat.Vec2(3f + i * 2f, 3f), b)); Console.WriteLine($"  {c}  dps {c.Dps:0} armour {c.ArmourRating:0} atkspd {c.AttackSpeed:0.00}"); }
+                        var arch = DungeonGen.Core.Combat.BossArchetype.DefaultPool[0];
+                        var boss = sim.Add(DungeonGen.Core.Combat.Combatant.Boss(99, 1, arch.Name, budget, arch.Damage, null, new DungeonGen.Core.Combat.Vec2(9f, 12f), DungeonGen.Core.Combat.StatusKind.Bleed));
+                        Console.WriteLine($"  {boss} dps {boss.Dps:0} profile {arch.Damage}");
+                        var report = DungeonGen.Core.Combat.FightLab.Run(sim, 240f);
+                        foreach (var kv in report.DamageDealt) Console.WriteLine($"  dealt by {kv.Key}: {kv.Value:0}");
+                        foreach (var e in sim.Events.Where(e => e.Kind == DungeonGen.Core.Combat.FightEventKind.Downed || e.Kind == DungeonGen.Core.Combat.FightEventKind.Died || e.Kind == DungeonGen.Core.Combat.FightEventKind.Finished)) Console.WriteLine("  " + e);
+                        Console.WriteLine($"  boss hp left {boss.Health:0}/{boss.MaxHealth:0}; " + report);
+                        var hits = sim.Events.Where(e => e.Kind == DungeonGen.Core.Combat.FightEventKind.Hit && e.Source == 99).Take(6);
+                        foreach (var h in hits) Console.WriteLine("  " + h);
+                        return 0;
+                    }
+                default:
+                    {
+                        var sim = new DungeonGen.Core.Combat.FightSim(DungeonGen.Core.Combat.FightLab.OpenArena(20, 12), seed);
+                        sim.Add(DungeonGen.Core.Combat.FightLab.Player(1, 0, "Duelist", tier, new DungeonGen.Core.Combat.Vec2(4f, 6f)));
+                        sim.Add(DungeonGen.Core.Combat.FightLab.Player(2, 1, "Pyromancy", tier, new DungeonGen.Core.Combat.Vec2(17f, 6f)));
+                        var report = DungeonGen.Core.Combat.FightLab.Run(sim, 120f);
+                        foreach (var e in sim.Events.Where(e => e.Kind != DungeonGen.Core.Combat.FightEventKind.Rejected).Take(60)) Console.WriteLine("  " + e);
+                        Console.WriteLine("  ... " + report);
+                        return 0;
+                    }
+            }
         }
 
         /// <summary>--view TEAM: what one team knows after a short scripted round, next to what the server knows.</summary>

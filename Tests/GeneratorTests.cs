@@ -3548,3 +3548,361 @@ namespace DungeonGen.Tests
         }
     }
 }
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+    using DungeonGen.Core.Net;
+
+    public class FightSimTests
+    {
+        private static FightSim Arena(int seed = 1) => new FightSim(FightLab.OpenArena(20, 12), seed);
+        private static Combatant P(FightSim sim, int id, int team, string spec, float x, float y, int tier = 0) => sim.Add(FightLab.Player(id, team, spec, tier, new Vec2(x, y)));
+
+        [Fact]
+        public void EverySpecHasFourAbilitiesAndAnUltimateAndIdsAreUnique()
+        {
+            var specs = WeaponSpec.All.Select(w => w.Name).Concat(ElementKit.All.Select(k => k.Name)).ToList();
+            Assert.Equal(13, specs.Count);                                                             // ten weapon specs and three element kits
+            foreach (var spec in specs)
+            {
+                var kinds = AbilityBook.For(spec).Select(a => a.Kind).ToList();
+                Assert.Equal(new[] { AbilityKind.Basic, AbilityKind.Bolt, AbilityKind.Zone, AbilityKind.Mobility, AbilityKind.Ultimate }, kinds.OrderBy(k => k).ToArray());
+                Assert.Equal(AbilityBook.Ultimate(spec).Name, WeaponSpec.Ultimates[spec].Split(':')[0]);
+            }
+            Assert.Equal(AbilityBook.All.Count, AbilityBook.All.Select(a => a.Id).Distinct().Count());
+            Assert.Equal(AbilitySlot.Bolt, AbilityBook.Get("Sentinel.bolt").CostSlot);
+            Assert.Null(AbilityBook.Get("Sentinel.basic").CostSlot); Assert.Null(AbilityBook.Get("Sentinel.ult").CostSlot);
+            Assert.NotNull(AbilityBook.Get("Mob.basic")); Assert.NotNull(AbilityBook.Get("Boss.slam"));
+            Assert.All(AbilityBook.All.Where(a => a.Damage > 0f), a => Assert.NotEqual(TargetFilter.Allies, a.Filter));   // everything that hurts obeys friendly fire
+        }
+
+        [Fact]
+        public void ProjectilesStopAtTheFirstBodyAndAtPillarsAndClosedDoorsPierceGoesThrough()
+        {
+            var sim = Arena();
+            var shooter = P(sim, 1, 0, "Sharpshooter", 3f, 6f);
+            var ally = P(sim, 2, 0, "Warder", 8f, 6f);
+            var enemy = P(sim, 3, 1, "Reaver" == "" ? "" : "Berserker", 13f, 6f);
+            var r = sim.Cast(1, "Sharpshooter.basic", enemy.Position);
+            Assert.True(r.Ok); Assert.Equal(new[] { 2 }, r.Targets);                                  // the arrow hits the teammate standing in the line, at full strength
+            Assert.True(ally.Health < ally.MaxHealth);
+            sim.Tick(1.5f);
+            var pierce = sim.Cast(1, "Sharpshooter.bolt", enemy.Position);
+            Assert.True(pierce.Ok); Assert.Equal(new[] { 2, 3 }, pierce.Targets);                     // Piercing Shot goes through both
+            // A pillar in the way stops the arrow (the teammate steps out of the lane first).
+            ally.Position = new Vec2(8f, 2f);
+            sim.Layout.Tiles[10, 6] = TileType.Pillar;
+            sim.Tick(1.5f);
+            Assert.Empty(sim.Cast(1, "Sharpshooter.basic", new Vec2(16f, 6f)).Targets);
+            sim.Layout.Tiles[10, 6] = TileType.LowWall;
+            sim.Tick(1.5f);
+            Assert.Empty(sim.Cast(1, "Sharpshooter.basic", new Vec2(16f, 6f)).Targets);               // a low wall stops arrows too
+            Assert.True(sim.CanSee(shooter.Position, enemy.Position));                                 // but not sight
+            sim.Layout.Tiles[10, 6] = TileType.Door;
+            sim.ClosedDoors.Add(new GridPoint(10, 6));
+            Assert.False(sim.CanSee(shooter.Position, enemy.Position));
+            sim.Tick(7f);
+            var past = sim.Cast(1, "Sharpshooter.bolt", enemy.Position);
+            Assert.True(past.Ok, past.Rejection); Assert.Empty(past.Targets);                           // the cast is legal; it just hits nothing past the door
+        }
+
+        [Fact]
+        public void ConesCirclesAndTargetsFindTheRightBodiesAndRejectBadAims()
+        {
+            var sim = Arena();
+            var axe = P(sim, 1, 0, "Berserker", 10f, 6f);
+            var front = P(sim, 2, 1, "Warder", 11.2f, 6f);
+            var behind = P(sim, 3, 1, "Warder", 8.8f, 6f);
+            var far = P(sim, 4, 1, "Warder", 16f, 6f);
+            var cleave = sim.Cast(1, "Berserker.bolt", front.Position);
+            Assert.True(cleave.Ok); Assert.Contains(2, cleave.Targets); Assert.DoesNotContain(3, cleave.Targets); Assert.DoesNotContain(4, cleave.Targets);
+            Assert.True(front.Status.Has(StatusKind.Bleed));
+            var thrust = new FightSim(FightLab.OpenArena(20, 12), 1);
+            var d = thrust.Add(FightLab.Player(1, 0, "Duelist", 0, new Vec2(4f, 6f)));
+            thrust.Add(FightLab.Player(2, 1, "Warder", 0, new Vec2(16f, 6f)));
+            var oor = thrust.Cast(1, "Duelist.bolt", new Vec2(16f, 6f));
+            Assert.False(oor.Ok); Assert.Contains("out of range", oor.Rejection);
+            var nobody = thrust.Cast(1, "Duelist.bolt", new Vec2(5f, 6f));
+            Assert.False(nobody.Ok); Assert.Contains("no target", nobody.Rejection);
+            var rain = new FightSim(FightLab.OpenArena(20, 12), 1);
+            rain.Add(FightLab.Player(1, 0, "Volleyer", 0, new Vec2(8f, 6f)));                      // within the zone's 12 m throw
+            var a = rain.Add(FightLab.Player(2, 1, "Warder", 0, new Vec2(12f, 6f)));
+            var b = rain.Add(FightLab.Player(3, 1, "Warder", 0, new Vec2(13f, 7f)));
+            var c = rain.Add(FightLab.Player(4, 1, "Warder", 0, new Vec2(18f, 6f)));
+            Assert.True(rain.Cast(1, "Volleyer.zone", new Vec2(12.5f, 6.5f)).Ok);
+            Assert.Single(rain.Zones);
+            rain.Tick(0.1f);
+            Assert.True(a.Health < a.MaxHealth && b.Health < b.MaxHealth && c.Health == c.MaxHealth);   // the zone ticked on the two inside
+            float afterOne = a.Health;
+            rain.Tick(0.5f);
+            Assert.Equal(afterOne, a.Health, 1);                                                      // once a second, not every tick
+            rain.Tick(0.5f);
+            Assert.True(a.Health < afterOne);
+            for (int y = 1; y <= 12; y++) rain.Layout.Tiles[10, y] = TileType.Pillar;                 // a wall of pillars between the archer and the point
+            rain.Tick(20f);
+            var blind = rain.Cast(1, "Volleyer.zone", new Vec2(12.5f, 6.5f));
+            Assert.False(blind.Ok); Assert.Contains("line of sight", blind.Rejection);
+        }
+
+        [Fact]
+        public void DamageIsMitigatedByArmourAndResistanceAndPassivesChangeIt()
+        {
+            var sim = Arena(5);
+            var warden = P(sim, 1, 0, "Sentinel", 10f, 6f, tier: 2);
+            var pyro = P(sim, 2, 1, "Pyromancy", 14f, 6f);
+            var duelist = P(sim, 3, 1, "Duelist", 10f, 9f);                                           // off the firebolt's lane
+            float fire = warden.Resistances.Mitigation(DamageType.Fire), armour = StatFormulas.Mitigation(warden.ArmourRating, StatFormulas.MitigationCap + warden.Resistances.CapBonus / 100f);
+            Assert.True(armour > fire, "heavy armour stops swords, not fire");
+            var firebolt = sim.Cast(2, "Pyromancy.bolt", warden.Position);
+            Assert.True(firebolt.Ok);
+            float expectedFire = (float)Math.Round(pyro.Dps * 1.5f * (1f - fire), 1);
+            Assert.True(Math.Abs(firebolt.TotalDamage - expectedFire) < 0.2f || Math.Abs(firebolt.TotalDamage - expectedFire * FightSim.CritMultiplier) < 0.2f, $"{firebolt.TotalDamage} vs {expectedFire}");
+            Assert.True(warden.Status.Has(StatusKind.Burn));
+            duelist.Position = new Vec2(11.5f, 6f);
+            var thrust = sim.Cast(3, "Duelist.bolt", warden.Position);
+            float expectedPhys = duelist.Dps * 2.0f * (1f - armour);
+            Assert.True(thrust.TotalDamage <= expectedPhys * FightSim.CritMultiplier + 0.2f && thrust.TotalDamage >= expectedPhys - 0.2f);
+            // Execute: below a quarter health the Duelist's hits triple.
+            warden.Health = warden.MaxHealth * 0.2f;
+            sim.Tick(7f);
+            var exec = sim.Cast(3, "Duelist.bolt", warden.Position);
+            Assert.True(exec.TotalDamage >= expectedPhys * FightSim.ExecuteMultiplier - 0.3f || warden.Downed);
+            // Backstab: triple from behind, not from the front.
+            var bs = Arena(2);
+            var shade = P(bs, 1, 0, "Assassin", 10f, 6f);
+            var mark = P(bs, 2, 1, "Warder", 11f, 6f);
+            mark.Facing = new Vec2(1f, 0f);                                                          // looking away from the Shade
+            var r1 = bs.Cast(1, "Assassin.bolt", mark.Position);
+            Assert.True(r1.Ok, r1.Rejection);
+            float behind = r1.TotalDamage;
+            mark.Health = mark.MaxHealth; mark.Facing = new Vec2(-1f, 0f); bs.Tick(7f);
+            float front = bs.Cast(1, "Assassin.bolt", mark.Position).TotalDamage;
+            Assert.True(behind > front * 2f, $"{behind} vs {front}");
+            // Deadeye: the Sharpshooter hits harder past 12 m.
+            var de = Arena(3);
+            var sharp = P(de, 1, 0, "Sharpshooter", 2f, 6f);
+            var near = P(de, 2, 1, "Warder", 5f, 9f);                                                   // off the far target's lane
+            var farAway = P(de, 3, 1, "Warder", 9f, 6f);                                                // 14 m away: past Deadeye's 12 m, inside the bow's 16 m
+            float n = de.Cast(1, "Sharpshooter.basic", near.Position).TotalDamage; de.Tick(2f);
+            float f = de.Cast(1, "Sharpshooter.basic", farAway.Position).TotalDamage;
+            Assert.True(f > n * 1.2f || f > n * 1.2f / FightSim.CritMultiplier, $"{f} vs {n}");
+        }
+
+        [Fact]
+        public void FriendlyFireIsFullButTeammatesCannotFinishAndEnemiesFinishAtHalfHealth()
+        {
+            var sim = Arena();
+            var a = P(sim, 1, 0, "Berserker", 10f, 6f);
+            var mate = P(sim, 2, 0, "Warder", 11f, 6f);
+            var enemy = P(sim, 3, 1, "Duelist", 14f, 6f);
+            float before = mate.Health;
+            Assert.Contains(2, sim.Cast(1, "Berserker.bolt", mate.Position).Targets);
+            Assert.True(mate.Health < before);
+            mate.Health = 1f;
+            sim.Tick(7f);
+            sim.Cast(1, "Berserker.bolt", mate.Position);
+            Assert.True(mate.Downed);                                                                  // a teammate can down you
+            Assert.Contains(sim.Events, e => e.Kind == FightEventKind.Downed && e.Target == 2 && e.Source == 1);
+            sim.Tick(7f);
+            sim.Cast(1, "Berserker.bolt", mate.Position);
+            Assert.False(mate.Dead);                                                                   // but never finish you
+            Assert.Equal(0f, mate.FinishDamage);
+            enemy.Position = new Vec2(11.5f, 6f);
+            int swings = 0;
+            while (!mate.Dead && swings++ < 40) { sim.Tick(1.1f); sim.Cast(3, "Duelist.basic", mate.Position); }
+            Assert.True(mate.Dead);
+            Assert.True(mate.FinishDamage >= mate.MaxHealth * FightRules.FinishDamageFraction);
+            Assert.Contains(sim.Events, e => e.Kind == FightEventKind.Finished && e.Target == 2 && e.Source == 3);
+            // The recap reads the hit log the simulator wrote.
+            Assert.Equal(HitLog.Kept, sim.Hits.LastHits(2).Count);
+            Assert.Equal("Duelist", sim.Hits.LastHits(2).Last().AttackerSpec);                       // the finishing blow is the Duelist's; the Berserker's earlier hits are still in the five
+        }
+
+        [Fact]
+        public void CooldownsResourcesAndControlGateCasts()
+        {
+            var sim = Arena();
+            var w = P(sim, 1, 0, "Warder", 6f, 6f);
+            var e = P(sim, 2, 1, "Sentinel", 8f, 6f);
+            Assert.True(sim.Cast(1, "Warder.bolt", w.Position).Ok);
+            var again = sim.Cast(1, "Warder.bolt", w.Position);
+            Assert.False(again.Ok); Assert.Contains("cooldown", again.Rejection);
+            Assert.True(w.ResourceNow < w.ResourceMax);
+            float spent = w.ResourceMax - w.ResourceNow;
+            Assert.Equal(FightRules.AbilityCost(w.ResourceMax, AbilitySlot.Bolt), spent, 1);
+            w.ResourceNow = 1f;
+            sim.Tick(3.1f);
+            var broke = sim.Cast(1, "Warder.zone", w.Position);
+            Assert.False(broke.Ok); Assert.Contains("needs", broke.Rejection);
+            sim.Tick(10f);
+            Assert.True(w.ResourceNow > 1f, "resources regenerate");
+            Assert.True(sim.Cast(1, "Warder.basic", e.Position).Ok);
+            Assert.Contains("swinging", sim.Cast(1, "Warder.basic", e.Position).Rejection);
+            Assert.False(sim.Cast(1, "Sentinel.bolt", e.Position).Ok, "not this spec's ability");
+            Assert.False(sim.Cast(1, "Warder.ult", e.Position).Ok, "ultimate not armed");
+            // Shield Bash staggers (an interrupt, not a stun); a stunned caster cannot act at all.
+            Assert.True(sim.Cast(2, "Sentinel.bolt", w.Position).Ok);
+            Assert.True(w.Status.Has(StatusKind.Stagger));
+            Assert.False(w.Status.IsHardControlled);
+            w.Status.Apply(StatusEffectDefinition.All[StatusKind.Stun]);
+            sim.Tick(1.2f);
+            Assert.Contains("controlled", sim.Cast(1, "Warder.basic", e.Position).Rejection);
+        }
+
+        [Fact]
+        public void StatusCombosDotsCleanseAndTheFrostUltimateIgnoreDiminishingReturns()
+        {
+            var sim = Arena(4);
+            var cryo = P(sim, 1, 0, "Cryomancy", 4f, 6f);
+            var storm = P(sim, 2, 0, "Stormcalling", 4f, 8f);
+            var mender = P(sim, 3, 1, "Warder", 10f, 6f);
+            var victim = P(sim, 4, 1, "Berserker", 10f, 7f);
+            Assert.True(sim.Cast(1, "Cryomancy.bolt", victim.Position).Ok);
+            Assert.True(victim.Status.Has(StatusKind.Chill));
+            Assert.True(sim.Cast(2, "Stormcalling.bolt", victim.Position).Ok);
+            Assert.True(victim.Status.Has(StatusKind.Stun), "Stagger on a chilled target is a Stun");
+            Assert.False(victim.Status.Has(StatusKind.Chill));
+            // Purge removes everything.
+            Assert.True(sim.Cast(3, "Warder.mobility", victim.Position).Ok);
+            Assert.Empty(victim.Status.Active);
+            // Burn ticks once per second from the hit that applied it.
+            var pyro = new FightSim(FightLab.OpenArena(20, 12), 1);
+            var p = pyro.Add(FightLab.Player(1, 0, "Pyromancy", 0, new Vec2(4f, 6f)));
+            var t = pyro.Add(FightLab.Player(2, 1, "Sentinel", 0, new Vec2(9f, 6f)));
+            var hit = pyro.Cast(1, "Pyromancy.bolt", t.Position);
+            float after = t.Health;
+            pyro.Tick(0.5f); Assert.Equal(after, t.Health, 1);                                       // the burn accumulates silently
+            pyro.Tick(1.1f); Assert.True(t.Health < after);                                            // and lands once the second is up
+            Assert.Contains(pyro.Events, e => e.Kind == FightEventKind.Hit && e.Detail.Contains("over time") && e.Target == 2);
+            Assert.Equal(1, pyro.Events.Count(e => e.Kind == FightEventKind.Hit && e.Detail.Contains("over time")));
+            // Absolute Zero freezes even a target whose control resistance would otherwise refuse.
+            var az = new FightSim(FightLab.OpenArena(20, 12), 1);
+            var c = az.Add(FightLab.Player(1, 0, "Cryomancy", 0, new Vec2(6f, 6f)));
+            var v = az.Add(FightLab.Player(2, 1, "Sentinel", 0, new Vec2(7f, 6f)));
+            for (int i = 0; i < 4; i++) v.Status.Resistance.Apply(az.Time);                            // four hard controls already: immune
+            Assert.Null(v.Status.Apply(StatusEffectDefinition.All[StatusKind.Stun]));
+            c.UltimateArmed = true;
+            Assert.True(az.Cast(1, "Cryomancy.ult", c.Position).Ok);
+            Assert.True(v.Status.Has(StatusKind.Freeze));
+            Assert.False(c.UltimateArmed);
+        }
+
+        [Fact]
+        public void DownedBleedsOutLastBreathRevivesBloodbathHoldsAegisHalvesRiposteReflects()
+        {
+            var sim = Arena(7);
+            var warder = P(sim, 1, 0, "Warder", 6f, 6f);
+            var tank = P(sim, 2, 0, "Sentinel", 7f, 6f);
+            var axe = P(sim, 3, 1, "Berserker", 8f, 6f);
+            tank.Health = 1f;
+            sim.Cast(3, "Berserker.bolt", tank.Position);
+            Assert.True(tank.Downed);
+            Assert.False(sim.Cast(2, "Sentinel.basic", axe.Position).Ok);                              // the downed do not act
+            warder.UltimateArmed = true;
+            Assert.True(sim.Cast(1, "Warder.ult", tank.Position).Ok);                                   // Last Breath
+            Assert.False(tank.Downed); Assert.Equal(tank.MaxHealth, tank.Health); Assert.Equal(warder.MaxHealth, warder.Health);
+            Assert.Contains(sim.Events, e => e.Kind == FightEventKind.Revived && e.Target == 2);
+            // Bleed out.
+            tank.Health = 1f; sim.Tick(7f); sim.Cast(3, "Berserker.bolt", tank.Position);
+            Assert.True(tank.Downed);
+            sim.Tick(FightRules.DownedSeconds + 0.5f);
+            Assert.True(tank.Dead);
+            Assert.Contains(sim.Events, e => e.Kind == FightEventKind.Died && e.Target == 2 && e.Detail == "bled out");
+            // Bloodbath: at zero you stand until it ends.
+            var bb = Arena(8);
+            var b = P(bb, 1, 0, "Berserker", 6f, 6f);
+            var killer = P(bb, 2, 1, "Duelist", 7f, 6f);
+            b.UltimateArmed = true; b.Health = 5f;
+            Assert.True(bb.Cast(1, "Berserker.ult", b.Position).Ok);
+            bb.Cast(2, "Duelist.bolt", b.Position);
+            Assert.False(b.Downed); Assert.True(b.Health >= 1f);
+            // Aegis: allies within 5 m take half.
+            var ag = Arena(9);
+            var sent = P(ag, 1, 0, "Sentinel", 6f, 6f);
+            var ally = P(ag, 2, 0, "Warder", 7f, 6f);
+            var foe = P(ag, 3, 1, "Berserker", 8f, 6f);
+            float plain = ag.Cast(3, "Berserker.bolt", ally.Position).TotalDamage;
+            ally.Health = ally.MaxHealth; ag.Tick(7f);
+            sent.UltimateArmed = true; Assert.True(ag.Cast(1, "Sentinel.ult", sent.Position).Ok); ag.Tick(0.1f);
+            float shielded = ag.Cast(3, "Berserker.bolt", ally.Position).TotalDamage;
+            Assert.True(shielded < plain * 0.6f, $"{shielded} vs {plain}");
+            // Riposte: the hit comes back and staggers the attacker.
+            var rp = Arena(10);
+            var duel = P(rp, 1, 0, "Duelist", 6f, 6f);
+            var att = P(rp, 2, 1, "Berserker", 7f, 6f);
+            Assert.True(rp.Cast(1, "Duelist.zone", duel.Position).Ok);
+            float hp = duel.Health, attHp = att.Health;
+            rp.Cast(2, "Berserker.bolt", duel.Position);
+            Assert.Equal(hp, duel.Health); Assert.True(att.Health < attHp); Assert.True(att.Status.Has(StatusKind.Stagger));
+        }
+
+        [Fact]
+        public void DashesMoveKnockbacksPushAndWallsStopBoth()
+        {
+            var sim = Arena();
+            var breaker = P(sim, 1, 0, "Breaker", 4f, 6f);
+            var target = P(sim, 2, 1, "Warder", 7f, 6f);
+            var r = sim.Cast(1, "Breaker.mobility", target.Position);                                   // Charge
+            Assert.True(r.Ok); Assert.Contains(2, r.Targets);
+            Assert.True(breaker.Position.X > 4f, "the caster moved");
+            Assert.True(target.Position.X > 7f, "the target was knocked back");
+            Assert.True(target.Status.Has(StatusKind.Stagger));
+            target.Position = new Vec2(19.6f, 6f); breaker.Position = new Vec2(18.5f, 6f); sim.Tick(20f);
+            sim.Cast(1, "Breaker.zone", target.Position);                                               // Shockwave toward the wall
+            Assert.True(target.Position.X < 21f && sim.Walkable(target.Position), "a wall stops the knockback");
+            var dash = Arena();
+            var d = P(dash, 1, 0, "Stormcalling", 18f, 6f);
+            dash.Cast(1, "Stormcalling.mobility", new Vec2(30f, 6f));                                   // Blink at the wall
+            Assert.True(d.Position.X < 21f && dash.Walkable(d.Position));
+            Assert.Contains(dash.Events, e => e.Kind == FightEventKind.Dashed);
+        }
+
+        [Fact]
+        public void TheBridgeTurnsFightEventsIntoMatchEventsTheRoundStateAccepts()
+        {
+            var d = MatchDescriptor.Create(7, DungeonSettings.ForTeams(8), new MatchRules(), out var layout);
+            var st = new MatchState(d, layout);
+            st.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out _);
+            for (int p = 1; p <= 6; p++) st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, p, (p - 1) / 3), out _);
+            var room = layout.Rooms.First(r => r.Type == RoomType.Standard);
+            var sim = new FightSim(layout, 1);
+            st.PlayerClass[1] = ClassArchetype.DefaultRoster.ToList().FindIndex(c => c.Name == "Reaver");   // the round state knows the class; the sim knows the spec
+            var a = sim.Add(FightLab.Player(1, 0, "Berserker", 0, Vec2.Of(room.Center)));
+            var v = sim.Add(FightLab.Player(4, 1, "Warder", 0, Vec2.Of(room.Center + GridPoint.Right)));
+            v.Health = 1f;
+            sim.Cast(1, "Berserker.bolt", v.Position);
+            int swings = 0; while (!v.Dead && swings++ < 60) { sim.Tick(1.1f); sim.Cast(1, "Berserker.basic", v.Position); }
+            var produced = sim.Events.SelectMany(e => FightBridge.ToMatchEvents(e, sim, _ => room.Id)).ToList();
+            Assert.Contains(produced, e => e.Kind == MatchEventKind.PlayerDowned && e.A == 4 && e.B == 1);
+            Assert.Contains(produced, e => e.Kind == MatchEventKind.PlayerFinished && e.A == 4 && e.B == 1);
+            foreach (var e in produced) Assert.True(st.Apply(e, out string why), why);
+            Assert.Contains(4, st.DeadPlayers); Assert.Contains(4, st.CorpseSouls);
+            var recap = DeathRecap.For(st, 4, sim.Hits);
+            Assert.Equal("Berserker", recap.KillerSpec); Assert.Equal("Reaver", recap.KillerClass); Assert.True(recap.Finished);
+            Assert.NotEmpty(recap.LastHits);
+        }
+
+        [Fact]
+        public void TheFightLabIsDeterministicAndTheBossTuningHolds()
+        {
+            var one = FightLab.Duel("Berserker", "Warder", 2, 11); var two = FightLab.Duel("Berserker", "Warder", 2, 11);
+            Assert.Equal((one.WinnerTeam, one.Seconds, one.Downs), (two.WinnerTeam, two.Seconds, two.Downs));
+            Assert.Equal(0, one.WinnerTeam);                                                             // a healer does not win duels, by design
+            Assert.True(FightLab.DuelSeries("Berserker", "Warder", 2, 6).winRateA > 0.9f);
+            int wins = 0, soloWins = 0, duoWins = 0;
+            for (int s = 1; s <= 6; s++)
+            {
+                if (FightLab.PartyVsBoss(new[] { "Sentinel", "Berserker", "Warder" }, 2, s).WinnerTeam == 0) wins++;
+                if (FightLab.PartyVsBoss(new[] { "Berserker" }, 4, s).WinnerTeam == 0) soloWins++;
+                if (FightLab.PartyVsBoss(new[] { "Berserker", "Sharpshooter" }, 2, s).WinnerTeam == 0) duoWins++;
+            }
+            Assert.True(wins >= 5, $"a geared trio beats the room boss ({wins}/6)");
+            Assert.Equal(0, soloWins);                                                                   // a solo does not
+            Assert.True(duoWins <= 3, "a duo is the coin flip at best");
+            var team = FightLab.TeamFight(new[] { "Sentinel", "Sharpshooter", "Warder" }, new[] { "Breaker", "Berserker", "Plaguebearer" }, 2, 3);
+            Assert.True(team.WinnerTeam >= 0 || team.TimedOut);
+            Assert.True(team.DamageDealt.Count >= 4);
+        }
+    }
+}
