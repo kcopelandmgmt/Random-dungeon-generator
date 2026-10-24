@@ -63,7 +63,7 @@ namespace DungeonGen.Tools
                     case "--batch": batch = int.Parse(Next()); break;
                     case "--no-legend": legend = false; break;
                     case "--help":
-                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear --lifetime --craft --net --tier 1..3 --view TEAM --no-interiors --no-hazards --sim duels|teams|boss|bosses|packs|trace [--sim-tier N --sim-seeds N]");
+                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear --lifetime --craft --net --tier 1..3 --view TEAM --no-interiors --no-hazards --sim duels|teams|boss|bosses|packs|trace|round [--sim-tier N --sim-seeds N]");
                         return 0;
                     default:
                         Console.Error.WriteLine("Unknown argument " + args[i]);
@@ -242,6 +242,90 @@ namespace DungeonGen.Tools
             var specs = DungeonGen.Core.Combat.WeaponSpec.All.Select(w => w.Name).Concat(DungeonGen.Core.Combat.ElementKit.All.Select(k => k.Name)).ToList();
             switch (mode)
             {
+                case "round":
+                    {
+                        Console.WriteLine($"ROUNDS, 4 teams of 3 bots, gear tier {tier}, {seeds} seeds. The real server loop, headless; a rejected event is a bug.");
+                        var reports = DungeonGen.Core.Net.RoundLab.PlayMany(seed, seeds, 4, 3, tier);
+                        foreach (var r in reports) { Console.WriteLine(r); foreach (var rej in r.Rejections.Take(5)) Console.WriteLine("    " + rej); }
+                        int players = reports.Sum(r => r.Players);
+                        Console.WriteLine($"extracted {reports.Sum(r => r.Extracted)}/{players} ({100f * reports.Sum(r => r.Extracted) / Math.Max(1, players):0}%), died {reports.Sum(r => r.Died)}, still inside at the end {reports.Sum(r => r.StillInside)}, player kills {reports.Sum(r => r.PlayerKills)}, bosses {reports.Sum(r => r.BossKills)}, final bosses {reports.Count(r => r.FinalBossKilled)}, items out {reports.Sum(r => r.ItemsExtracted)}, souls {reports.Sum(r => r.Souls)}, rejected events {reports.Sum(r => r.Rejected)}, mean round {reports.Average(r => r.Seconds):0} s");
+                        Console.WriteLine("DEATHS BY CAUSE:");
+                        foreach (var g in reports.SelectMany(r => r.DeathCauses).GroupBy(d => d).OrderByDescending(g => g.Count()).Take(25)) Console.WriteLine($"  {g.Count(),4}  {g.Key}");
+                        return reports.Sum(r => r.Rejected) == 0 ? 0 : 3;
+                    }
+                case "roundtrace":
+                    {
+                        Console.WriteLine($"ROUND TRACE seed {seed}, 4 teams of 3 bots, gear tier {tier}: every accepted event, then every rejection and death.");
+                        var deaths = new System.Collections.Generic.List<string>();
+                        DungeonGen.Core.Net.MatchServer srv = null;
+                        var r = DungeonGen.Core.Net.RoundLab.Play(seed, 4, 3, tier, configure: sv =>
+                        {
+                            srv = sv;
+                            bool dumped = false;
+                            sv.EventRejected += (e, why) =>
+                            {
+                                if (dumped) return; dumped = true;
+                                Console.WriteLine($"  FIRST REJECTION {e}: {why}");
+                                var me = sv.Sim.Get(e.B);
+                                Console.WriteLine($"    actor {e.B} at {me?.Position} room {sv.RoomOf(e.B)}");
+                                foreach (var kv in sv.State.Corpses) { var body = sv.Sim.Get(kv.Key); Console.WriteLine($"    corpse {kv.Key} at {body?.Position} dist {(body == null || me == null ? -1 : DungeonGen.Core.Combat.Vec2.Distance(body.Position, me.Position)):0.00} opened {sv.State.OpenedCorpses.Contains(kv.Key)} items [{string.Join(",", kv.Value)}] owner-of-items: {string.Join(",", kv.Value.Select(i => sv.State.ItemOwner.TryGetValue(i, out int o) ? o.ToString() : "-"))}"); }
+                            };
+                            int diagTicks = 0;
+                            sv.Ticked += srv2 =>
+                            {
+                                if (diagTicks >= 12) return;
+                                var sim = srv2.Sim;
+                                foreach (var c in sim.Combatants.Values.Where(o => !o.IsMob && o.Alive))
+                                {
+                                    var enemies = sim.Combatants.Values.Where(o => o.Team != c.Team && !o.Dead && !o.IsMob && DungeonGen.Core.Combat.Vec2.Distance(o.Position, c.Position) <= 12f && sim.CanSee(c.Position, o.Position)).ToList();
+                                    if (enemies.Count == 0 || enemies.Any(o => !o.Downed)) continue;
+                                    if ((srv2.Tick % 10) != 0) continue;
+                                    diagTicks++;
+                                    var t = enemies.OrderBy(o => DungeonGen.Core.Combat.Vec2.Distance(o.Position, c.Position)).First();
+                                    var basic = c.Abilities.First(a => a.Kind == DungeonGen.Core.Combat.AbilityKind.Basic);
+                                    var prev = sim.Preview(c.Id, basic.Id, t.Position).ToList();
+                                    var zones = sim.Zones.Where(z => z.CasterTeam != c.Team && z.Ability.Damage > 0f && DungeonGen.Core.Combat.Vec2.Distance(z.Centre, c.Position) <= z.Ability.Size + 0.3f).Select(z => z.Ability.Id).ToList();
+                                    Console.WriteLine($"  DIAG {sim.Time:0.0} {c.Spec} {c.Id} at {c.Position} hp {c.Health:0} canact {c.CanAct} target {t.Id} dist {DungeonGen.Core.Combat.Vec2.Distance(t.Position, c.Position):0.0} range {basic.RangeCells:0.0} sees {sim.CanSee(c.Position, t.Position)} preview [{string.Join(",", prev.Select(p => p.Id))}] cd {(c.CooldownUntil.TryGetValue(basic.Id, out float cd) ? cd - sim.Time : 0f):0.0} hostileZones [{string.Join(",", zones)}] channel {c.ChannelName} buffs [{string.Join(",", c.Buffs.Select(b => b.Kind))}] status hard {c.Status.IsHardControlled}");
+                                }
+                            };
+                            sv.EventRaised += e =>
+                            {
+                                if (e.Kind == DungeonGen.Core.Net.MatchEventKind.RoomSeen || e.Kind == DungeonGen.Core.Net.MatchEventKind.PlayerEnteredRoom) return;
+                                Console.WriteLine($"  {e}");
+                                if (e.Kind == DungeonGen.Core.Net.MatchEventKind.PlayerDied || e.Kind == DungeonGen.Core.Net.MatchEventKind.PlayerFinished || e.Kind == DungeonGen.Core.Net.MatchEventKind.PlayerDowned)
+                                {
+                                    var killer = sv.Sim.Get(e.B); var victim = sv.Sim.Get(e.A);
+                                    deaths.Add($"{e.Time,7:0.0}s {e.Kind} {victim?.Spec} {e.A} (T{victim?.Team}) by {(e.B < 0 ? "bleed-out/hazard" : killer == null ? e.B.ToString() : killer.IsMob ? killer.Name : killer.Spec + " " + e.B)} in room {e.C} {sv.Layout.Rooms[Math.Max(0, e.C)].Type}");
+                                }
+                            };
+                        });
+                        Console.WriteLine(r);
+                        if (srv != null)
+                        {
+                            Console.WriteLine("SIM EVENTS: " + string.Join(", ", srv.Sim.Events.GroupBy(e => e.Kind).Select(g => $"{g.Key} {g.Count()}")));
+                            var firstDown = srv.Sim.Events.FirstOrDefault(e => e.Kind == DungeonGen.Core.Combat.FightEventKind.Downed && !(srv.Sim.Get(e.Target)?.IsMob ?? true));
+                            if (firstDown.Target != 0)
+                            {
+                                Console.WriteLine($"HITS ON {firstDown.Target} AFTER DOWN AT {firstDown.Time:0.0}:");
+                                foreach (var h in srv.Sim.Events.Where(e => e.Target == firstDown.Target && e.Time >= firstDown.Time && e.Kind != DungeonGen.Core.Combat.FightEventKind.StatusApplied).Take(25)) Console.WriteLine($"   {h.Time,7:0.0} {h.Kind} from {h.Source} ({srv.Sim.Get(h.Source)?.Spec ?? srv.Sim.Get(h.Source)?.Name}) {h.Amount:0.0} {h.Detail}");
+                                var v = srv.Sim.Get(firstDown.Target);
+                                Console.WriteLine($"   victim {v}: finish damage {v.FinishDamage:0} of {v.MaxHealth * DungeonGen.Core.Combat.FightRules.FinishDamageFraction:0}");
+                                foreach (var o in srv.Sim.Combatants.Values.Where(o => !o.IsMob && o.Team != v.Team && !o.Dead)) Console.WriteLine($"   enemy standing {o} dist {DungeonGen.Core.Combat.Vec2.Distance(o.Position, v.Position):0.0} sees {srv.Sim.CanSee(o.Position, v.Position)}");
+                            }
+                        }
+                        if (srv != null)
+                        {
+                            Console.WriteLine("CAST REJECTIONS: " + string.Join(", ", srv.Sim.Events.Where(e => e.Kind == DungeonGen.Core.Combat.FightEventKind.Rejected).GroupBy(e => e.Detail).OrderByDescending(g => g.Count()).Take(8).Select(g => $"{g.Key} {g.Count()}")));
+                            var lastDown = srv.Sim.Events.Where(e => e.Kind == DungeonGen.Core.Combat.FightEventKind.Downed && !(srv.Sim.Get(e.Target)?.IsMob ?? true)).Select(e => e.Time).DefaultIfEmpty(0f).Max();
+                            Console.WriteLine($"WINNERS' ACTIONS AFTER THE LAST DOWN ({lastDown:0.0}s), first 30 non-status events by standing players:");
+                            foreach (var e in srv.Sim.Events.Where(e => e.Time > lastDown && e.Kind != DungeonGen.Core.Combat.FightEventKind.StatusApplied && e.Kind != DungeonGen.Core.Combat.FightEventKind.Phase && (srv.Sim.Get(e.Source)?.IsMob == false)).Take(30))
+                                Console.WriteLine($"   {e.Time,7:0.0} {e.Kind} {e.Source}({srv.Sim.Get(e.Source)?.Spec}) -> {e.Target}({srv.Sim.Get(e.Target)?.Spec ?? srv.Sim.Get(e.Target)?.Name}) {e.Amount:0.0} {e.Detail}");
+                        }
+                        if (srv != null) { Console.WriteLine("BOTS AT THE END:"); foreach (var b in srv.BotBrains.OfType<DungeonGen.Core.Net.RoundBot>()) Console.WriteLine("   " + b.Describe(srv)); }
+                        Console.WriteLine("DEATHS:"); foreach (var d in deaths) Console.WriteLine("  " + d);
+                        Console.WriteLine("REJECTIONS:"); foreach (var rej in r.Rejections.Take(20)) Console.WriteLine("  " + rej);
+                        return 0;
+                    }
                 case "duels":
                     {
                         Console.WriteLine($"DUELS, gear tier {tier}, {seeds} seeds each. Row beats column; 0.50 is even. Draws at 120 s count for neither.");

@@ -365,7 +365,7 @@ namespace DungeonGen.Core.Combat
         {
             r.Targets.Add(t.Id);
             if (a.Id == "Warder.mobility" || a.Id == "Plaguebearer.mobility") { t.Status.Cleanse(); Emit(FightEventKind.Cleansed, caster.Id, t.Id, 0f, a.Name); }
-            if (a.Filter == TargetFilter.Downed && t.Downed && a.Heal > 0f) { Revive(t, 1f); caster.Health = caster.MaxHealth; return; }   // Last Breath
+            if (a.Filter == TargetFilter.Downed && t.Downed && a.Heal > 0f) { Revive(t, 1f, caster.Id, "lastbreath"); caster.Health = caster.MaxHealth; return; }   // Last Breath
             if (a.Heal > 0f && !t.Downed) r.TotalHeal += Heal(caster, t, a.Heal);
             if (a.Damage > 0f && t.Id != caster.Id) r.TotalDamage += Strike(caster, t, a, aim);
             if (a.Buff.HasValue && a.BuffOnTargets && t.Id != caster.Id && (a.Buff != BuffKind.Rooted || !t.IsMob || true)) AddBuff(t, a.Buff.Value, a.BuffMagnitude, a.BuffSeconds, caster.Id);
@@ -513,11 +513,11 @@ namespace DungeonGen.Core.Combat
         }
 
         /// <summary>A revive by channel (30% health) or by Last Breath (full).</summary>
-        public void Revive(Combatant t, float healthFraction)
+        public void Revive(Combatant t, float healthFraction, int source = -1, string detail = "")
         {
             if (!t.Downed || t.Dead) return;
             t.Downed = false; t.Health = t.MaxHealth * healthFraction; t.FinishDamage = 0f;
-            Emit(FightEventKind.Revived, -1, t.Id, t.Health, "");
+            Emit(FightEventKind.Revived, source, t.Id, t.Health, detail);
         }
 
         // ---------------------------------------------------------------- time
@@ -614,8 +614,9 @@ namespace DungeonGen.Core.Combat
                         else { int? pack = packOf?.Invoke(e.Target); if (pack.HasValue && sim.Combatants.Values.Where(c => c.IsMob && packOf(c.Id) == pack).All(c => c.Dead)) yield return new MatchEvent(MatchEventKind.MobPackCleared, e.Time, pack.Value); }
                         break;
                     }
-                case FightEventKind.Revived when target != null && !target.IsMob:
-                    yield return new MatchEvent(MatchEventKind.PlayerRevived, e.Time, e.Target, e.Source); break;
+                case FightEventKind.Revived when target != null && !target.IsMob && e.Source >= 0:
+                    // A server revive channel is raised by the server itself (source -1 here); an ability revive comes through this door.
+                    yield return new MatchEvent(e.Detail == "lastbreath" ? MatchEventKind.LastBreath : MatchEventKind.PlayerRevived, e.Time, e.Detail == "lastbreath" ? e.Source : e.Target, e.Detail == "lastbreath" ? e.Target : e.Source); break;
                 case FightEventKind.HazardFired when target != null && !target.IsMob:
                     yield return new MatchEvent(MatchEventKind.HazardTriggered, e.Time, e.Source, e.Target); break;
             }

@@ -395,7 +395,7 @@ namespace DungeonGen.Core.Net
                             break;
                         }
                         if (!Index.Items.ContainsKey(e.A)) { rejection = "no such item"; return false; }
-                        if (ItemOwner.ContainsKey(e.A)) { rejection = "already taken"; return false; }
+                        if (ItemOwner.ContainsKey(e.A) || EverTaken.Contains(e.A)) { rejection = "already taken"; return false; }
                         if (!OpenedContainers.Contains(Index.ItemRoom[e.A])) { rejection = "container not opened"; return false; }
                         if (OpenRolls.TryGetValue(e.A, out var roll))
                         {
@@ -404,7 +404,7 @@ namespace DungeonGen.Core.Net
                         }
                         if (LootWinner.TryGetValue(e.A, out int won) && won >= 0 && won != e.B && Standing(won) && PlayerTeam[won] == PlayerTeam[e.B]) { rejection = $"won by player {won}"; return false; }
                         LootWinner.Remove(e.A);
-                        ItemOwner[e.A] = e.B;
+                        ItemOwner[e.A] = e.B; EverTaken.Add(e.A);
                         if (!ItemValue.ContainsKey(e.A)) ItemValue[e.A] = Index.Items[e.A].Value;
                         break;
                     }
@@ -781,6 +781,8 @@ namespace DungeonGen.Core.Net
         /// <summary>Items a player may be shown: everything in containers they or their team opened that nobody has taken. The server filters per recipient with this.</summary>
         public IEnumerable<int> VisibleItemsIn(int roomId) =>
             IsView ? KnownItems.Where(kv => kv.Value.Room == roomId).Select(kv => kv.Key) :
-            OpenedContainers.Contains(roomId) ? Index.Items.Where(kv => Index.ItemRoom[kv.Key] == roomId && !ItemOwner.ContainsKey(kv.Key)).Select(kv => kv.Key) : Enumerable.Empty<int>();
+            OpenedContainers.Contains(roomId) ? Index.Items.Where(kv => Index.ItemRoom[kv.Key] == roomId && !ItemOwner.ContainsKey(kv.Key) && !EverTaken.Contains(kv.Key) && !DestroyedItems.Contains(kv.Key)).Select(kv => kv.Key) : Enumerable.Empty<int>();
+        /// <summary>Items that left their chest at least once. A dead owner's items lie on the corpse, never back in the chest.</summary>
+        public HashSet<int> EverTaken { get; } = new HashSet<int>();
     }
 }

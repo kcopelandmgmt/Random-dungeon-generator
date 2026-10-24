@@ -757,6 +757,23 @@ replicate to whom, and settle "did they see that" disputes, and the client draws
 From a doorway you see the room you are leaving and the one ahead, at most three; a locked door is
 seen, never seen through.
 
+## The server loop and headless rounds (built)
+
+`MatchServer` is the authoritative tick, pure C#: it owns the `MatchState`, the `FightSim`, the
+`EncounterDirector`, the `RoundClock`, the players' intents and channels, the group rolls and the
+per-team snapshots. Each tick it applies every intent (movement, casts, Space held over whatever is
+in reach, by the interaction priority list: door, downed teammate, corpse, hazard, key, vault, chest,
+extract), steps the brains, turns the simulator's downs, finishes, deaths and revives into match
+events the state validates, stamps the clock's events, records rooms entered and seen, and sends
+each team only the avatars its members can see. `IServerWire` is its one outward seam: four calls
+the Unity transports forward. `ServerSimulation` in Unity is a frame clock around it.
+
+`RoundLab.Play` seats bot teams (`RoundBot`, `BotSquad`) and plays a round to the end with no
+engine; `RoundReport` carries extractions, deaths by cause, souls, items out and the count of
+rejected events, which the tests hold at zero. This is where round-flow bugs are found before
+anyone walks a corridor in Unity, and it is the shape a dedicated server takes: a console host
+around the same class.
+
 ## Multiplayer architecture
 
 The generator was built deterministic so that the dungeon never has to cross the wire. The

@@ -1,7 +1,8 @@
 using System.IO;
 using DungeonGen.Core.Combat;
+using System.Collections.Generic;
 
-namespace DungeonGen.Unity
+namespace DungeonGen.Core.Net
 {
     /// <summary>
     /// What a player wants this tick, as the client sends it and the server resolves it. Movement
@@ -82,7 +83,7 @@ namespace DungeonGen.Unity
     /// <summary>A world snapshot for one team: the avatars it may see plus each member's own numbers.</summary>
     public sealed class TeamSnapshot
     {
-        public uint Tick; public float Time; public System.Collections.Generic.List<AvatarSnapshot> Avatars = new System.Collections.Generic.List<AvatarSnapshot>(); public System.Collections.Generic.List<SelfSnapshot> Selves = new System.Collections.Generic.List<SelfSnapshot>();
+        public uint Tick; public float Time; public List<AvatarSnapshot> Avatars = new List<AvatarSnapshot>(); public List<SelfSnapshot> Selves = new List<SelfSnapshot>();
         public byte[] ToBytes()
         {
             using var ms = new MemoryStream();

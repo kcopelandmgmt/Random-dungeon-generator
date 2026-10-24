@@ -3,6 +3,34 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-24 · The server loop lives in the core; whole rounds play headless — BUILT
+
+The Unity server component was the only place the round's rules were wired together, and it could
+only be exercised inside Unity. Moved: `MatchServer` (pure C#) now owns the authoritative state, the
+fight simulator, the brains, the clock, the intents, the interaction list, the group rolls and the
+per-team snapshots. The Unity `ServerSimulation` is a frame clock around it; the Fishnet and loopback
+transports plug in through `IServerWire`, four calls that carry every byte a client ever receives.
+
+* **Headless rounds.** `RoundLab.Play` seats four teams of three `RoundBot`s and plays a round from
+  countdown to summary on the real server loop, with no engine and no wire. The bots explore room by
+  room, hold Space over chests, keys, vault doors and corpses, revive a downed teammate, fight with
+  the lab brain, finish downed enemies when none of theirs are down, and leave for the nearest
+  extract when they have enough or the clock runs short. `--sim round` and `--sim roundtrace` in
+  the console tool; a rejected event in a round is a bug, and the tests hold the count at zero.
+* **What the first rounds found.** An item whose owner died reappeared in the chest it came from
+  (`EverTaken`); the Warder's Last Breath never reached the round state (the bridge mapped it as an
+  ordinary revive, which the state refused); a revive channel was reported twice; two players
+  finishing the same door, chest, corpse or revive raised a rejected second event; the clock's events
+  were stamped ahead of the simulator's so the log ran backwards by a tick; interrupts were raised
+  for channels the state had already closed. All fixed and covered.
+* **What they showed about the game.** Rounds with twelve bots in a four-team dungeon end in about
+  five minutes with 15–40% extracting; most deaths are players downed by players who bleed out
+  because nobody revives and the winners finish too slowly. The bots are dumb on purpose (they are
+  for the tutorial and the practice room) but the shape is the design's: the hub and the extracts
+  are where teams collide, and the check bosses kill tier-1 trios. Tuning continues in the lab.
+* **Bots in the practice room now roam** (`PracticeMode.BotsRoam`), so the dev has something to
+  meet in a corridor rather than a team standing at its spawn.
+
 ## 2026-10-24 · Unity side: input, authority, assemblies, iteration loop — DECIDED, GREYBOX BUILT
 
 Answers to the questions the engine layer could not decide for itself, and the greybox that

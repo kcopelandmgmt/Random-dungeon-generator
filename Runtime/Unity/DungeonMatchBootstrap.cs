@@ -29,6 +29,8 @@ namespace DungeonGen.Unity
 
         /// <summary>Authoritative on the server, mirrored on clients.</summary>
         public MatchState State { get; private set; }
+        /// <summary>The engine-free server loop, on the server only.</summary>
+        public MatchServer Server { get; private set; }
         public MatchDescriptor Descriptor { get; private set; }
         public bool IsServer => _transport != null && _transport.IsServer;
 
@@ -48,9 +50,12 @@ namespace DungeonGen.Unity
         {
             if (!IsServer) throw new InvalidOperationException("HostMatch on a client.");
             var rules = new MatchRules { RoundSeconds = RoundSeconds, ExtractsOpenAfterSeconds = ExtractsOpenAfterSeconds, BossExitStaysOpen = BossExitStaysOpen, TeamSize = TeamSize };
-            Descriptor = MatchDescriptor.Create(seed, Config.Settings, rules, out var layout, lootSecret: Guid.NewGuid().GetHashCode());   // the secret never leaves this process
-            State = new MatchState(Descriptor, layout);
-            BuildScene(layout);
+            Server = MatchServer.Host(seed, Config.Settings, rules, new TransportWire(_transport));   // the loot secret never leaves this process
+            Descriptor = Server.Descriptor;
+            State = Server.State;
+            Server.EventRaised += e => { if (e.Kind == MatchEventKind.BossExitOpened) Builder?.OpenBossGatedExit(); };
+            Server.EventRejected += (e, why) => Debug.LogWarning($"Rejected {e}: {why}");
+            BuildScene(State.Layout);
             _transport.BroadcastDescriptor(Descriptor.ToBytes());
             OnMatchReady?.Invoke(State);
         }
@@ -64,18 +69,9 @@ namespace DungeonGen.Unity
         /// </summary>
         public bool Raise(MatchEvent e)
         {
-            if (!IsServer) throw new InvalidOperationException("Only the server raises events.");
-            if (!State.Apply(e, out string why)) { Debug.LogWarning($"Rejected {e}: {why}"); return false; }
-            byte[] bytes;
-            using (var ms = new MemoryStream()) { using (var w = new BinaryWriter(ms)) e.Write(w); bytes = ms.ToArray(); }
-            var audience = EventVisibility.Audience(e, State);
-            foreach (int team in Teams()) if (audience == null || audience.Contains(team)) _transport.SendEventToTeam(team, bytes);
-            foreach (int team in Teams()) _transport.SendViewToTeam(team, TeamView.For(State, team).ToBytes());
-            if (e.Kind == MatchEventKind.BossExitOpened) Builder?.OpenBossGatedExit();
-            return true;
+            if (!IsServer || Server == null) throw new InvalidOperationException("Only the server raises events.");
+            return Server.Raise(e);
         }
-
-        private System.Collections.Generic.IEnumerable<int> Teams() => System.Linq.Enumerable.Range(0, Descriptor.TeamSpawnRooms.Count);
 
         private void OnDescriptorBytes(byte[] bytes)
         {
@@ -127,7 +123,7 @@ namespace DungeonGen.Unity
         }
 
         /// <summary>Server: raise a batch of events (from the simulation bridge) in order; rejected ones are logged and dropped.</summary>
-        public void RaiseAll(System.Collections.Generic.IEnumerable<MatchEvent> events) { foreach (var e in events) Raise(e); }
+        public void RaiseAll(System.Collections.Generic.IEnumerable<MatchEvent> events) => Server.RaiseAll(events);
 
         /// <summary>The team a player id belongs to, from the state, or -1.</summary>
         public int TeamOf(int playerId) => State != null && State.PlayerTeam.TryGetValue(playerId, out int t) ? t : -1;

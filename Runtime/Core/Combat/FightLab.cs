@@ -18,7 +18,14 @@ namespace DungeonGen.Core.Combat
             sim.Move(c.Id, to, dt);
             if (Vec2.Distance(before, c.Position) > 0.05f || sim.Layout == null || Vec2.Distance(c.Position, to) < 0.6f) return;
             var path = GridPath.Find(sim.Layout, c.Position.Cell, to.Cell, closedDoors: sim.ClosedDoors);
-            if (path != null && path.Count > 1) sim.Move(c.Id, Vec2.Of(path[1]), dt);
+            if (path != null && path.Count > 1) { sim.Move(c.Id, Vec2.Of(path[1]), dt); return; }
+            // The flank point itself may be a low wall or a pillar: route to the nearest walkable neighbour of it instead.
+            foreach (var n in new[] { new GridPoint(to.Cell.X + 1, to.Cell.Y), new GridPoint(to.Cell.X - 1, to.Cell.Y), new GridPoint(to.Cell.X, to.Cell.Y + 1), new GridPoint(to.Cell.X, to.Cell.Y - 1) })
+            {
+                if (!sim.Walkable(Vec2.Of(n), c)) continue;
+                path = GridPath.Find(sim.Layout, c.Position.Cell, n, closedDoors: sim.ClosedDoors);
+                if (path != null && path.Count > 1) { sim.Move(c.Id, Vec2.Of(path[1]), dt); return; }
+            }
         }
 
         /// <summary>A point at melee range around the target, spread by caster id so a party surrounds instead of stacking.</summary>
@@ -93,7 +100,12 @@ namespace DungeonGen.Core.Combat
                 if ((crowd >= 2 || (zone.Shape == AbilityShape.Cone && dist <= zone.RangeCells)) && Clear(zone, target.Position) && sim.Cast(c.Id, zone.Id, target.Position).Ok) return;
             }
             // Ranged fighters keep their distance: a slam needs two bodies within 2 m of the boss, so do not be one of them.
-            if (basic != null && basic.Shape == AbilityShape.Projectile && dist < 3f) { sim.Move(c.Id, c.Position + (c.Position - target.Position).Normalized * 3f, dt); return; }
+            if (basic != null && basic.Shape == AbilityShape.Projectile && dist < 3f && !target.Downed)
+            {
+                var before = c.Position;
+                sim.Move(c.Id, c.Position + (c.Position - target.Position).Normalized * 3f, dt);
+                if (Vec2.Distance(before, c.Position) > 0.02f) return;   // boxed in: shoot from here instead
+            }
             if (bolt != null && bolt.Filter != TargetFilter.Allies && sees && dist <= bolt.RangeCells + 0.5f && Clear(bolt, target.Position) && sim.Cast(c.Id, bolt.Id, target.Position).Ok) return;
             if (basic != null && sees && dist <= basic.RangeCells + 0.5f)
             {

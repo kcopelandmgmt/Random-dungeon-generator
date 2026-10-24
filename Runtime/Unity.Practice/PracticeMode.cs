@@ -28,6 +28,8 @@ namespace DungeonGen.Unity
         public int GearTier = 1;
         public string LocalSpec = "Sentinel";
         public string[] BotSpecs = { "Berserker", "Warder", "Sharpshooter" };
+        [Tooltip("Roaming bots play the round: explore, loot, fight what they meet, extract. Off, they stand at their spawn and fight only what comes.")]
+        public bool BotsRoam = true;
 
         public LoopbackTransport Transport { get; private set; }
         public bool Hosting { get; private set; }
@@ -61,7 +63,10 @@ namespace DungeonGen.Unity
             Server.AddPlayer(1, 0, cls, LocalSpec, PlayerStats.For(cls, GearTier, Bootstrap.Descriptor.Settings.Combat));
             int id = BotRules.BotIdBase;
             for (int t = 1; t <= Mathf.Min(BotTeams, Bootstrap.Descriptor.TeamSpawnRooms.Count - 1); t++)
-                for (int b = 0; b < BotsPerTeam; b++) Server.AddBot(id++, t, BotSpecs[(t * BotsPerTeam + b) % BotSpecs.Length], GearTier);
+            {
+                var squad = BotsRoam ? new BotSquad { Team = t } : null;
+                for (int b = 0; b < BotsPerTeam; b++) Server.AddBot(id++, t, BotSpecs[(t * BotsPerTeam + b) % BotSpecs.Length], GearTier, squad);
+            }
             Transport.Join();
             Hosting = true;
         }

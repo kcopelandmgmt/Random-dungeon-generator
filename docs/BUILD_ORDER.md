@@ -36,12 +36,17 @@ the round summary is right.
    Left: the Unity side (the server tick drives `EncounterDirector`; animation and telegraph
    visuals are not drawn yet) and tuning the check bosses with the lab. Done: the two slice bosses play as written and the final boss
    opens the exit.
-6. **Round flow** (1 week). Countdown and sealed doors, the clock, extracts, the mid-round event
-   announcement, round end, the round summary screen. Done: a round plays start to finish with
-   the summary built from the log.
+6. **Round flow** (1 week). **Core done, proven headless** (`MatchServer`, `RoundLab`): countdown
+   and sealed doors, the clock, extracts, the mid-round event, round end and the summary all run
+   on the real server loop with bot teams, and the tests keep rejected events at zero. Left: the
+   announcement lines and the round summary screen in Unity. Done: a round plays start to finish
+   in Unity with the summary built from the log.
 7. **HUD** (1 week). Replace the OnGUI compass, minimap and `PlayerHud` with real UI; health, resources,
    ability bar, loot roll prompt, death recap. Done: everything a player needs to read is on
    screen and nothing an enemy should not see is.
+
+The server loop itself (`MatchServer`) has no engine in it and already plays whole rounds headless
+(`--sim round`), so a dedicated server is a console host around it, not a Unity build.
 
 The first thing to do in Unity: install the package, run **Dungeon Gen ▸ Build Greybox Scene**,
 press Play with `PracticeMode` on, and paste every console error back. The Unity layer has only

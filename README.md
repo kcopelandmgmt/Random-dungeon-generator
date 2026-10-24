@@ -25,6 +25,7 @@ seed ─► rooms ─► graph ─► corridors ─► roles ─► bosses ─�
 | Meta | `Runtime/Core/Profile` | Accounts and earned classes, the vendor, crafting, seasons with per-tier leaderboards and mutators, kill-XP and transfer ledgers, reports. |
 | Tiers | `DungeonTier`, `Items/GearScore` | Three dungeons walled by gear score both ways; separate queues per tier and region. |
 | HUD | `Runtime/Core/Hud` | Compass strip and explored-only minimap models; death recap and round summary from the log. |
+| Server loop | `Runtime/Core/Net/MatchServer.cs`, `RoundBot.cs`, `RoundLab.cs` | The authoritative tick with no engine in it: intents in, state and snapshots out. Round bots and the headless round lab that plays whole rounds on it. |
 | Unity | `Runtime/Unity` | Config, builder, gizmos, camera, greybox HUDs, the match bootstrap, the transport seam, the server simulation and the client world view. |
 | Unity, gated | `Runtime/Unity.Input`, `Runtime/Unity.Fishnet`, `Runtime/Unity.Practice`, `Editor` | Input System controller, Fishnet transport, dev-only practice mode with bots, the greybox scene menu. Each compiles only when its dependency is present. |
 | Stub compile | `Tools/UnityStubs` | Compiles the whole Unity layer against a minimal stand-in `UnityEngine` so typos are caught without Unity. |
@@ -43,6 +44,8 @@ dotnet run -- --batch 500                   # 500 seeds: failures, warnings, fai
 dotnet run -- --fights | --stats | --loot | --roll 40 2 | --wear | --lifetime | --craft
 dotnet run -- --help
 ```
+
+`--sim round --sim-seeds 10 --sim-tier 2` plays ten whole rounds with four bot teams on the real server loop and prints extractions, deaths by cause and rejected events (always zero). `--sim roundtrace --seed N` prints one round's event log.
 
 ## Running the tests
 
