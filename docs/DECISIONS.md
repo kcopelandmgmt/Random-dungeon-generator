@@ -3,6 +3,45 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-24 · Mob and boss behaviour — BUILT, FIRST TUNING
+
+The simulator's stand-in brains are now the real ones, in the engine-free core.
+
+1. **Mobs** (`MobController`, `PackState`, `MobTraits`): the state machine the rules asked for.
+   Idle at the post; the pack shares its first target; nearest living enemy in sight unless a
+   taunt says otherwise; chase and attack inside the room's leash; return to the post when the
+   leash is reached or the room empties, and reset to full health three seconds after the last
+   enemy was seen; never respawn. Traits by archetype: Hollow Knights hold the doorway the
+   enemy is coming through; Storm Acolytes keep the back of the room and shoot; Skitterers are
+   fast; Ember Wisps float over hazards and pits; Gravewalkers rise once at half health unless
+   the hit that killed them burned. Every action goes through the simulator's Cast and Move.
+2. **Bosses** (`BossController`): targeting by archetype, taunt first always (the Hound hunts
+   the lowest health, the Wraith the richest inventory, the rest the highest recent threat);
+   the slam when two or more stand close; phases at 70% and 35%; enrage doubles damage after
+   the budget's time; and the design sheet's mechanics as code: the Colossus's lava slams,
+   Ember Shell and Collapse; the Glasswright's Partition (a temporary crystal wall of pillars
+   across the room) and Shardstorm; the Matron's Brood, Pheromone and Molt; the Choir raising
+   corpses and its interruptible Dirge; the Hound's Scent, Howl and 8-second chase leash; the
+   Wraith's Covet, Snuff and Drift through doors; the Juggernaut's 3-second Crush, Trample into
+   walls (it stuns itself) and Overdrive; the Herald's Blight, Miasma and Outbreak; the
+   Sovereign's three phases. Swift, Venomous and Thorned affixes change behaviour; the numeric
+   affixes are already in the generator's budget and are not applied twice.
+3. **The director** (`EncounterDirector`) stations a room's pack in a ring and its boss at the
+   centre from the layout, steps every brain, keeps brood adds on the Matron's mark, and hands
+   deaths to the round state through the bridge as `MobPackCleared` and `BossKilled`.
+4. **Two rules settled by the lab.** Damage over time is a fraction of the hit *as taken*, so
+   armour and resistance shrink the burn and the poison too. And bosses have no resistances of
+   their own: the budget is the whole of their toughness, as the tuner assumes (an early version
+   gave each boss resistance to its own element and silently cut a party's damage against
+   physical bosses by a third).
+5. **First numbers, trio of Sentinel, Berserker and Warder at gear tier 2 in real rooms:** the
+   Hound and the Wraith fall five times in six, the Matron and the Choir two in three, the
+   Glasswright and the Juggernaut rarely, the Colossus, the Herald and the Sovereign never. The
+   "check" bosses are doing their job against a plain brain that does not interrupt Overdrive
+   or Dirge, does not kite lava well and has no Purge rhythm; a melee-heavy trio running out of
+   floor against the Colossus is the design sheet's own prediction. Packs are cleared in seconds
+   to a minute. Tuning continues with `--sim bosses`, `--sim packs` and `--sim roomtrace`.
+
 ## 2026-10-24 · The ability and damage pipeline — BUILT, FIRST TUNING
 
 The first piece of engine work, done where it can be tested: every kit in the game now runs.

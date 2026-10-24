@@ -3906,3 +3906,218 @@ namespace DungeonGen.Tests
         }
     }
 }
+
+namespace DungeonGen.Tests
+{
+    using DungeonGen.Core.Combat;
+    using DungeonGen.Core.Net;
+
+    public class BrainTests
+    {
+        private static (DungeonLayout layout, Room room) RoomWith(string mob, int seed = 3)
+        {
+            for (int i = 0; i < 40; i++)
+            {
+                var layout = DungeonGenerator.Generate(DungeonSettings.ForTeams(4), seed + i * 7);
+                var room = layout.Rooms.FirstOrDefault(r => r.Mobs != null && r.Mobs.Mob.Name == mob && r.Doors.Count > 0 && r.Bounds.Width >= 7);
+                if (room != null) return (layout, room);
+            }
+            throw new System.InvalidOperationException("no room with " + mob);
+        }
+
+        [Fact]
+        public void MobsIdleChaseAttackLeashAndResetAsAPack()
+        {
+            var (layout, room) = RoomWith("Bandit");
+            var sim = new FightSim(layout, 1);
+            var director = new EncounterDirector(sim, layout);
+            var pack = director.StationPack(room);
+            Assert.Equal(room.Mobs.Count, director.Mobs.Count);
+            Assert.All(director.Mobs, m => Assert.Equal(MobState.Idle, m.State));
+            Assert.All(director.Mobs, m => Assert.Equal(room.Id, layout.RoomIdAt[m.Mob.Position.Cell.X, m.Mob.Position.Cell.Y]));
+            // A player far away in another room: nothing happens.
+            var far = layout.Rooms.First(r => r.Id != room.Id && !room.Neighbours.Contains(r.Id) && r.Type == RoomType.Standard);
+            var player = sim.Add(FightLab.Player(1, 0, "Sentinel", 2, Vec2.Of(far.Center)));
+            for (int i = 0; i < 20; i++) director.Step(0.1f);
+            Assert.All(director.Mobs, m => Assert.Equal(MobState.Idle, m.State));
+            // The player walks in: the pack shares the target and closes.
+            player.Position = Vec2.Of(room.Center) + new Vec2(2.5f, 0f);
+            for (int i = 0; i < 15; i++) director.Step(0.1f);
+            Assert.Equal(1, pack.Target);
+            Assert.Contains(director.Mobs, m => m.State == MobState.Chase || m.State == MobState.Attack);
+            Assert.Contains(sim.Events, e => e.Kind == FightEventKind.Hit && e.Target == 1 && sim.Get(e.Source)?.IsMob == true);
+            // The player runs three rooms away: the leash holds, the mobs return and reset to full health.
+            foreach (var m in director.Mobs) m.Mob.Health = m.Mob.MaxHealth * 0.4f;
+            player.Position = Vec2.Of(far.Center);
+            for (int i = 0; i < 120; i++) director.Step(0.1f);
+            Assert.All(director.Mobs, m => Assert.True(m.State == MobState.Idle || m.State == MobState.Return));
+            Assert.All(director.Mobs, m => Assert.True(GridPath.WithinLeash(layout, room.Id, m.Mob.Position.Cell, MobRules.LeashCells)));
+            Assert.All(director.Mobs.Where(m => m.State == MobState.Idle), m => Assert.Equal(m.Mob.MaxHealth, m.Mob.Health));
+            Assert.Null(pack.Target);
+            // Taunt overrides the nearest rule.
+            var tank = sim.Add(FightLab.Player(2, 0, "Sentinel", 2, Vec2.Of(room.Center) + new Vec2(-2f, 0f)));
+            player.Position = Vec2.Of(room.Center) + new Vec2(0.5f, 0f);
+            director.Step(0.1f);
+            Assert.True(sim.Cast(2, "Sentinel.mobility", tank.Position).Ok);                     // Hold the Line
+            Assert.All(director.Mobs.Where(m => Vec2.Distance(m.Mob.Position, tank.Position) <= 3f), m => Assert.True(m.Mob.Has(BuffKind.Taunt)));
+            int hitsOnTankBefore = sim.Events.Count(e => e.Kind == FightEventKind.Hit && e.Target == 2);
+            for (int i = 0; i < 30; i++) director.Step(0.1f);
+            Assert.True(sim.Events.Count(e => e.Kind == FightEventKind.Hit && e.Target == 2) > hitsOnTankBefore, "the taunted pack turns on the Warden");
+        }
+
+        [Fact]
+        public void TraitsDoorHoldersRangedWispsAndGravewalkers()
+        {
+            Assert.True(MobTraits.For(MobArchetype.DefaultRoster.First(m => m.Name == "Hollow Knight")).HoldsDoorways);
+            Assert.True(MobTraits.For(MobArchetype.DefaultRoster.First(m => m.Name == "Storm Acolyte")).Ranged);
+            Assert.True(MobTraits.For(MobArchetype.DefaultRoster.First(m => m.Name == "Ember Wisp")).IgnoresHazards);
+            Assert.True(MobTraits.For(MobArchetype.DefaultRoster.First(m => m.Name == "Gravewalker")).RisesOnce);
+            Assert.True(MobTraits.For(MobArchetype.DefaultRoster.First(m => m.Name == "Skitterer")).Swarm);
+            // Door holder: an enemy in the corridor outside pulls the knight into the doorway.
+            var (layout, room) = RoomWith("Hollow Knight");
+            var sim = new FightSim(layout, 1);
+            var director = new EncounterDirector(sim, layout);
+            director.StationPack(room);
+            var door = room.Doors.First();
+            var outside = GridPoint.Cardinals.Select(c => door + c).First(p => !room.Bounds.Contains(p) && layout.IsWalkable(p));
+            var player = sim.Add(FightLab.Player(1, 0, "Sentinel", 2, Vec2.Of(outside)));
+            for (int i = 0; i < 60; i++) director.Step(0.1f);
+            Assert.Contains(director.Mobs, m => m.State == MobState.HoldDoor && Vec2.Distance(m.Mob.Position, Vec2.Of(door)) < 1.5f);
+            // Gravewalker: rises once at half health unless burned.
+            var arena = new FightSim(FightLab.OpenArena(20, 12), 1);
+            var gw = Combatant.Mob(50, 1, MobArchetype.DefaultRoster.First(m => m.Name == "Gravewalker"), 1f, new CombatBaseline(), new Vec2(10f, 6f));
+            new MobController(gw, MobArchetype.DefaultRoster.First(m => m.Name == "Gravewalker"), new PackState { PackId = 1, RoomId = 0 }, null);
+            arena.Add(gw);
+            var reaver = arena.Add(FightLab.Player(1, 0, "Berserker", 4, new Vec2(9f, 6f)));
+            int swings = 0; while (!gw.Dead && swings++ < 80) { arena.Tick(1.1f); arena.Cast(1, "Berserker.basic", gw.Position); }
+            Assert.Contains(arena.Events, e => e.Kind == FightEventKind.Revived && e.Target == 50 && e.Detail == "rises again");
+            Assert.True(gw.Dead);
+            var fire = new FightSim(FightLab.OpenArena(20, 12), 1);
+            var gw2 = fire.Add(Combatant.Mob(51, 1, MobArchetype.DefaultRoster.First(m => m.Name == "Gravewalker"), 1f, new CombatBaseline(), new Vec2(10f, 6f)));
+            gw2.Lives = 1;
+            fire.Add(FightLab.Player(1, 0, "Pyromancy", 4, new Vec2(6f, 6f)));
+            swings = 0; while (!gw2.Dead && swings++ < 80) { fire.Tick(1.1f); fire.Cast(1, "Pyromancy.basic", gw2.Position); }
+            Assert.True(gw2.Dead);
+            Assert.DoesNotContain(fire.Events, e => e.Kind == FightEventKind.Revived);                  // burned corpses stay down
+            // Wisps float over traps; a player does not.
+            var trapLayout = DungeonGenerator.Generate(DungeonSettings.ForTeams(8), 7);
+            var trap = trapLayout.Hazards.First(h => h.Kind == HazardKind.SpikeTrap);
+            var hz = new FightSim(trapLayout, 1);
+            var wisp = hz.Add(Combatant.Mob(60, 1, MobArchetype.DefaultRoster.First(m => m.Name == "Ember Wisp"), 1f, new CombatBaseline(), Vec2.Of(trap.Bounds.Center) + new Vec2(0f, 1.5f)));
+            new MobController(wisp, MobArchetype.DefaultRoster.First(m => m.Name == "Ember Wisp"), new PackState { PackId = 1, RoomId = trap.RoomId }, trapLayout);
+            var walker = hz.Add(FightLab.Player(1, 0, "Sentinel", 0, Vec2.Of(trap.Bounds.Center) + new Vec2(0f, -1.5f)));
+            for (int i = 0; i < 12; i++) { hz.Move(60, Vec2.Of(trap.Bounds.Center), 0.2f); hz.Move(1, Vec2.Of(trap.Bounds.Center), 0.2f); }
+            Assert.Equal(wisp.MaxHealth, wisp.Health);
+            Assert.True(walker.Health < walker.MaxHealth, "the trap fired on the player");
+            Assert.Contains(hz.Events, e => e.Kind == FightEventKind.HazardFired && e.Source == trap.Id && e.Target == 1);
+            Assert.Single(hz.Events.Where(e => e.Kind == FightEventKind.HazardFired && e.Source == trap.Id));   // rearming: one firing within the window
+            Assert.Contains(FightBridge.ToMatchEvents(hz.Events.First(e => e.Kind == FightEventKind.HazardFired), hz, _ => 0), e => e.Kind == MatchEventKind.HazardTriggered && e.A == trap.Id && e.B == 1);
+        }
+
+        [Fact]
+        public void BossesPickTargetsByArchetypeRunMechanicsAndEnrage()
+        {
+            // Juggernaut: Crush is a 3 s channel on one target that a stagger interrupts; Trample into a wall stuns it.
+            var s = DungeonSettings.ForTeams(4); s.AllowedBosses = new[] { "Iron Juggernaut" }; s.BossCount = 1;
+            var layout = DungeonGenerator.Generate(s, 5);
+            var room = layout.BossRooms.First();
+            var sim = new FightSim(layout, 5);
+            var director = new EncounterDirector(sim, layout);
+            var boss = director.StationBoss(room);
+            Assert.Equal("Iron Juggernaut", boss.Archetype.Name);
+            Assert.Equal(room.Boss.Budget.Health, boss.Boss.MaxHealth, 1);                           // the generator's budget, not re-multiplied
+            var tank = sim.Add(FightLab.Player(1, 0, "Sentinel", 2, Vec2.Of(room.Center) + new Vec2(1.5f, 0f)));
+            var dps = sim.Add(FightLab.Player(2, 0, "Berserker", 2, Vec2.Of(room.Center) + new Vec2(-1.5f, 0f)));
+            float t = 0f; bool sawCrush = false;
+            while (t < 12f) { director.Step(0.1f); t += 0.1f; if (boss.Boss.Channelling && boss.Boss.ChannelName.StartsWith("crush:")) { sawCrush = true; break; } }
+            Assert.True(sawCrush, "Crush winds up on a timer");
+            tank.Position = boss.Boss.Position + new Vec2(1f, 0f); tank.Health = tank.MaxHealth; tank.Status.Cleanse();   // step in and bash
+            var bash = sim.Cast(1, "Sentinel.bolt", boss.Boss.Position);
+            Assert.True(bash.Ok, bash.Rejection);                                                        // Shield Bash staggers
+            Assert.False(boss.Boss.Channelling);
+            Assert.Contains(sim.Events, e => e.Kind == FightEventKind.Interrupted && e.Target == boss.Boss.Id);
+            // Enrage doubles damage after the budget's time.
+            boss.Boss.Health = boss.Boss.MaxHealth;
+            float scaleBefore = boss.Boss.DamageScale;
+            for (int i = 0; i < (int)(room.Boss.Budget.EnrageSeconds / 0.1f) + 20; i++) { tank.Health = tank.MaxHealth; dps.Health = dps.MaxHealth; boss.Boss.Health = boss.Boss.MaxHealth; director.Step(0.1f); }
+            Assert.True(boss.Enraged); Assert.Equal(scaleBefore * 2f, boss.Boss.DamageScale, 3);
+            Assert.Contains(sim.Events, e => e.Kind == FightEventKind.Phase && e.Detail == "enrage");
+
+            // Hive Matron: brood every 8 s, molt at 70%, pheromone marks a player and the brood follows it.
+            var hs = DungeonSettings.ForTeams(4); hs.AllowedBosses = new[] { "Hive Matron" }; hs.BossCount = 1;
+            var hl = DungeonGenerator.Generate(hs, 9);
+            var hr = hl.BossRooms.First();
+            var hsim = new FightSim(hl, 9);
+            var hd = new EncounterDirector(hsim, hl);
+            var matron = hd.StationBoss(hr);
+            var p = hsim.Add(FightLab.Player(1, 0, "Sentinel", 4, Vec2.Of(hr.Center) + new Vec2(2f, 0f)));
+            for (int i = 0; i < 100; i++) { p.Health = p.MaxHealth; hd.Step(0.1f); }
+            Assert.True(matron.Adds.Count >= 2, "the brood came");
+            Assert.Contains(hsim.Events, e => e.Kind == FightEventKind.Spawned && e.Detail == "Skitterer");
+            matron.Boss.Health = matron.Boss.MaxHealth * 0.6f;
+            hd.Step(0.1f);
+            Assert.Equal(2, matron.Phase);
+            Assert.All(matron.Adds.Select(id => hsim.Get(id)), a => Assert.True(a.Dead));            // Molt sheds the brood
+            Assert.True(matron.Boss.MoveSpeedScale > 1f);
+
+            // Hound: targets the lowest-health player. Wraith: passes closed doors. Colossus: slams leave lava and it floats over it.
+            var hound = new BossController(new FightSim(FightLab.OpenArena(20, 20), 1), new BossInstance(BossArchetype.DefaultPool.First(a => a.Name == "Hound of Vesh")), 0, new Vec2(10f, 10f), null);
+            Assert.Equal(BossFamily.Chaser, hound.Archetype.Family);
+            var wsim = new FightSim(FightLab.OpenArena(20, 20), 1);
+            var wraith = new BossController(wsim, new BossInstance(BossArchetype.DefaultPool.First(a => a.Name == "Lantern Wraith")), 0, new Vec2(10f, 10f), null);
+            Assert.True(wraith.Boss.PassesDoors);
+            var csim = new FightSim(FightLab.OpenArena(20, 20), 1);
+            var colossus = new BossController(csim, new BossInstance(BossArchetype.DefaultPool.First(a => a.Name == "Ashen Colossus")), 0, new Vec2(10f, 10f), null);
+            Assert.True(colossus.Boss.HazardImmune);
+            var v1 = csim.Add(FightLab.Player(1, 0, "Sentinel", 4, new Vec2(10.8f, 10f)));
+            var v2 = csim.Add(FightLab.Player(2, 0, "Berserker", 4, new Vec2(9.2f, 10f)));
+            for (int i = 0; i < 80; i++) { v1.Health = v1.MaxHealth; v2.Health = v2.MaxHealth; colossus.Step(csim, 0.1f); csim.Tick(0.1f); }
+            Assert.Contains(csim.Zones, z => z.Caster == colossus.Boss.Id);                              // lava on the floor
+            colossus.Passives(csim);
+            Assert.True(colossus.Boss.Has(BuffKind.DamageReduction) == csim.Zones.Any(z => z.Caster == colossus.Boss.Id && Vec2.Distance(z.Centre, colossus.Boss.Position) <= z.Ability.Size));   // Ember Shell
+            // Affixes that change behaviour.
+            var inst = new BossInstance(BossArchetype.DefaultPool.First(a => a.Name == "Hound of Vesh"));
+            inst.Affixes.Add(BossAffix.DefaultPool.First(a => a.Name == "Swift")); inst.Affixes.Add(BossAffix.DefaultPool.First(a => a.Name == "Thorned"));
+            var swift = new BossController(new FightSim(FightLab.OpenArena(20, 20), 1), inst, 0, new Vec2(10f, 10f), null);
+            Assert.True(swift.Boss.MoveSpeedScale > 1f && swift.Boss.AttackSpeedScale > 1f && swift.Thorned);
+        }
+
+        [Fact]
+        public void TheDirectorHandsDeathsToTheRoundStateAsPackClearedAndBossKilled()
+        {
+            var d = MatchDescriptor.Create(7, DungeonSettings.ForTeams(8), new MatchRules(), out var layout);
+            var st = new MatchState(d, layout);
+            st.Apply(new MatchEvent(MatchEventKind.RoundStarted, 0), out _);
+            for (int p = 1; p <= 3; p++) st.Apply(new MatchEvent(MatchEventKind.PlayerSpawned, 0, p, 0), out _);
+            var room = layout.Rooms.First(r => r.Mobs != null && r.Doors.Count > 0);
+            var sim = new FightSim(layout, 7);
+            var director = new EncounterDirector(sim, layout);
+            director.StationPack(room);
+            foreach (int p in new[] { 1, 2, 3 }) sim.Add(FightLab.Player(p, 0, "Berserker", 4, Vec2.Of(room.Center) + new Vec2(p - 2f, 0.5f)));
+            int cursor = 0; var produced = new List<MatchEvent>();
+            for (int i = 0; i < 1200 && director.Mobs.Any(m => !m.Mob.Dead); i++)
+            {
+                foreach (var c in sim.Combatants.Values.Where(c => !c.IsMob)) SimpleBrain.Act(sim, c, 0.1f);
+                director.Step(0.1f);
+                produced.AddRange(director.Drain(cursor, _ => room.Id)); cursor = sim.Events.Count;
+            }
+            Assert.All(director.Mobs, m => Assert.True(m.Mob.Dead));
+            Assert.Single(produced.Where(e => e.Kind == MatchEventKind.MobPackCleared && e.A == LayoutIndex.IdOfMobPack(room)));
+            foreach (var e in produced) Assert.True(st.Apply(e, out string why), $"{e}: {why}");
+            Assert.Contains(LayoutIndex.IdOfMobPack(room), st.ClearedPacks);
+
+            // And the boss: its death becomes BossKilled for the killing team, and the final boss opens the exit.
+            var bossRoom = layout.BossRooms.First();
+            var bsim = new FightSim(layout, 7);
+            var bd = new EncounterDirector(bsim, layout);
+            var boss = bd.StationBoss(bossRoom);
+            bsim.Add(FightLab.Player(1, 0, "Berserker", 4, Vec2.Of(bossRoom.Center) + new Vec2(1f, 0f)));
+            boss.Boss.Health = 10f;
+            bsim.Cast(1, "Berserker.bolt", boss.Boss.Position);
+            var events = bd.Drain(0, _ => bossRoom.Id).ToList();
+            Assert.Contains(events, e => e.Kind == MatchEventKind.BossKilled && e.A == bossRoom.Id && e.B == 0);
+            Assert.True(st.Apply(events.First(e => e.Kind == MatchEventKind.BossKilled), out string w), w);
+            Assert.Contains(bossRoom.Id, st.DeadBosses);
+        }
+    }
+}

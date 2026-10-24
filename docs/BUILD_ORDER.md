@@ -24,9 +24,12 @@ the round summary is right.
    mitigation, statuses, downed and finishing, and the hit log feeds the death recap. Left: the
    Unity side (casting from input, projectile and zone visuals, hit feedback) and tuning with
    the lab. Done: the three slice classes' six specs and their ultimates play as written.
-5. **Mobs and bosses** (2 weeks). Pathing is `GridPath`; rules are `MobRules`. Done: packs leash,
-   target nearest, obey taunts, never respawn; the two slice bosses use their archetype numbers
-   and one affix each; the final boss opens the exit.
+5. **Mobs and bosses** (2 weeks). **Core half done** (`MobController`, `BossController`,
+   `EncounterDirector`): packs leash, share aggro, hold doors, keep range, reset and never
+   respawn; all nine bosses run their mechanics, phases and enrage; deaths reach the round state.
+   Left: the Unity side (animation and telegraph visuals, server tick wiring) and tuning the
+   check bosses with the lab. Done: the two slice bosses play as written and the final boss
+   opens the exit.
 6. **Round flow** (1 week). Countdown and sealed doors, the clock, extracts, the mid-round event
    announcement, round end, the round summary screen. Done: a round plays start to finish with
    the summary built from the log.

@@ -654,6 +654,17 @@ queue region; `QueuedGroup.Region` and `Tier` key the matchmaker. `MatchRules.Ba
 and `PlayerSpawned` is refused once the doors are open. `Season.Starting` makes 91-day seasons.
 `Strings.Get(key)` serves every player-facing string with English fallback.
 
+## Mob and boss behaviour (built, first tuning)
+
+`MobController.Step(sim, dt)` is the mob state machine (`MobState`): acquire (taunt, pack target,
+nearest in sight inside `GridPath.WithinLeash`), hold a doorway or keep range by `MobTraits`, cast
+`Mob.basic` or `Mob.ranged`, chase, return and reset. `BossController.Step` picks a target by
+archetype, runs the mechanic timer (`Mechanic`, `Secondary`, `OnPhase`, channel results in
+`Resolve`), slams when crowded, swings, chases within the leash (Chasers for eight seconds beyond
+it), and enrages. `EncounterDirector` owns a room's controllers and `Drain`s match events through
+`FightBridge` with the pack and boss room lookups. `FightLab.BossFight` and `PackFight` run them in
+generated rooms; the console tool exposes `--sim bosses`, `--sim packs` and `--sim roomtrace`.
+
 ## The ability and damage pipeline (built, first tuning)
 
 `AbilityDefinition` is the unit; `AbilityBook.All` holds every ability, `AbilityBook.For(spec)`

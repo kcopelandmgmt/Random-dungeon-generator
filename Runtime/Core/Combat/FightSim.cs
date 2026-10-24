@@ -57,6 +57,26 @@ namespace DungeonGen.Core.Combat
         /// <summary>The raw size of the hit each damage-over-time status ticks from.</summary>
         public Dictionary<StatusKind, float> DotBase { get; } = new Dictionary<StatusKind, float>();
         public int MomentumStacks { get; set; }
+        /// <summary>Multiplier on everything this combatant deals: enrage, Overdrive, affixes.</summary>
+        public float DamageScale { get; set; } = 1f;
+        public float AttackSpeedScale { get; set; } = 1f;
+        public float MoveSpeedScale { get; set; } = 1f;
+        /// <summary>Floats or burns: traps, vents, pits and lava do nothing to it.</summary>
+        public bool HazardImmune { get; set; }
+        /// <summary>Passes closed doors and bodies (the Lantern Wraith's Drift).</summary>
+        public bool PassesDoors { get; set; }
+        /// <summary>A cast with a wind-up. Stagger or Stun cancels it; the brain reads ChannelName when it completes.</summary>
+        public string ChannelName { get; set; }
+        public float ChannelUntil { get; set; } = -1f;
+        public bool Channelling => ChannelName != null && ChannelUntil > 0f;
+        /// <summary>attacker id → (damage dealt to me, when). Threat for boss targeting.</summary>
+        public Dictionary<int, (float damage, float at)> Threat { get; } = new Dictionary<int, (float, float)>();
+        /// <summary>Second lives (the Gravewalker rises once unless burned).</summary>
+        public int Lives { get; set; } = 0;
+        public bool LastHitWasFire { get; set; }
+        /// <summary>Set by Tick when a channel finishes; the brain consumes it.</summary>
+        public string CompletedChannel { get; set; }
+        public void StartChannel(string name, float seconds, float now) { ChannelName = name; ChannelUntil = now + seconds; }
         /// <summary>Damage over time accumulated since the last whole-second flush, so the hit log and events see one line per second, not one per tick.</summary>
         public float DotPending { get; set; }
         public DamageType DotElement { get; set; }
@@ -93,7 +113,7 @@ namespace DungeonGen.Core.Combat
         public override string ToString() => $"{Name} [{Spec}] T{Team} hp {Health:0}/{MaxHealth:0} at {Position}{(Downed ? " DOWNED" : "")}{(Dead ? " DEAD" : "")}";
     }
 
-    public enum FightEventKind { Hit, Heal, StatusApplied, Downed, Finished, Died, Revived, Rejected, Dashed, KnockedBack, ZoneStarted, Cleansed }
+    public enum FightEventKind { Hit, Heal, StatusApplied, Downed, Finished, Died, Revived, Rejected, Dashed, KnockedBack, ZoneStarted, Cleansed, HazardFired, Interrupted, Spawned, Phase }
 
     public readonly struct FightEvent
     {
@@ -148,7 +168,7 @@ namespace DungeonGen.Core.Combat
 
         public Combatant Add(Combatant c) { Combatants[c.Id] = c; return c; }
         public Combatant Get(int id) => Combatants.TryGetValue(id, out var c) ? c : null;
-        private void Emit(FightEventKind k, int source, int target, float amount = 0f, string detail = "") => Events.Add(new FightEvent(k, Time, source, target, amount, detail));
+        private void Emit(FightEventKind k, int source, int target) => Emit(k, source, target, 0f, "");
 
         // ---------------------------------------------------------------- geometry
 
@@ -161,6 +181,45 @@ namespace DungeonGen.Core.Combat
             return !(t == TileType.RoomFloor || t == TileType.Corridor);
         }
         public bool Walkable(Vec2 p) => !Solid(p.Cell);
+        public bool Walkable(Vec2 p, Combatant c)
+        {
+            if (Layout == null) return true;
+            var t = Layout.GetTile(p.Cell);
+            if (t == TileType.Door) return !ClosedDoors.Contains(p.Cell) || (c != null && c.PassesDoors);
+            if (t == TileType.Pit) return c != null && c.HazardImmune;
+            return t == TileType.RoomFloor || t == TileType.Corridor;
+        }
+        /// <summary>Hazards disarmed this round (mirrors MatchState.DisarmedHazards) and when each trap last fired.</summary>
+        public HashSet<int> DisarmedHazards { get; } = new HashSet<int>();
+        public Dictionary<int, float> HazardFiredAt { get; } = new Dictionary<int, float>();
+        public void Emit(FightEventKind k, int source, int target, float amount, string detail) => Events.Add(new FightEvent(k, Time, source, target, amount, detail));
+        /// <summary>Traps fire on the body that steps on them; vents and lava hurt every second you stand in them. Pits are solid to everyone who cannot float.</summary>
+        private void CheckHazards(Combatant c)
+        {
+            if (Layout == null || c.HazardImmune || !c.Alive) return;
+            var cell = c.Position.Cell;
+            foreach (var h in Layout.Hazards)
+            {
+                if (!h.Bounds.Contains(cell) || DisarmedHazards.Contains(h.Id)) continue;
+                switch (h.Kind)
+                {
+                    case HazardKind.SpikeTrap:
+                        if (HazardFiredAt.TryGetValue(h.Id, out float at) && Time - at < HazardRules.SpikeRearmSeconds) break;
+                        HazardFiredAt[h.Id] = Time;
+                        Emit(FightEventKind.HazardFired, h.Id, c.Id, 0f, h.Kind.ToString());
+                        ApplyDamage(c, c.MaxHealth * HazardRules.SpikeDamageFraction, DamageProfile.Pure(DamageType.Physical), null, "spike trap");
+                        break;
+                    case HazardKind.GasVent:
+                        if (!HazardFiredAt.TryGetValue(h.Id, out float g) || Time - g >= 1f) { HazardFiredAt[h.Id] = Time; Emit(FightEventKind.HazardFired, h.Id, c.Id, 0f, h.Kind.ToString()); }
+                        if (!c.Status.Has(StatusKind.Poisoned) || c.Status.Get(StatusKind.Poisoned).RemainingSeconds < 1.5f) { c.Status.Apply(StatusEffectDefinition.All[StatusKind.Poisoned], c.Resistances); c.DotBase[StatusKind.Poisoned] = Math.Max(c.DotBase.TryGetValue(StatusKind.Poisoned, out float pb) ? pb : 0f, c.MaxHealth * HazardRules.GasPoisonPerSecondFraction / StatusEffectDefinition.All[StatusKind.Poisoned].Magnitude); }
+                        break;
+                    case HazardKind.Lava:
+                        if (!HazardFiredAt.TryGetValue(h.Id, out float l) || Time - l >= 1f) { HazardFiredAt[h.Id] = Time; Emit(FightEventKind.HazardFired, h.Id, c.Id, 0f, h.Kind.ToString()); }
+                        if (!c.Status.Has(StatusKind.Burn) || c.Status.Get(StatusKind.Burn).RemainingSeconds < 1.5f) { c.Status.Apply(StatusEffectDefinition.All[StatusKind.Burn], c.Resistances); c.DotBase[StatusKind.Burn] = Math.Max(c.DotBase.TryGetValue(StatusKind.Burn, out float lb) ? lb : 0f, c.MaxHealth * HazardRules.LavaBurnPerSecondFraction / StatusEffectDefinition.All[StatusKind.Burn].Magnitude); }
+                        break;
+                }
+            }
+        }
         /// <summary>Sight follows LineOfSight: low walls and pits do not block it, pillars and closed doors do.</summary>
         public bool CanSee(Vec2 from, Vec2 to) => Layout == null || LineOfSight.CanSee(Layout, from.Cell, to.Cell, ClosedDoors);
         private bool IsBehind(Combatant attacker, Combatant target) => (attacker.Position - target.Position).Normalized.Dot(target.Facing) < -0.3f;   // the attacker stands where the target is not looking
@@ -243,7 +302,7 @@ namespace DungeonGen.Core.Combat
             // Spend and start the cooldown before effects: a reflected hit must not refund the cast.
             caster.ResourceNow -= cost;
             if (a.CooldownSeconds > 0f) caster.CooldownUntil[a.Id] = Time + a.CooldownSeconds;
-            if (a.Kind == AbilityKind.Basic) { caster.NextBasicAt = Time + 1f / Math.Max(0.2f, caster.AttackSpeed * (1f + caster.BuffMagnitude(BuffKind.AttackSpeed))); caster.LastSwingAt = Time; }
+            if (a.Kind == AbilityKind.Basic) { caster.NextBasicAt = Time + 1f / Math.Max(0.2f, caster.AttackSpeed * caster.AttackSpeedScale * (1f + caster.BuffMagnitude(BuffKind.AttackSpeed))); caster.LastSwingAt = Time; }
             if (a.Kind == AbilityKind.Ultimate) caster.UltimateArmed = false;
             if (a.Buff.HasValue && !a.BuffOnTargets) AddBuff(caster, a.Buff.Value, a.BuffMagnitude, a.BuffSeconds, caster.Id);
             if (a.Buff == BuffKind.Taunt) AddBuff(caster, BuffKind.DamageReduction, a.BuffMagnitude, a.BuffSeconds, caster.Id);   // Hold the Line: the taunt's reduction is the caster's
@@ -339,8 +398,8 @@ namespace DungeonGen.Core.Combat
         /// <summary>One hit of an ability from attacker to defender. Returns the damage that landed.</summary>
         public float Strike(Combatant attacker, Combatant defender, AbilityDefinition a, Vec2? aim = null)
         {
-            float raw = attacker.Dps * a.Damage;
-            if (a.Kind == AbilityKind.Basic) raw = attacker.Dps / Math.Max(0.2f, attacker.AttackSpeed);
+            float raw = attacker.Dps * a.Damage * attacker.DamageScale;
+            if (a.Kind == AbilityKind.Basic) raw = attacker.Dps * attacker.DamageScale / Math.Max(0.2f, attacker.AttackSpeed);
             if (attacker.Spec == "Berserker") raw *= 1f + (1f - attacker.Health / attacker.MaxHealth);                     // Frenzy
             if (attacker.Spec == "Sharpshooter" && Vec2.Distance(attacker.Position, defender.Position) * CellMetres > DeadeyeBeyondMetres) raw *= 1f + DeadeyeBonus;   // Deadeye
             if (a.Id == "Assassin.bolt" && IsBehind(attacker, defender)) raw *= BackstabMultiplier;                        // Backstab
@@ -368,7 +427,7 @@ namespace DungeonGen.Core.Combat
             if (landed > 0f)
             {
                 var status = a.Status.HasValue ? StatusEffectDefinition.All[a.Status.Value] : (a.Kind == AbilityKind.Basic || a.Kind == AbilityKind.Bolt ? attacker.OnHit : null);
-                if (status != null) ApplyStatus(attacker, defender, status, raw, a.Id);
+                if (status != null) ApplyStatus(attacker, defender, status, landed, a.Id);   // "a fraction of the hit": the hit as taken, so armour and resistance shrink the burn too
                 if (attacker.Lifesteal > 0f) Heal(attacker, attacker, 0f, landed * attacker.Lifesteal);
                 if (attacker.Has(BuffKind.CannotBeDowned)) Heal(attacker, attacker, 0f, landed * attacker.BuffMagnitude(BuffKind.CannotBeDowned));   // Bloodbath
                 if (defender.Thorns > 0f) ApplyDamage(attacker, landed * defender.Thorns, DamageProfile.Pure(defender.ThornsType), defender, "thorns");
@@ -394,6 +453,8 @@ namespace DungeonGen.Core.Combat
             total = (float)Math.Round(total, 1);
             Hits.Record(defender.Id, new Hit(Time, attacker?.Id ?? -1, attacker?.Spec, profile.Dominant, total, detail));
             Emit(FightEventKind.Hit, attacker?.Id ?? -1, defender.Id, total, detail);
+            if (attacker != null) defender.Threat[attacker.Id] = ((defender.Threat.TryGetValue(attacker.Id, out var th) && Time - th.at < 10f ? th.damage : 0f) + total, Time);
+            defender.LastHitWasFire = profile.Dominant == DamageType.Fire;
             if (defender.Downed)
             {
                 if (attacker == null || attacker.Team == defender.Team) return 0f;   // only an enemy finishes a downed player; a teammate's stray swing does nothing to a body
@@ -406,7 +467,11 @@ namespace DungeonGen.Core.Combat
             {
                 if (defender.Has(BuffKind.CannotBeDowned)) { defender.Health = 1f; return total; }   // Bloodbath: you fall when it ends
                 defender.Health = 0f;
-                if (defender.IsMob) { defender.Dead = true; Emit(FightEventKind.Died, attacker?.Id ?? -1, defender.Id, 0f, ""); }
+                if (defender.IsMob)
+                {
+                    if (defender.Lives > 0 && !defender.LastHitWasFire) { defender.Lives--; defender.Health = defender.MaxHealth * 0.5f; defender.Status.Cleanse(); Emit(FightEventKind.Revived, -1, defender.Id, defender.Health, "rises again"); return total; }
+                    defender.Dead = true; Emit(FightEventKind.Died, attacker?.Id ?? -1, defender.Id, 0f, "");
+                }
                 else { defender.Downed = true; defender.DownedAt = Time; defender.FinishDamage = 0f; defender.Status.Cleanse(); defender.Buffs.Clear(); Emit(FightEventKind.Downed, attacker?.Id ?? -1, defender.Id, 0f, ""); }
             }
             return total;
@@ -419,6 +484,7 @@ namespace DungeonGen.Core.Combat
             var landed = target.Status.Apply(effect, target.Resistances);
             if (effect.Kind == StatusKind.Freeze && ability.EndsWith(".ult") && !target.IsMob) target.Status.Resistance = new ControlResistance();
             if (landed == null) return;
+            if ((landed.Definition.Kind == StatusKind.Stagger || landed.Definition.IsHardControl) && target.Channelling) { Emit(FightEventKind.Interrupted, source.Id, target.Id, 0f, target.ChannelName); target.ChannelName = null; target.ChannelUntil = -1f; }
             if (landed.Definition.IsDamageOverTime && rawHit > 0f) target.DotBase[landed.Definition.Kind] = Math.Max(target.DotBase.TryGetValue(landed.Definition.Kind, out float b) ? b : 0f, rawHit);
             if (effect.Kind == StatusKind.Poisoned && ability.EndsWith(".ult")) { var p = target.Status.Get(StatusKind.Poisoned); if (p != null) p.Stacks = p.Definition.MaxStacks; }   // Outbreak
             Emit(FightEventKind.StatusApplied, source.Id, target.Id, landed.RemainingSeconds, landed.Definition.Kind.ToString());
@@ -465,6 +531,8 @@ namespace DungeonGen.Core.Combat
                 if (c.Resource != ResourceKind.None && FightRules.ResourcesRegenerate) c.ResourceNow = Math.Min(c.ResourceMax, c.ResourceNow + c.ResourceMax * FightRules.ResourceRegenPerSecond * c.RegenMultiplier * dt);
                 c.Buffs.RemoveAll(b => Time >= b.Until);
                 if (c.Spec == "Breaker" && Time - c.LastSwingAt > 3f) c.MomentumStacks = 0;
+                if (c.Channelling && Time >= c.ChannelUntil) { Emit(FightEventKind.Phase, c.Id, -1, 0f, "channel:" + c.ChannelName); c.CompletedChannel = c.ChannelName; c.ChannelName = null; c.ChannelUntil = -1f; }
+                CheckHazards(c);
                 if (c.Downed)
                 {
                     if (Time - c.DownedAt >= FightRules.DownedSeconds) { c.Dead = true; Emit(FightEventKind.Died, -1, c.Id, 0f, "bled out"); }
@@ -507,15 +575,17 @@ namespace DungeonGen.Core.Combat
         {
             var c = Get(id);
             if (c == null || !c.CanMove) return;
-            float speed = MovementRules.BaseSpeedMps / CellMetres * c.MoveSpeed * (1f - c.Status.SlowFraction) * (c.Has(BuffKind.Invisible) ? 0.6f : 1f);
+            if (c.Channelling) return;   // a wind-up roots you
+            float speed = MovementRules.BaseSpeedMps / CellMetres * c.MoveSpeed * c.MoveSpeedScale * (1f - c.Status.SlowFraction) * (c.Has(BuffKind.Invisible) ? 0.6f : 1f);
             var dir = (toward - c.Position);
             float dist = Math.Min(dir.Length, speed * dt);
             if (dist < 1e-4f) return;
             var step = dir.Normalized * dist;
             var next = c.Position + step;
-            if (Walkable(next)) { c.Position = next; c.Facing = dir.Normalized; }
-            else if (Walkable(new Vec2(next.X, c.Position.Y))) c.Position = new Vec2(next.X, c.Position.Y);
-            else if (Walkable(new Vec2(c.Position.X, next.Y))) c.Position = new Vec2(c.Position.X, next.Y);
+            if (Walkable(next, c)) { c.Position = next; c.Facing = dir.Normalized; }
+            else if (Walkable(new Vec2(next.X, c.Position.Y), c)) c.Position = new Vec2(next.X, c.Position.Y);
+            else if (Walkable(new Vec2(c.Position.X, next.Y), c)) c.Position = new Vec2(c.Position.X, next.Y);
+            CheckHazards(c);
         }
     }
 
@@ -544,8 +614,10 @@ namespace DungeonGen.Core.Combat
                         else { int? pack = packOf?.Invoke(e.Target); if (pack.HasValue && sim.Combatants.Values.Where(c => c.IsMob && packOf(c.Id) == pack).All(c => c.Dead)) yield return new MatchEvent(MatchEventKind.MobPackCleared, e.Time, pack.Value); }
                         break;
                     }
-                case FightEventKind.Revived when target != null:
+                case FightEventKind.Revived when target != null && !target.IsMob:
                     yield return new MatchEvent(MatchEventKind.PlayerRevived, e.Time, e.Target, e.Source); break;
+                case FightEventKind.HazardFired when target != null && !target.IsMob:
+                    yield return new MatchEvent(MatchEventKind.HazardTriggered, e.Time, e.Source, e.Target); break;
             }
         }
     }

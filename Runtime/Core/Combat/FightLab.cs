@@ -11,6 +11,16 @@ namespace DungeonGen.Core.Combat
     /// </summary>
     public static class SimpleBrain
     {
+        /// <summary>Move toward a point; when the straight line is blocked (a pillar, a crystal wall), follow the grid path instead.</summary>
+        public static void Approach(FightSim sim, Combatant c, Vec2 to, float dt)
+        {
+            var before = c.Position;
+            sim.Move(c.Id, to, dt);
+            if (Vec2.Distance(before, c.Position) > 0.05f || sim.Layout == null || Vec2.Distance(c.Position, to) < 0.6f) return;
+            var path = GridPath.Find(sim.Layout, c.Position.Cell, to.Cell, closedDoors: sim.ClosedDoors);
+            if (path != null && path.Count > 1) sim.Move(c.Id, Vec2.Of(path[1]), dt);
+        }
+
         /// <summary>A point at melee range around the target, spread by caster id so a party surrounds instead of stacking.</summary>
         public static Vec2 Flank(FightSim sim, Combatant c, Combatant target, float range)
         {
@@ -43,6 +53,12 @@ namespace DungeonGen.Core.Combat
                 var hurt = sim.Combatants.Values.Where(o => o.Team == c.Team && o.Alive && o.Health < o.MaxHealth * 0.6f).OrderBy(o => o.Health / o.MaxHealth).FirstOrDefault();
                 if (hurt != null && Vec2.Distance(hurt.Position, c.Position) <= bolt.RangeCells && sim.Cast(c.Id, bolt.Id, hurt.Position).Ok) return;
             }
+            // Purge: strip a teammate who is stacking poison or bleeding out, or who is frozen or stunned.
+            if (mobility != null && mobility.Filter == TargetFilter.Allies && mobility.Shape == AbilityShape.Target)
+            {
+                var sick = sim.Combatants.Values.Where(o => o.Team == c.Team && o.Alive && (o.Status.Active.Any(s => s.Definition.IsDamageOverTime && s.Stacks >= 2) || o.Status.IsHardControlled)).OrderByDescending(o => o.Status.DotFractionPerSecond).FirstOrDefault();
+                if (sick != null && Vec2.Distance(sick.Position, c.Position) <= mobility.RangeCells && sim.Cast(c.Id, mobility.Id, sick.Position).Ok) return;
+            }
             if (zone != null && zone.Filter == TargetFilter.Allies)
             {
                 var low = sim.Combatants.Values.Where(o => o.Team == c.Team && o.Alive && o.Health < o.MaxHealth * 0.5f).OrderBy(o => o.Health / o.MaxHealth).FirstOrDefault();
@@ -51,6 +67,16 @@ namespace DungeonGen.Core.Combat
             if (target == null) return;
             float dist = Vec2.Distance(target.Position, c.Position);
             bool sees = sim.CanSee(c.Position, target.Position);
+            // Read the telegraph: a boss winding up a Crush on you, or a ground slam under you, is a reason to step out.
+            var winding = enemies.FirstOrDefault(o => o.Channelling && (o.ChannelName == "crush:" + c.Id || (o.ChannelName == "groundslam" && Vec2.Distance(o.Position, c.Position) <= 3.5f)));
+            if (winding != null)
+            {
+                if (zone != null && zone.Buff == BuffKind.FrontShield && sim.Cast(c.Id, zone.Id, c.Position).Ok) return;   // a Warden eats it behind the shield
+                sim.Move(c.Id, c.Position + (c.Position - winding.Position).Normalized * 4f, dt); return;
+            }
+            // Never stand in an enemy's zone.
+            var burning = sim.Zones.FirstOrDefault(z => z.CasterTeam != c.Team && z.Ability.Damage > 0f && Vec2.Distance(z.Centre, c.Position) <= z.Ability.Size + 0.3f);
+            if (burning != null) { var away = (c.Position - burning.Centre); sim.Move(c.Id, c.Position + (away.Length < 0.1f ? new Vec2(1f, 0f) : away.Normalized) * 2f, dt); return; }
             // Full friendly fire: never swing through a teammate. Check who an ability would touch first.
             bool Clear(AbilityDefinition a, Vec2 aim) => a.Filter == TargetFilter.Allies || !sim.Preview(c.Id, a.Id, aim).Any(t => t.Team == c.Team && t.Id != c.Id);
             if (ult != null && c.UltimateArmed && (ult.Shape == AbilityShape.Self || dist <= Math.Max(ult.RangeCells, ult.Size)))
@@ -66,6 +92,8 @@ namespace DungeonGen.Core.Combat
                 int crowd = enemies.Count(o => Vec2.Distance(o.Position, zone.RangeCells <= 0f ? c.Position : target.Position) <= Math.Max(zone.Size, 1.5f));
                 if ((crowd >= 2 || (zone.Shape == AbilityShape.Cone && dist <= zone.RangeCells)) && Clear(zone, target.Position) && sim.Cast(c.Id, zone.Id, target.Position).Ok) return;
             }
+            // Ranged fighters keep their distance: a slam needs two bodies within 2 m of the boss, so do not be one of them.
+            if (basic != null && basic.Shape == AbilityShape.Projectile && dist < 3f) { sim.Move(c.Id, c.Position + (c.Position - target.Position).Normalized * 3f, dt); return; }
             if (bolt != null && bolt.Filter != TargetFilter.Allies && sees && dist <= bolt.RangeCells + 0.5f && Clear(bolt, target.Position) && sim.Cast(c.Id, bolt.Id, target.Position).Ok) return;
             if (basic != null && sees && dist <= basic.RangeCells + 0.5f)
             {
@@ -73,7 +101,7 @@ namespace DungeonGen.Core.Combat
                 else { sim.Move(c.Id, Flank(sim, c, target, basic.RangeCells), dt); return; }   // a teammate is in the way: step around
             }
             if (mobility != null && mobility.Shape == AbilityShape.Dash && mobility.Damage > 0f && dist > (basic?.RangeCells ?? 1f) && dist <= mobility.RangeCells + 1f && Clear(mobility, target.Position) && sim.Cast(c.Id, mobility.Id, target.Position).Ok) return;
-            if (basic == null || dist > basic.RangeCells || !sees) sim.Move(c.Id, basic != null ? Flank(sim, c, target, basic.RangeCells) : target.Position, dt);
+            if (basic == null || dist > basic.RangeCells || !sees) Approach(sim, c, basic != null ? Flank(sim, c, target, basic.RangeCells) : target.Position, dt);
         }
     }
 
@@ -150,6 +178,71 @@ namespace DungeonGen.Core.Combat
             var arch = BossArchetype.DefaultPool[0];
             sim.Add(Combatant.Boss(99, 1, arch.Name, budget, arch.Damage, null, new Vec2(9f, 12f), StatusKind.Bleed));
             return Run(sim, maxSeconds);
+        }
+
+        /// <summary>
+        /// A party against a real boss in a real room: the dungeon is generated with only that archetype
+        /// allowed, the party enters through a door, the director runs the boss brain with its mechanics.
+        /// </summary>
+        public static FightReport BossFight(string archetype, IReadOnlyList<string> party, int tier, int seed, float maxSeconds = 300f, Action<FightSim, EncounterDirector> inspect = null)
+        {
+            var s = DungeonSettings.ForTeams(4);
+            bool final = archetype == BossArchetype.FinalBoss.Name;
+            if (!final) { s.AllowedBosses = new[] { archetype }; s.BossCount = 1; }
+            var layout = DungeonGenerator.Generate(s, seed);
+            var room = final ? layout.FinalBossRoom : layout.BossRooms.First(r => r.Boss.Archetype.Name == archetype);
+            var sim = new FightSim(layout, seed);
+            var director = new EncounterDirector(sim, layout);
+            var door = room.Doors.First();
+            var inside = GridPoint.Cardinals.Select(c => door + c).First(p => room.Bounds.Contains(p));
+            for (int i = 0; i < party.Count; i++)
+            {
+                var p = Vec2.Of(inside) + (Vec2.Of(room.Center) - Vec2.Of(inside)).Normalized * (1f + i);
+                if (!sim.Walkable(p)) p = Vec2.Of(inside);
+                sim.Add(Player(1 + i, 0, party[i], tier, p));
+            }
+            director.StationBoss(room);
+            var report = RunDirected(sim, director, maxSeconds);
+            inspect?.Invoke(sim, director);
+            return report;
+        }
+
+        /// <summary>A party against a room's pack of one mob type, found in a generated dungeon.</summary>
+        public static FightReport PackFight(string mobName, IReadOnlyList<string> party, int tier, int seed, float maxSeconds = 180f)
+        {
+            for (int attempt = 0; attempt < 30; attempt++)
+            {
+                var layout = DungeonGenerator.Generate(DungeonSettings.ForTeams(4), seed + attempt * 101);
+                var room = layout.Rooms.FirstOrDefault(r => r.Mobs != null && r.Mobs.Mob.Name == mobName && r.Doors.Count > 0);
+                if (room == null) continue;
+                var sim = new FightSim(layout, seed);
+                var director = new EncounterDirector(sim, layout);
+                var door = room.Doors.First();
+                var inside = GridPoint.Cardinals.Select(c => door + c).First(p => room.Bounds.Contains(p));
+                for (int i = 0; i < party.Count; i++) sim.Add(Player(1 + i, 0, party[i], tier, Vec2.Of(inside)));
+                director.StationPack(room);
+                return RunDirected(sim, director, maxSeconds);
+            }
+            throw new InvalidOperationException($"no room with {mobName} in 30 dungeons");
+        }
+
+        public static FightReport RunDirected(FightSim sim, EncounterDirector director, float maxSeconds, float dt = 0.1f)
+        {
+            var report = new FightReport();
+            while (sim.Time < maxSeconds)
+            {
+                foreach (var c in sim.Combatants.Values.Where(c => !c.IsMob).OrderBy(c => c.Id).ToList()) SimpleBrain.Act(sim, c, dt);
+                director.Step(dt);
+                bool playersUp = sim.Combatants.Values.Any(c => !c.IsMob && c.Alive);
+                bool enemiesUp = sim.Combatants.Values.Any(c => c.IsMob && !c.Dead && (director.Boss == null || c.Id == director.Boss.Boss.Id || director.Boss.Boss.Dead));
+                if (director.Boss != null && director.Boss.Boss.Dead) enemiesUp = false;
+                if (!playersUp || !enemiesUp) { report.WinnerTeam = playersUp ? 0 : EncounterDirector.MobTeam; break; }
+            }
+            report.Seconds = sim.Time;
+            report.TimedOut = sim.Time >= maxSeconds;
+            report.Downs = sim.Events.Count(e => e.Kind == FightEventKind.Downed);
+            foreach (var e in sim.Events.Where(e => e.Kind == FightEventKind.Hit && e.Source >= 0)) report.DamageDealt[e.Source] = (report.DamageDealt.TryGetValue(e.Source, out float d) ? d : 0f) + e.Amount;
+            return report;
         }
 
         /// <summary>Win rate of A over many seeds. 0.5 is balanced.</summary>

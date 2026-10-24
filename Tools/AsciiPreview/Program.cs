@@ -63,7 +63,7 @@ namespace DungeonGen.Tools
                     case "--batch": batch = int.Parse(Next()); break;
                     case "--no-legend": legend = false; break;
                     case "--help":
-                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear --lifetime --craft --net --tier 1..3 --view TEAM --no-interiors --no-hazards --sim duels|teams|boss|trace [--sim-tier N --sim-seeds N]");
+                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear --lifetime --craft --net --tier 1..3 --view TEAM --no-interiors --no-hazards --sim duels|teams|boss|bosses|packs|trace [--sim-tier N --sim-seeds N]");
                         return 0;
                     default:
                         Console.Error.WriteLine("Unknown argument " + args[i]);
@@ -283,6 +283,46 @@ namespace DungeonGen.Tools
                             for (int s = 1; s <= seeds; s++) { var r = DungeonGen.Core.Combat.FightLab.PartyVsBoss(party, t, s); if (r.WinnerTeam == 0) wins++; secs += r.Seconds; }
                             Console.WriteLine($"  {string.Join("/", party),-40} tier {t}: win {wins / (float)seeds:0.00}, avg {secs / seeds:0.0}s");
                         }
+                        return 0;
+                    }
+                case "bosses":
+                    {
+                        var party = new[] { "Sentinel", "Berserker", "Warder" };
+                        Console.WriteLine($"TRIO {string.Join("/", party)} at gear tier {tier} vs each boss in its own room, with mechanics, {seeds} seeds.");
+                        foreach (var arch in DungeonGen.Core.Combat.BossArchetype.DefaultPool.Select(a => a.Name).Concat(new[] { DungeonGen.Core.Combat.BossArchetype.FinalBoss.Name }))
+                        {
+                            int wins = 0, downs = 0; float secs = 0;
+                            for (int s = 1; s <= seeds; s++) { var r = DungeonGen.Core.Combat.FightLab.BossFight(arch, party, tier, s); if (r.WinnerTeam == 0) wins++; secs += r.Seconds; downs += r.Downs; }
+                            Console.WriteLine($"  {arch,-20} win {wins / (float)seeds:0.00}  avg {secs / seeds,5:0.0}s  downs/fight {downs / (float)seeds:0.0}");
+                        }
+                        return 0;
+                    }
+                case "packs":
+                    {
+                        var party = new[] { "Sentinel", "Berserker", "Warder" };
+                        Console.WriteLine($"TRIO at gear tier {tier} vs a room's pack of each mob, {seeds} seeds.");
+                        foreach (var mob in DungeonGen.Core.Combat.MobArchetype.DefaultRoster.Select(m => m.Name))
+                        {
+                            int wins = 0, downs = 0; float secs = 0;
+                            for (int s = 1; s <= seeds; s++) { var r = DungeonGen.Core.Combat.FightLab.PackFight(mob, party, tier, s); if (r.WinnerTeam == 0) wins++; secs += r.Seconds; downs += r.Downs; }
+                            Console.WriteLine($"  {mob,-16} win {wins / (float)seeds:0.00}  avg {secs / seeds,5:0.0}s  downs/fight {downs / (float)seeds:0.0}");
+                        }
+                        return 0;
+                    }
+                case "roomtrace":
+                    {
+                        var arch = Environment.GetEnvironmentVariable("ARCH") ?? "Hive Matron";
+                        var report = DungeonGen.Core.Combat.FightLab.BossFight(arch, new[] { "Sentinel", "Berserker", "Warder" }, tier, seed, 300f, (sim, dir) =>
+                        {
+                            Console.WriteLine($"BOSS {dir.Boss.Boss} budget hp {dir.Boss.Boss.MaxHealth:0} dps {dir.Boss.Boss.Dps:0} scale {dir.Boss.Boss.DamageScale} affixes {string.Join(",", dir.Boss.Instance.Affixes.Select(a => a.Name))}");
+                            foreach (var c in sim.Combatants.Values.Where(c => !c.IsMob)) Console.WriteLine($"  {c}");
+                            foreach (var e in sim.Events.Where(e => e.Kind != DungeonGen.Core.Combat.FightEventKind.Rejected && e.Kind != DungeonGen.Core.Combat.FightEventKind.Hit || (e.Kind == DungeonGen.Core.Combat.FightEventKind.Hit && e.Amount >= 150)).Take(40)) Console.WriteLine("  " + e);
+                            var first = sim.Events.FirstOrDefault(e => e.Kind == DungeonGen.Core.Combat.FightEventKind.Downed);
+                            if (first.Kind == DungeonGen.Core.Combat.FightEventKind.Downed) foreach (var h in sim.Hits.LastHits(first.Target)) Console.WriteLine($"  last hit on {first.Target}: {h.Time:0.0}s {h.Amount:0} {h.Type} {h.Ability} by {h.Attacker}");
+                            var rej = sim.Events.Where(e => e.Kind == DungeonGen.Core.Combat.FightEventKind.Rejected).GroupBy(e => e.Detail.Split(':')[0] + ":" + e.Detail.Split(':').Last()).OrderByDescending(g => g.Count()).Take(5);
+                            foreach (var g in rej) Console.WriteLine($"  rejected x{g.Count()}: {g.Key}");
+                        });
+                        Console.WriteLine("  " + report);
                         return 0;
                     }
                 case "bosstrace":
