@@ -1,0 +1,14 @@
+{
+    "name": "DungeonGen.Unity.Practice",
+    "rootNamespace": "DungeonGen.Unity",
+    "references": [ "DungeonGen.Core", "DungeonGen.Unity" ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [ "UNITY_EDITOR || DEVELOPMENT_BUILD" ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

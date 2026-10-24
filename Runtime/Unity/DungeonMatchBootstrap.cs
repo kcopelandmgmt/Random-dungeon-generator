@@ -123,8 +123,14 @@ namespace DungeonGen.Unity
         {
             if (Builder == null) return;
             Builder.RandomizeSeed = false;
-            Builder.Build(layout.Seed);
+            Builder.Build(layout);   // the descriptor's dungeon, never a regeneration from the local config
         }
+
+        /// <summary>Server: raise a batch of events (from the simulation bridge) in order; rejected ones are logged and dropped.</summary>
+        public void RaiseAll(System.Collections.Generic.IEnumerable<MatchEvent> events) { foreach (var e in events) Raise(e); }
+
+        /// <summary>The team a player id belongs to, from the state, or -1.</summary>
+        public int TeamOf(int playerId) => State != null && State.PlayerTeam.TryGetValue(playerId, out int t) ? t : -1;
 
         /// <summary>World position where a team starts, from the descriptor's team → spawn-room assignment.</summary>
         public Vector3 SpawnPositionForTeam(int team)

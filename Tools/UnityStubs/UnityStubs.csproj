@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <Nullable>disable</Nullable>
+    <LangVersion>9.0</LangVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>CS0067;CS0414;CS0649;CS0169;CS0108</NoWarn>
+    <DefineConstants>UNITY_EDITOR;FISHNET;DUNGEONGEN_INPUTSYSTEM</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Stubs/*.cs" />
+    <Compile Include="../../Runtime/Unity/**/*.cs" />
+    <Compile Include="../../Runtime/Unity.Practice/*.cs" />
+    <Compile Include="../../Runtime/Unity.Input/*.cs" />
+    <Compile Include="../../Runtime/Unity.Fishnet/*.cs" />
+    <Compile Include="../../Editor/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../Runtime/Core/**/*.cs" />
+  </ItemGroup>
+</Project>

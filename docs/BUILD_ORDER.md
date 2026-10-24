@@ -10,32 +10,42 @@ Four teams, Warden, Marksman and Mender, Iron Juggernaut and Hive Matron, Tier I
 Everything is cubes. Done means: eight people can play a full round on a dedicated server and
 the round summary is right.
 
-1. **Scene from the layout** (1 week). `DungeonBuilder` already spawns tiles, interiors, hazards
-   and markers. Done: a 4-team layout stands in a URP scene, walkable, with doors that open and
-   close and vault doors that stay locked.
-2. **Movement, aim and camera** (1 week). WASD, mouse aim, `TopDownCamera`, enemies solid and
-   allies passable, 5 m/s, no sprint. Done: three people can run around the greybox together over
-   Fishnet with the server authoritative on position.
-3. **Fishnet transport** (1 week). Implement `IMatchTransport`: descriptor broadcast, events and
-   views per team, pings. Done: `DungeonMatchBootstrap` hosts a round, clients load views, a
-   reconnect gets the current view, and the `--net` demo's event sequence runs live.
+1. **Scene from the layout** (1 week). **Greybox written, untested in Unity.** `DungeonBuilder`
+   spawns tiles, interiors, hazards and markers, keeps door and hazard objects by id, and
+   **Dungeon Gen ▸ Build Greybox Scene** assembles a playable scene from fallback cubes. Done: a
+   4-team layout stands in a URP scene, walkable, with doors that open and close and vault doors
+   that stay locked.
+2. **Movement, aim and camera** (1 week). **Greybox written, untested in Unity.** New Input
+   System through `LocalPlayerController` (LMB/RMB/Q/E/R/Space/Tab/F), intents to a 20 Hz
+   `ServerSimulation`, snapshots per team back to `ClientWorldView`, `TopDownCamera`, enemies
+   solid and allies passable, 5 m/s, no sprint, no prediction. Done: three people can run around
+   the greybox together over Fishnet with the server authoritative on position.
+3. **Fishnet transport** (1 week). **First draft written** (`FishnetMatchTransport`, gated by
+   the `FISHNET` define; `LoopbackTransport` for one machine): descriptor broadcast, events and
+   views per team, snapshots and intents, pings. Done: `DungeonMatchBootstrap` hosts a round,
+   clients load views, a reconnect gets the current view, and the `--net` demo's event sequence
+   runs live.
 4. **Ability and damage pipeline** (3 weeks). **Core half done** (`AbilityBook`, `FightSim`,
    `FightBridge`, `FightLab`): every ability resolves on the grid with full friendly fire,
    mitigation, statuses, downed and finishing, and the hit log feeds the death recap. Left: the
-   Unity side (casting from input, projectile and zone visuals, hit feedback) and tuning with
-   the lab. Done: the three slice classes' six specs and their ultimates play as written.
+   Unity side (casting from input is wired through `ServerSimulation`; projectile and zone
+   visuals and hit feedback are not) and tuning with the lab. Done: the three slice classes' six specs and their ultimates play as written.
 5. **Mobs and bosses** (2 weeks). **Core half done** (`MobController`, `BossController`,
    `EncounterDirector`): packs leash, share aggro, hold doors, keep range, reset and never
    respawn; all nine bosses run their mechanics, phases and enrage; deaths reach the round state.
-   Left: the Unity side (animation and telegraph visuals, server tick wiring) and tuning the
-   check bosses with the lab. Done: the two slice bosses play as written and the final boss
+   Left: the Unity side (the server tick drives `EncounterDirector`; animation and telegraph
+   visuals are not drawn yet) and tuning the check bosses with the lab. Done: the two slice bosses play as written and the final boss
    opens the exit.
 6. **Round flow** (1 week). Countdown and sealed doors, the clock, extracts, the mid-round event
    announcement, round end, the round summary screen. Done: a round plays start to finish with
    the summary built from the log.
-7. **HUD** (1 week). Replace the OnGUI compass and minimap with real UI; health, resources,
+7. **HUD** (1 week). Replace the OnGUI compass, minimap and `PlayerHud` with real UI; health, resources,
    ability bar, loot roll prompt, death recap. Done: everything a player needs to read is on
    screen and nothing an enemy should not see is.
+
+The first thing to do in Unity: install the package, run **Dungeon Gen ▸ Build Greybox Scene**,
+press Play with `PracticeMode` on, and paste every console error back. The Unity layer has only
+been compiled against stubs (`Tools/UnityStubs`), never run.
 
 ## Milestone 2: the game around the slice (about 8 weeks)
 

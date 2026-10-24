@@ -1,0 +1,14 @@
+{
+    "name": "DungeonGen.Unity.Fishnet",
+    "rootNamespace": "DungeonGen.Unity",
+    "references": [ "DungeonGen.Core", "DungeonGen.Unity", "FishNet.Runtime" ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [ "FISHNET" ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

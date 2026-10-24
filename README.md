@@ -25,7 +25,9 @@ seed ─► rooms ─► graph ─► corridors ─► roles ─► bosses ─�
 | Meta | `Runtime/Core/Profile` | Accounts and earned classes, the vendor, crafting, seasons with per-tier leaderboards and mutators, kill-XP and transfer ledgers, reports. |
 | Tiers | `DungeonTier`, `Items/GearScore` | Three dungeons walled by gear score both ways; separate queues per tier and region. |
 | HUD | `Runtime/Core/Hud` | Compass strip and explored-only minimap models; death recap and round summary from the log. |
-| Unity | `Runtime/Unity` | Config, builder, gizmos, camera, greybox HUDs, the match bootstrap and the transport seam (events and views per team). |
+| Unity | `Runtime/Unity` | Config, builder, gizmos, camera, greybox HUDs, the match bootstrap, the transport seam, the server simulation and the client world view. |
+| Unity, gated | `Runtime/Unity.Input`, `Runtime/Unity.Fishnet`, `Runtime/Unity.Practice`, `Editor` | Input System controller, Fishnet transport, dev-only practice mode with bots, the greybox scene menu. Each compiles only when its dependency is present. |
+| Stub compile | `Tools/UnityStubs` | Compiles the whole Unity layer against a minimal stand-in `UnityEngine` so typos are caught without Unity. |
 | Tool | `Tools/AsciiPreview` | Prints dungeons, batch-validates seeds, rolls loot, simulates fights, crafting, wear, a networked round and a team's view. |
 | Tests | `Tests` | xUnit, 178 tests, 3,000+ seeds, every rule in the decision log. |
 
@@ -51,10 +53,13 @@ dotnet test
 
 ## Installing into Unity
 
-1. **Window ▸ Package Manager ▸ + ▸ Add package from git URL** with this repository, or clone and **Add package from disk** pointing at `package.json`. Unity 6 with URP is the target.
-2. **Assets ▸ Create ▸ Dungeon Gen ▸ Dungeon Config**, set *Preset Teams* and right-click ▸ **Apply Team Preset**.
-3. Attach `DungeonBuilder` to an empty object, assign the config and prefabs for floor, wall, door, locked door, pillar, low wall and pit, and press Play.
-4. For a networked round, implement `IMatchTransport` over Fishnet and attach it to `DungeonMatchBootstrap`. The server raises events; each team receives notifications and its view.
+1. Make a fresh **Unity 6** project with the **URP** template and install **Input System** from the Package Manager (restart when asked). Install **Fishnet** only when you want networking; add `FISHNET` to *Project Settings ▸ Player ▸ Scripting Define Symbols* when you do, and the Fishnet assembly compiles.
+2. **Window ▸ Package Manager ▸ + ▸ Add package from git URL** with this repository, or clone and **Add package from disk** pointing at `package.json`.
+3. **Dungeon Gen ▸ Build Greybox Scene**. The menu builds a scene with the builder, camera, server simulation, client view, HUD, input controller and practice mode wired together, using cube prefabs for every tile.
+4. Press Play. `PracticeMode` hosts a round in-process over the loopback transport, seats you and one bot team, and runs the fight on the server simulation. Keybinds: LMB basic, RMB bolt, Q zone, E mobility, R ultimate, Space interact, Tab map, F ping.
+5. Paste any console errors back. The Unity layer is compiled here against a stub engine (`Tools/UnityStubs`), so what reaches you has had its typos caught but has never run in Unity.
+
+Assemblies: `DungeonGen.Core` (no engine references), `DungeonGen.Unity`, `DungeonGen.Unity.Input` (needs Input System), `DungeonGen.Unity.Fishnet` (needs the `FISHNET` define), `DungeonGen.Unity.Practice` (editor and development builds only), `DungeonGen.Unity.Editor`.
 
 ## Where things are explained
 
@@ -65,6 +70,7 @@ dotnet test
 
 ## Status
 
-The design is complete and enforced by tests. What does not exist yet is the game around it:
-room art, the ability and damage pipeline, mob and boss behaviour scripts, the Fishnet transport,
-PlayFab, Easy Anti-Cheat, the store and the menus. See `docs/BUILD_ORDER.md`.
+The design is complete and enforced by tests. The ability pipeline and the mob and boss brains run in the
+core and a greybox Unity layer (input, server simulation, per-team snapshots, HUD, practice mode,
+a first Fishnet transport) is written but has not yet run inside Unity. What does not exist yet:
+room art, visuals for abilities and telegraphs, PlayFab, Easy Anti-Cheat, the store and the menus. See `docs/BUILD_ORDER.md`.

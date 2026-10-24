@@ -3,6 +3,42 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-24 · Unity side: input, authority, assemblies, iteration loop — DECIDED, GREYBOX BUILT
+
+Answers to the questions the engine layer could not decide for itself, and the greybox that
+follows from them.
+
+1. **Input.** Unity's **New Input System**, not the legacy manager. Default bindings live in code
+   so the package works without an actions asset; an asset with a `Player` map overrides them.
+   Keybinds: **LMB** basic, **RMB** bolt, **Q** zone, **E** mobility, **R** ultimate, **Space**
+   (held) interact, **Tab** (held) full map, **F** ping, **WASD** move. Movement is screen-relative
+   because the camera never rotates. (`LocalPlayerController`.)
+2. **Server authority, no client prediction.** The client sends an intent each tick (direction,
+   aim cell, pressed buttons); the server runs the simulator at 20 Hz and sends each team a
+   snapshot of what that team can see. Nothing moves locally first. Prediction is a later
+   polish if 5 m/s with ~80 ms feels bad; it is not needed to find out whether the game is fun.
+   (`PlayerIntent`, `ServerSimulation`, `TeamSnapshot`, `ClientWorldView`.)
+3. **Fog of war is server-side.** The snapshot a team receives holds only the avatars its members
+   can see through `LineOfSight`, plus rooms it has seen; a client cannot read enemy positions
+   it was not sent. Same rule the per-team views already follow for events.
+4. **Fishnet in its own assembly.** `DungeonGen.Unity.Fishnet` compiles only when the `FISHNET`
+   define is set, so a project without Fishnet still compiles everything else. The transport is a
+   NetworkBehaviour: intents up as ServerRpcs, snapshots and events down as TargetRpcs to each
+   seated connection. `LoopbackTransport` plays the same role in-process. Likewise
+   `DungeonGen.Unity.Input` compiles only when `com.unity.inputsystem` is installed.
+5. **Project setup.** A fresh **Unity 6 URP** project with this repository added as a package.
+   **Dungeon Gen ▸ Build Greybox Scene** builds a playable scene from fallback cube prefabs
+   (`GreyboxSceneSetup`, `EnsureFallbackPrefabs`).
+6. **Iteration loop.** Unity is not available where the code is written, so the Unity layer is
+   compiled here against a stub `UnityEngine` (`Tools/UnityStubs`) to catch the obvious, and the
+   developer pastes Unity console errors back for the rest.
+7. **Practice mode, dev-only.** `DungeonGen.Unity.Practice` exists in the editor and development
+   builds only. It hosts a round over loopback with the local player and one to three bot teams
+   driven by the lab's brain. Bots never enter the real queue; the tutorial's two bots remain
+   the only bots a player ever meets in release.
+8. **The game's name waits** until the greybox plays. A name chosen before anyone has run a
+   corridor is a name chosen for the wrong reasons.
+
 ## 2026-10-24 · Mob and boss behaviour — BUILT, FIRST TUNING
 
 The simulator's stand-in brains are now the real ones, in the engine-free core.

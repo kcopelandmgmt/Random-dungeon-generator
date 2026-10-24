@@ -91,12 +91,21 @@ namespace DungeonGen.Unity
             Build(Seed);
         }
 
-        /// <summary>Build a specific seed. Call this on clients with the seed the server chose.</summary>
-        public void Build(int seed)
+        /// <summary>Build a specific seed from this builder's config. Prefer <see cref="Build(DungeonLayout)"/> in a match: the descriptor's settings, not the local asset, decide the dungeon.</summary>
+        public void Build(int seed) => Build(DungeonGenerator.Generate(Config.Settings, seed));
+
+        /// <summary>Door objects by cell, so a shut door can be shown shut. Hazard objects by id, so hidden ones can be hidden.</summary>
+        public Dictionary<GridPoint, GameObject> DoorObjects { get; } = new Dictionary<GridPoint, GameObject>();
+        public Dictionary<int, GameObject> HazardObjects { get; } = new Dictionary<int, GameObject>();
+
+        /// <summary>Build an already generated layout (the server's, or the client's verified rebuild).</summary>
+        public void Build(DungeonLayout generated)
         {
             Clear();
-            Seed = seed;
-            Layout = DungeonGenerator.Generate(Config.Settings, seed);
+            EnsureFallbackPrefabs();
+            Seed = generated.Seed;
+            Layout = generated;
+            int seed = Seed;
 
             foreach (var w in Layout.Warnings) Debug.LogWarning("DungeonGen: " + w, this);
             var f = Layout.Fairness;
@@ -110,8 +119,19 @@ namespace DungeonGen.Unity
                 {
                     var prefab = PrefabFor(Layout.Tiles[x, y]);
                     if (prefab == null) continue;
-                    Instantiate(prefab, GridToWorld(new GridPoint(x, y)), Quaternion.identity, _root);
+                    var tile = Instantiate(prefab, GridToWorld(new GridPoint(x, y)), Quaternion.identity, _root);
+                    if (Layout.Tiles[x, y] == TileType.Door) DoorObjects[new GridPoint(x, y)] = tile;
                 }
+            foreach (var hz in Layout.Hazards)
+            {
+                var prefab = hz.Kind == HazardKind.SpikeTrap ? SpikeTrapPrefab : hz.Kind == HazardKind.GasVent ? GasVentPrefab : hz.Kind == HazardKind.Lava ? LavaPrefab : null;
+                if (prefab == null) continue;
+                var go = Instantiate(prefab, GridToWorld(hz.Bounds.Center), Quaternion.identity, _root);
+                go.name = $"Hazard_{hz.Id}_{hz.Kind}";
+                go.transform.localScale = new Vector3(hz.Bounds.Width * CellSize, go.transform.localScale.y, hz.Bounds.Height * CellSize);
+                HazardObjects[hz.Id] = go;
+                if (hz.Hidden) go.SetActive(false);   // the server tells each team what it may see
+            }
 
             SpawnPoints.Clear();
             ExtractPoints.Clear();
@@ -171,6 +191,61 @@ namespace DungeonGen.Unity
                 _root = null;
             }
             Layout = null;
+        }
+
+        /// <summary>A simulator position (cell units, cell centres at .5) to world. Vec2.Of(cell) lands exactly on GridToWorld(cell).</summary>
+        public Vector3 SimToWorld(DungeonGen.Core.Combat.Vec2 p) => UseXZPlane ? new Vector3((p.X - 0.5f) * CellSize, 0f, (p.Y - 0.5f) * CellSize) : new Vector3((p.X - 0.5f) * CellSize, (p.Y - 0.5f) * CellSize, 0f);
+        public DungeonGen.Core.Combat.Vec2 WorldToSim(Vector3 w) => new DungeonGen.Core.Combat.Vec2(w.x / CellSize + 0.5f, (UseXZPlane ? w.z : w.y) / CellSize + 0.5f);
+
+        /// <summary>Show a door shut or open. The server state decides; this only draws it.</summary>
+        public void SetDoorClosed(GridPoint cell, bool closed)
+        {
+            if (!DoorObjects.TryGetValue(cell, out var go) || go == null) return;
+            var s = go.transform.localScale; go.transform.localScale = new Vector3(s.x, closed ? CellSize * 1.5f : Mathf.Max(0.1f, CellSize * 0.1f), s.z);
+            go.transform.position = GridToWorld(cell) + Vector3.up * (closed ? CellSize * 0.75f : 0f);
+        }
+
+        private static Material _fallbackMat;
+        /// <summary>Cubes and quads for anything with no prefab, so a fresh project builds a walkable greybox with nothing assigned.</summary>
+        public void EnsureFallbackPrefabs()
+        {
+            GameObject Make(string name, PrimitiveType type, Vector3 scale, Color colour, bool collider = true)
+            {
+                var go = GameObject.CreatePrimitive(type);
+                go.name = name;
+                go.transform.localScale = scale;
+                if (!collider) { var c = go.GetComponent<Collider>(); if (c != null) Destroy(c); }
+                var r = go.GetComponent<Renderer>();
+                if (r != null)
+                {
+                    var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+                    var m = new Material(shader) { color = colour };
+                    r.sharedMaterial = m;
+                }
+                go.SetActive(false);
+                go.hideFlags = HideFlags.HideInHierarchy;
+                return go;
+            }
+            float c = CellSize;
+            if (FloorPrefab == null) FloorPrefab = Make("Floor", PrimitiveType.Cube, new Vector3(c, 0.1f, c), new Color(0.35f, 0.35f, 0.38f));
+            if (CorridorPrefab == null) CorridorPrefab = Make("Corridor", PrimitiveType.Cube, new Vector3(c, 0.1f, c), new Color(0.28f, 0.28f, 0.3f));
+            if (DoorPrefab == null) DoorPrefab = Make("Door", PrimitiveType.Cube, new Vector3(c, 0.1f, c), new Color(0.55f, 0.4f, 0.2f));
+            if (LockedDoorPrefab == null) LockedDoorPrefab = Make("LockedDoor", PrimitiveType.Cube, new Vector3(c, c * 1.5f, c), new Color(0.8f, 0.6f, 0.1f));
+            if (WallPrefab == null) WallPrefab = Make("Wall", PrimitiveType.Cube, new Vector3(c, c * 1.5f, c), new Color(0.18f, 0.18f, 0.2f));
+            if (PillarPrefab == null) PillarPrefab = Make("Pillar", PrimitiveType.Cube, new Vector3(c * 0.9f, c * 1.5f, c * 0.9f), new Color(0.25f, 0.22f, 0.3f));
+            if (LowWallPrefab == null) LowWallPrefab = Make("LowWall", PrimitiveType.Cube, new Vector3(c, c * 0.5f, c), new Color(0.3f, 0.3f, 0.34f));
+            if (PitPrefab == null) PitPrefab = Make("Pit", PrimitiveType.Cube, new Vector3(c, 0.02f, c), new Color(0.02f, 0.02f, 0.04f), false);
+            if (SpikeTrapPrefab == null) SpikeTrapPrefab = Make("SpikeTrap", PrimitiveType.Cube, new Vector3(1f, 0.15f, 1f), new Color(0.8f, 0.2f, 0.5f), false);
+            if (GasVentPrefab == null) GasVentPrefab = Make("GasVent", PrimitiveType.Cube, new Vector3(1f, 0.15f, 1f), new Color(0.4f, 0.8f, 0.3f), false);
+            if (LavaPrefab == null) LavaPrefab = Make("Lava", PrimitiveType.Cube, new Vector3(1f, 0.15f, 1f), new Color(1f, 0.45f, 0.1f), false);
+            if (SpawnMarkerPrefab == null) SpawnMarkerPrefab = Make("Spawn", PrimitiveType.Cylinder, new Vector3(c * 0.6f, 0.2f, c * 0.6f), Color.cyan, false);
+            if (ExtractMarkerPrefab == null) ExtractMarkerPrefab = Make("Extract", PrimitiveType.Cylinder, new Vector3(c * 0.8f, 0.3f, c * 0.8f), Color.green, false);
+            if (LootMarkerPrefab == null) LootMarkerPrefab = Make("Chest", PrimitiveType.Cube, new Vector3(0.8f, 0.6f, 0.6f), new Color(0.9f, 0.75f, 0.2f));
+            if (VaultMarkerPrefab == null) VaultMarkerPrefab = Make("Vault", PrimitiveType.Cube, new Vector3(1f, 0.8f, 0.8f), new Color(0.9f, 0.5f, 0.1f));
+            if (BossMarkerPrefab == null) BossMarkerPrefab = Make("BossMarker", PrimitiveType.Sphere, new Vector3(1f, 1f, 1f), Color.red, false);
+            if (FinalBossMarkerPrefab == null) FinalBossMarkerPrefab = Make("FinalBossMarker", PrimitiveType.Sphere, new Vector3(1.5f, 1.5f, 1.5f), new Color(0.6f, 0f, 0.3f), false);
+            if (BossGatedExitPrefab == null) BossGatedExitPrefab = Make("BossExit", PrimitiveType.Cylinder, new Vector3(c, 0.4f, c), Color.white, false);
+            if (KeyMarkerPrefab == null) KeyMarkerPrefab = Make("Key", PrimitiveType.Sphere, new Vector3(0.4f, 0.4f, 0.4f), Color.yellow, false);
         }
 
         public Vector3 GridToWorld(GridPoint p)

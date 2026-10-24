@@ -1,0 +1,14 @@
+{
+    "name": "DungeonGen.Unity.Input",
+    "rootNamespace": "DungeonGen.Unity",
+    "references": [ "DungeonGen.Core", "DungeonGen.Unity", "Unity.InputSystem" ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [ "DUNGEONGEN_INPUTSYSTEM" ],
+    "versionDefines": [ { "name": "com.unity.inputsystem", "expression": "1.0.0", "define": "DUNGEONGEN_INPUTSYSTEM" } ],
+    "noEngineReferences": false
+}

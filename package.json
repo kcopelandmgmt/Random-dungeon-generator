@@ -1,9 +1,16 @@
 {
   "name": "com.kcopeland.dungeongen",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "displayName": "Procedural Dungeon Generator",
-  "description": "Seeded, graph-based procedural dungeon layouts for an extraction-style dungeon game. Pure C# core plus Unity scene components.",
-  "unity": "2021.3",
-  "keywords": [ "procedural", "dungeon", "roguelike", "extraction" ],
-  "author": { "name": "kcopelandmgmt" }
+  "description": "The rules engine and Unity layer for an extraction dungeon game: seeded dungeons, combat, items, the round, per-team views, brains, HUD. Pure C# core plus Unity components.",
+  "unity": "6000.0",
+  "keywords": [
+    "procedural",
+    "dungeon",
+    "roguelike",
+    "extraction"
+  ],
+  "author": {
+    "name": "kcopelandmgmt"
+  }
 }

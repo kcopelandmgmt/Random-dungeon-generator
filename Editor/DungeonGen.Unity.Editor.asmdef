@@ -1,0 +1,14 @@
+{
+    "name": "DungeonGen.Unity.Editor",
+    "rootNamespace": "DungeonGen.Unity.Editor",
+    "references": [ "DungeonGen.Core", "DungeonGen.Unity", "DungeonGen.Unity.Practice" ],
+    "includePlatforms": [ "Editor" ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -21,9 +21,16 @@ namespace DungeonGen.Unity
         void SendViewToTeam(int team, byte[] viewBytes);
         /// <summary>Any → the sender's team only, unreliable is fine: pings. Never reaches another team and never enters the log.</summary>
         void SendToTeam(int team, byte[] pingBytes);
+        /// <summary>Server → one team's clients, unreliable, every tick: the avatars that team may see and its members' own numbers (<see cref="TeamSnapshot"/>).</summary>
+        void SendSnapshotToTeam(int team, byte[] snapshotBytes);
+        /// <summary>Client → server, unreliable, every tick: this client's <see cref="PlayerIntent"/>.</summary>
+        void SendIntent(byte[] intentBytes);
         event Action<byte[]> DescriptorReceived;
         event Action<byte[]> EventReceived;
         event Action<byte[]> ViewReceived;
+        event Action<byte[]> SnapshotReceived;
+        /// <summary>Server side: an intent arrived from the client that owns playerId (the transport maps connections to players).</summary>
+        event Action<int, byte[]> IntentReceived;
         /// <summary>clientId, team: a client connected or reconnected and needs the descriptor and its team's view.</summary>
         event Action<int, int> ClientJoined;
         event Action<byte[]> TeamMessageReceived;
