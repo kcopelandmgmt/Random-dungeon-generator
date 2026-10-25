@@ -3,6 +3,7 @@ using DungeonGen.Core;
 using DungeonGen.Core.Hud;
 using DungeonGen.Core.Net;
 using UnityEngine;
+using Compass = DungeonGen.Core.Hud.Compass;   // UnityEngine.Compass is the phone sensor
 
 namespace DungeonGen.Unity
 {
