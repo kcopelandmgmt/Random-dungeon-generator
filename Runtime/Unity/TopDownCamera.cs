@@ -22,6 +22,19 @@ namespace DungeonGen.Unity
         public Camera Camera;
 
         private Vector3 _focus;
+        private Vector2 _aimScreen;
+        private bool _hasAim;
+
+        /// <summary>
+        /// Screen position the camera leads toward, fed each frame by the input layer
+        /// (LocalPlayerController in DungeonGen.Unity.Input). This assembly never reads input itself,
+        /// so until something sets it the aim is the screen centre and the camera applies no lead.
+        /// </summary>
+        public Vector2 AimScreenPosition
+        {
+            get => _hasAim ? _aimScreen : new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+            set { _aimScreen = value; _hasAim = true; }
+        }
 
         private void Awake()
         {
@@ -38,10 +51,10 @@ namespace DungeonGen.Unity
             Camera.transform.SetPositionAndRotation(_focus - rot * Vector3.forward * Distance, rot);
         }
 
-        /// <summary>Where the mouse points on the ground plane, relative to the target.</summary>
+        /// <summary>Where <see cref="AimScreenPosition"/> points on the ground plane, relative to the target.</summary>
         private Vector3 AimOffset()
         {
-            var ray = Camera.ScreenPointToRay(Input.mousePosition);
+            var ray = Camera.ScreenPointToRay(AimScreenPosition);
             var ground = new Plane(Vector3.up, new Vector3(0f, Target.position.y, 0f));
             if (!ground.Raycast(ray, out float t)) return Vector3.zero;
             var hit = ray.GetPoint(t) - Target.position;

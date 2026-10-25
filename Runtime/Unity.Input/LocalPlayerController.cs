@@ -9,7 +9,8 @@ namespace DungeonGen.Unity
     /// Reads the New Input System and turns it into a <see cref="PlayerIntent"/> every server tick:
     /// WASD as a world-space direction (screen-relative, the camera never rotates), mouse aim as a point
     /// on the ground in simulator cells, LMB basic, RMB bolt, Q zone, E mobility, R ultimate, Space held
-    /// to interact, F to ping, Tab held for the full map (read by MiniMapHud). Rebindable through the
+    /// to interact, F to ping, Tab held for the full map (pushed into MiniMapHud). The base assembly
+    /// reads no input, so this component also feeds the camera's aim point each frame. Rebindable through the
     /// actions asset; controller sticks map to the same actions. Nothing moves locally: the server does.
     /// </summary>
     public sealed class LocalPlayerController : MonoBehaviour, IIntentSource
@@ -17,6 +18,8 @@ namespace DungeonGen.Unity
         public DungeonBuilder Builder;
         public TopDownCamera Camera;
         public ClientWorldView World;
+        [Tooltip("Optional: receives FullMapHeld while the Map action is pressed.")]
+        public MiniMapHud MiniMap;
         public int LocalPlayerId = 1;
         public int SendRate = 20;
         [Tooltip("Optional: an Input Actions asset with Move (Vector2), Aim (Vector2 screen), Basic, Bolt, Zone, Mobility, Ultimate, Interact, Ping, Map (Buttons). Left empty, the controller builds the default bindings in code.")]
@@ -70,6 +73,8 @@ namespace DungeonGen.Unity
         private void Update()
         {
             MapHeld = _map != null && _map.IsPressed();
+            if (MiniMap != null) MiniMap.FullMapHeld = MapHeld;
+            if (Camera != null && _aim != null) Camera.AimScreenPosition = _aim.ReadValue<Vector2>();
             _accum += Time.deltaTime;
             float period = 1f / Mathf.Max(1, SendRate);
             if (_accum < period) return;

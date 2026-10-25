@@ -7,9 +7,10 @@ using UnityEngine;
 namespace DungeonGen.Unity
 {
     /// <summary>
-    /// The minimap in the corner and the full map on hold-Tab, both drawn from <see cref="MiniMap"/>.
-    /// Explored rooms only: the model never contains a room the team has not seen. Greybox drawing
-    /// with OnGUI; the data is what matters.
+    /// The minimap in the corner and the full map while <see cref="FullMapHeld"/> is true, both drawn
+    /// from <see cref="MiniMap"/>. Explored rooms only: the model never contains a room the team has not
+    /// seen. Greybox drawing with OnGUI; the data is what matters. This assembly reads no input: the
+    /// input layer (LocalPlayerController, Tab by default) sets <see cref="FullMapHeld"/> every frame.
     /// </summary>
     public sealed class MiniMapHud : MonoBehaviour
     {
@@ -19,7 +20,8 @@ namespace DungeonGen.Unity
         public int LocalPlayerId = 1;
         public Dictionary<int, Transform> Players = new Dictionary<int, Transform>();
         public List<TeamPing> Pings = new List<TeamPing>();
-        public KeyCode FullMapKey = KeyCode.Tab;
+        /// <summary>True while the player holds the map key; set by the input layer each frame.</summary>
+        public bool FullMapHeld { get; set; }
         public float CornerSizePx = 220f, MarginPx = 12f;
         public Color RoomColour = new Color(0.75f, 0.75f, 0.75f, 0.9f), HereColour = new Color(0.95f, 0.95f, 0.95f, 1f), CorridorColour = new Color(0.55f, 0.55f, 0.55f, 0.9f);
         public Color SelfColour = Color.white, TeammateColour = new Color(0.3f, 0.8f, 1f), PingColour = Color.yellow, LockedColour = new Color(1f, 0.6f, 0.1f), ExitColour = Color.green;
@@ -36,7 +38,7 @@ namespace DungeonGen.Unity
             _cells.Clear();
             foreach (var kv in Players) if (kv.Value != null) _cells[kv.Key] = Builder.WorldToGrid(kv.Value.position);
             var model = MiniMap.Build(Match.State, LocalPlayerId, me, _cells, Pings, Match.State.Time);
-            bool full = Input.GetKey(FullMapKey);
+            bool full = FullMapHeld;
 
             Rect panel; float scale; Vector2 origin;   // origin: grid cell → pixel
             if (full)

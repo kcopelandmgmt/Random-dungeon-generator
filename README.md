@@ -56,7 +56,7 @@ dotnet test
 
 ## Installing into Unity
 
-1. Make a fresh **Unity 6** project with the **URP** template and install **Input System** from the Package Manager (restart when asked). Install **Fishnet** only when you want networking; add `FISHNET` to *Project Settings ▸ Player ▸ Scripting Define Symbols* when you do, and the Fishnet assembly compiles.
+1. Make a fresh **Unity 6** project with the **URP** template and install **Input System** from the Package Manager (restart when asked). *Project Settings ▸ Player ▸ Active Input Handling* can be **Input System Package (New)**: nothing in the package uses the legacy `UnityEngine.Input` API, so "Both" is not needed. Install **Fishnet** only when you want networking; add `FISHNET` to *Project Settings ▸ Player ▸ Scripting Define Symbols* when you do, and the Fishnet assembly compiles.
 2. **Window ▸ Package Manager ▸ + ▸ Add package from git URL** with this repository, or clone and **Add package from disk** pointing at `package.json`.
 3. **Dungeon Gen ▸ Build Greybox Scene**. The menu builds a scene with the builder, camera, server simulation, client view, HUD, input controller and practice mode wired together, using cube prefabs for every tile.
 4. Press Play. `PracticeMode` hosts a round in-process over the loopback transport, seats you and one bot team, and runs the fight on the server simulation. Keybinds: LMB basic, RMB bolt, Q zone, E mobility, R ultimate, Space interact, Tab map, F ping.

@@ -55,6 +55,7 @@ namespace DungeonGen.Unity.Editor
                 controllerType.GetField("Builder")?.SetValue(controller, builder);
                 controllerType.GetField("Camera")?.SetValue(controller, rig);
                 controllerType.GetField("World")?.SetValue(controller, world);
+                controllerType.GetField("MiniMap")?.SetValue(controller, minimap);
                 practice.IntentSource = controller as MonoBehaviour;
                 compass.LocalPlayer = null; minimap.LocalPlayer = null;
             }
