@@ -80,10 +80,24 @@ namespace DungeonGen.Core.Net
         }
     }
 
-    /// <summary>A world snapshot for one team: the avatars it may see plus each member's own numbers.</summary>
+    public enum EffectKind : byte { Cast, Hit, Heal, Zone }
+
+    /// <summary>
+    /// Something to draw this tick. Cast: Source cast Ability from (X, Y) to (X2, Y2); Amount is how many it touched. Hit and Heal: Source did Amount
+    /// to Target standing at (X, Y); Ability is the hit's label. Zone: Ability's zone centred at (X, Y) with radius Amount, until sim time Until; sent every tick it lives.
+    /// Casts and hits are sent once, in the next snapshot after they happened; a dropped snapshot drops them, which is fine for a visual.
+    /// </summary>
+    public struct EffectSnapshot
+    {
+        public EffectKind Kind; public int Source, Target; public string Ability; public float X, Y, X2, Y2, Amount, Until;
+        public void Write(BinaryWriter w) { w.Write((byte)Kind); w.Write(Source); w.Write(Target); w.Write(Ability ?? ""); w.Write(X); w.Write(Y); w.Write(X2); w.Write(Y2); w.Write(Amount); w.Write(Until); }
+        public static EffectSnapshot Read(BinaryReader r) => new EffectSnapshot { Kind = (EffectKind)r.ReadByte(), Source = r.ReadInt32(), Target = r.ReadInt32(), Ability = r.ReadString(), X = r.ReadSingle(), Y = r.ReadSingle(), X2 = r.ReadSingle(), Y2 = r.ReadSingle(), Amount = r.ReadSingle(), Until = r.ReadSingle() };
+    }
+
+    /// <summary>A world snapshot for one team: the avatars it may see, each member's own numbers, and the effects to draw.</summary>
     public sealed class TeamSnapshot
     {
-        public uint Tick; public float Time; public List<AvatarSnapshot> Avatars = new List<AvatarSnapshot>(); public List<SelfSnapshot> Selves = new List<SelfSnapshot>();
+        public uint Tick; public float Time; public List<AvatarSnapshot> Avatars = new List<AvatarSnapshot>(); public List<SelfSnapshot> Selves = new List<SelfSnapshot>(); public List<EffectSnapshot> Effects = new List<EffectSnapshot>();
         public byte[] ToBytes()
         {
             using var ms = new MemoryStream();
@@ -92,6 +106,7 @@ namespace DungeonGen.Core.Net
                 w.Write(Tick); w.Write(Time);
                 w.Write(Avatars.Count); foreach (var a in Avatars) a.Write(w);
                 w.Write(Selves.Count); foreach (var s in Selves) s.Write(w);
+                w.Write(Effects.Count); foreach (var e in Effects) e.Write(w);
             }
             return ms.ToArray();
         }
@@ -101,6 +116,7 @@ namespace DungeonGen.Core.Net
             var t = new TeamSnapshot { Tick = r.ReadUInt32(), Time = r.ReadSingle() };
             int n = r.ReadInt32(); for (int i = 0; i < n; i++) t.Avatars.Add(AvatarSnapshot.Read(r));
             n = r.ReadInt32(); for (int i = 0; i < n; i++) t.Selves.Add(SelfSnapshot.Read(r));
+            n = r.ReadInt32(); for (int i = 0; i < n; i++) t.Effects.Add(EffectSnapshot.Read(r));
             return t;
         }
     }

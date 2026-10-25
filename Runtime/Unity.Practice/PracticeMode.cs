@@ -32,6 +32,10 @@ namespace DungeonGen.Unity
         public bool BotsRoam = true;
         [Tooltip("Host the round the moment Play starts, so the greybox needs no click. Off, use the on-screen button or the component's context menu.")]
         public bool HostOnPlay = true;
+        [Tooltip("Dev casting: no cooldowns, no costs, ultimates always armed, any spec's ability castable. For trying abilities and effects. Off for a real practice fight.")]
+        public bool DevCasting = true;
+        [Tooltip("Bots seated on your own team, standing at the spawn. One gives heals and ally buffs something to land on.")]
+        [Range(0, 2)] public int AllyBots = 1;
 
         public LoopbackTransport Transport { get; private set; }
         public bool Hosting { get; private set; }
@@ -68,9 +72,11 @@ namespace DungeonGen.Unity
             Bootstrap.HostMatch(Seed);
             Transport.Pump();
             Server.StartRound();
+            Server.Server.Sim.DevCasting = DevCasting;
             var cls = FightLab.ClassOf(LocalSpec);
             Server.AddPlayer(1, 0, cls, LocalSpec, PlayerStats.For(cls, GearTier, Bootstrap.Descriptor.Settings.Combat));
             int id = BotRules.BotIdBase;
+            for (int b = 0; b < AllyBots; b++) Server.AddBot(id++, 0, BotSpecs[b % BotSpecs.Length], GearTier, null);   // stands and fights only
             for (int t = 1; t <= Mathf.Min(BotTeams, Bootstrap.Descriptor.TeamSpawnRooms.Count - 1); t++)
             {
                 var squad = BotsRoam ? new BotSquad { Team = t } : null;

@@ -72,6 +72,8 @@ namespace DungeonGen.Core.Net
         private readonly Dictionary<int, PlayerIntent> _intents = new Dictionary<int, PlayerIntent>();
         private readonly Dictionary<int, int> _lastRoom = new Dictionary<int, int>();
         private readonly Dictionary<int, Channel> _channels = new Dictionary<int, Channel>();
+        /// <summary>Per team: how far into the simulator's casts and events its last snapshot reached, so each effect is sent once.</summary>
+        private readonly Dictionary<int, int> _castCursor = new Dictionary<int, int>(), _hitCursor = new Dictionary<int, int>();
         /// <summary>Player → the door their still-held Interact just opened. Closing is instant, so without this a held key would shut the door the tick after the channel opened it.</summary>
         private readonly Dictionary<int, int> _heldSinceDoorOpened = new Dictionary<int, int>();
         private readonly Dictionary<int, string> _spec = new Dictionary<int, string>();
@@ -244,9 +246,10 @@ namespace DungeonGen.Core.Net
                 AbilityDefinition want = intent.Ultimate ? book.FirstOrDefault(a => a.Kind == AbilityKind.Ultimate) : intent.Zone ? book.First(a => a.Kind == AbilityKind.Zone) : intent.Mobility ? book.First(a => a.Kind == AbilityKind.Mobility) : intent.Bolt ? book.First(a => a.Kind == AbilityKind.Bolt) : book.First(a => a.Kind == AbilityKind.Basic);
                 if (want != null)
                 {
-                    if (want.Kind == AbilityKind.Ultimate) c.UltimateArmed = State.UltimateCharges.TryGetValue(playerId, out int charges) && charges > 0;
+                    int charges = State.UltimateCharges.TryGetValue(playerId, out int ch) ? ch : 0;
+                    if (want.Kind == AbilityKind.Ultimate) c.UltimateArmed = Sim.DevCasting || charges > 0;
                     var r = Sim.Cast(playerId, want.Id, want.Shape == AbilityShape.Self ? c.Position : aim);
-                    if (r.Ok && want.Kind == AbilityKind.Ultimate) Raise(new MatchEvent(MatchEventKind.UltimateUsed, Sim.Time, playerId));
+                    if (r.Ok && want.Kind == AbilityKind.Ultimate && charges > 0) Raise(new MatchEvent(MatchEventKind.UltimateUsed, Sim.Time, playerId));   // a dev's free ultimate spends nothing
                     if (r.Ok && _channels.TryGetValue(playerId, out var open)) Interrupt(playerId, open);
                 }
             }
@@ -408,6 +411,28 @@ namespace DungeonGen.Core.Net
                     UltimateArmed = State.UltimateCharges.TryGetValue(m.Id, out int uu) && uu > 0, DownedRemaining = m.Downed ? Math.Max(0f, FightRules.DownedSeconds - (Sim.Time - m.DownedAt)) : 0f,
                 });
             }
+            // Effects since this team's last snapshot: the casts and hits it may see, and the zones in its sight (those come every tick they live).
+            var shown = new HashSet<int>(snap.Avatars.Select(a => a.Id));
+            bool Sees(Vec2 p) => visible.Contains(p.Cell);
+            for (int i = _castCursor.TryGetValue(team, out int c0) ? c0 : 0; i < Sim.Casts.Count; i++)
+            {
+                var k = Sim.Casts[i];
+                if (k.CasterTeam == team || shown.Contains(k.Caster) || Sees(k.From) || Sees(k.End))
+                    snap.Effects.Add(new EffectSnapshot { Kind = EffectKind.Cast, Source = k.Caster, Target = -1, Ability = k.AbilityId, X = k.From.X, Y = k.From.Y, X2 = k.End.X, Y2 = k.End.Y, Amount = k.Targets.Length });
+            }
+            _castCursor[team] = Sim.Casts.Count;
+            for (int i = _hitCursor.TryGetValue(team, out int h0) ? h0 : 0; i < Sim.Events.Count; i++)
+            {
+                var e = Sim.Events[i];
+                if (e.Kind != FightEventKind.Hit && e.Kind != FightEventKind.Heal) continue;
+                var t = Sim.Get(e.Target); if (t == null) continue;
+                if (t.Team == team || shown.Contains(e.Target) || Sees(t.Position))
+                    snap.Effects.Add(new EffectSnapshot { Kind = e.Kind == FightEventKind.Heal ? EffectKind.Heal : EffectKind.Hit, Source = e.Source, Target = e.Target, Ability = e.Detail ?? "", X = t.Position.X, Y = t.Position.Y, X2 = t.Position.X, Y2 = t.Position.Y, Amount = e.Amount });
+            }
+            _hitCursor[team] = Sim.Events.Count;
+            foreach (var z in Sim.Zones)
+                if (z.CasterTeam == team || Sees(z.Centre))
+                    snap.Effects.Add(new EffectSnapshot { Kind = EffectKind.Zone, Source = z.Caster, Target = -1, Ability = z.Ability.Id, X = z.Centre.X, Y = z.Centre.Y, X2 = z.Centre.X, Y2 = z.Centre.Y, Amount = z.Ability.Size, Until = z.Until });
             return snap;
         }
 

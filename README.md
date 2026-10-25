@@ -60,7 +60,13 @@ dotnet test
 2. **Window ▸ Package Manager ▸ + ▸ Add package from git URL** with this repository, or clone and **Add package from disk** pointing at `package.json`.
 3. **Dungeon Gen ▸ Build Greybox Scene**. The menu builds a scene with the builder, camera, server simulation, client view, HUD, input controller and practice mode wired together, using cube prefabs for every tile.
 4. Press Play. `PracticeMode` hosts a round in-process over the loopback transport, seats you and one bot team, and runs the fight on the server simulation. Keybinds: LMB basic, RMB bolt, Q zone, E mobility, R ultimate, Space interact, Tab map, F ping.
-5. Paste any console errors back. The Unity layer is compiled here against a stub engine (`Tools/UnityStubs`), so what reaches you has had its typos caught but has never run in Unity.
+5. **Effects.** Import an effect pack (Assets ▸ Import Package ▸ Custom Package; the greybox looks under `Assets/Piloto Studio`
+   by default, change `VfxAudition.PrefabFolder` for another). In Play the **effects audition** panel on the right lists candidate
+   prefabs for the current ability: **C** casts it at the mouse (hold to repeat), **Y / N / M** file it as yes, no or maybe,
+   **[ ]** step candidates, **, .** step abilities, **T** cycles the role (cast, projectile, impact, zone), **H** shows every
+   prefab, **F1** hides the panel. Votes live in `VfxAudition.json` next to `Assets`; a Yes also fills `Assets/AbilityVfxLibrary.asset`,
+   which `AbilityEffects` draws from in every round. Practice mode's *Dev Casting* removes cooldowns, costs and spec limits for this.
+6. Paste any console errors back. The Unity layer is compiled here against a stub engine (`Tools/UnityStubs`), so what reaches you has had its typos caught but has never run in Unity.
 
 Assemblies: `DungeonGen.Core` (no engine references), `DungeonGen.Unity`, `DungeonGen.Unity.Input` (needs Input System), `DungeonGen.Unity.Fishnet` (needs the `FISHNET` define), `DungeonGen.Unity.Practice` (editor and development builds only), `DungeonGen.Unity.Editor`.
 

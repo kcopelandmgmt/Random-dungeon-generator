@@ -38,6 +38,16 @@ namespace DungeonGen.Unity.Editor
             var minimap = root.AddComponent<MiniMapHud>();
             minimap.Match = bootstrap; minimap.Builder = builder; minimap.World = world;
 
+            var library = AssetDatabase.LoadAssetAtPath<AbilityVfxLibrary>("Assets/AbilityVfxLibrary.asset");
+            if (library == null)
+            {
+                library = ScriptableObject.CreateInstance<AbilityVfxLibrary>();
+                AssetDatabase.CreateAsset(library, "Assets/AbilityVfxLibrary.asset");
+                AssetDatabase.SaveAssets();
+            }
+            var effects = root.AddComponent<AbilityEffects>();
+            effects.World = world; effects.Builder = builder; effects.Library = library;
+
             // Reuse the scene's main camera (the URP template's, with its render-pipeline data) rather than adding a
             // second base camera: a bare camera created here rendered on top of IMGUI until it was toggled off and on.
             var cam = Camera.main;
@@ -57,6 +67,8 @@ namespace DungeonGen.Unity.Editor
             var practice = root.AddComponent<PracticeMode>();
             practice.Bootstrap = bootstrap; practice.Builder = builder; practice.Server = server; practice.World = world; practice.Hud = hud; practice.Camera = rig;
             compass.Camera = rig;
+            var audition = root.AddComponent<VfxAudition>();
+            audition.Practice = practice; audition.Effects = effects; audition.Library = library; audition.Camera = rig; audition.Builder = builder;
 
             var controllerType = System.Type.GetType("DungeonGen.Unity.LocalPlayerController, DungeonGen.Unity.Input");
             if (controllerType != null)

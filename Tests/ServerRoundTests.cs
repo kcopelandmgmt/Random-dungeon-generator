@@ -177,5 +177,49 @@ namespace DungeonGen.Tests
             server.SetIntent(1, hold); server.Step(0.05f);                                     // a fresh press shuts it again
             Assert.Contains(door.Value.cell, server.State.ClosedDoors);
         }
+            [Fact]
+        public void SnapshotsCarryTheCastsHitsAndZonesATeamMaySee()
+        {
+            var server = Seated();
+            var idle = new PlayerIntent { PlayerId = 1 };
+            for (int i = 0; i < 220; i++) { server.SetIntent(1, idle); server.Step(0.05f); }
+            server.SnapshotForTeam(0);                                                     // everything before this is old news
+            var a = server.Sim.Get(1); var b = server.Sim.Get(2);
+            b.Position = a.Position + new Vec2(1f, 0f);
+            server.Sim.DevCasting = true;
+            var res = server.Sim.Cast(1, "Sentinel.bolt", b.Position);                     // Shield Bash on the rival next to us
+            Assert.True(res.Ok, res.Rejection);
+            var snap = server.SnapshotForTeam(0);
+            Assert.Contains(snap.Effects, e => e.Kind == EffectKind.Cast && e.Source == 1 && e.Ability == "Sentinel.bolt" && e.Amount == 1f);
+            Assert.Contains(snap.Effects, e => e.Kind == EffectKind.Hit && e.Target == 2 && e.Amount > 0f);
+            Assert.DoesNotContain(server.SnapshotForTeam(0).Effects, e => e.Kind == EffectKind.Cast);   // sent once
+            var ult = server.Sim.Cast(1, "Sentinel.ult", a.Position);                      // Aegis: a 5 s zone
+            Assert.True(ult.Ok, ult.Rejection);
+            var withZone = server.SnapshotForTeam(0);
+            Assert.Contains(withZone.Effects, e => e.Kind == EffectKind.Zone && e.Ability == "Sentinel.ult" && e.Until > withZone.Time);
+            var back = TeamSnapshot.FromBytes(withZone.ToBytes());
+            Assert.Equal(withZone.Effects.Count, back.Effects.Count);
+            Assert.Equal(withZone.Effects[0].Ability, back.Effects[0].Ability);
+            Assert.Equal(withZone.Effects[0].Until, back.Effects[0].Until);
+            Assert.Contains(server.SnapshotForTeam(1).Effects, e => e.Kind == EffectKind.Hit && e.Target == 2);   // the rival team sees the hit on its own member
+        }
+
+        [Fact]
+        public void DevCastingLetsADevSpamAnyAbilityAndUltimateForFree()
+        {
+            var server = Seated();
+            var idle = new PlayerIntent { PlayerId = 1 };
+            for (int i = 0; i < 220; i++) { server.SetIntent(1, idle); server.Step(0.05f); }
+            var a = server.Sim.Get(1); var b = server.Sim.Get(2); b.Position = a.Position + new Vec2(1f, 0f);
+            Assert.False(server.Sim.Cast(1, "Sentinel.ult", a.Position).Ok);                // unarmed, as the rules say
+            server.Sim.DevCasting = true;
+            float resource = a.ResourceNow;
+            Assert.True(server.Sim.Cast(1, "Sentinel.bolt", b.Position).Ok);
+            Assert.True(server.Sim.Cast(1, "Sentinel.bolt", b.Position).Ok);                // no cooldown
+            Assert.True(server.Sim.Cast(1, "Sentinel.ult", a.Position).Ok);                 // armed for free
+            Assert.Equal(resource, a.ResourceNow, 1);                                        // and nothing spent
+            Assert.True(server.Sim.Cast(1, "Sharpshooter.bolt", b.Position).Ok);            // another spec's ability, for the effects audition
+            Assert.Equal(4, server.Sim.Casts.Count);
+        }
     }
 }

@@ -22,6 +22,8 @@ namespace DungeonGen.Unity
         public Color AllyColour = new Color(0.3f, 0.7f, 1f), EnemyColour = new Color(1f, 0.3f, 0.3f), MobColour = new Color(0.8f, 0.6f, 0.2f), SelfColour = Color.white, BossColour = new Color(0.7f, 0.1f, 0.4f);
 
         public TeamSnapshot Latest { get; private set; }
+        /// <summary>Raised after every snapshot is applied, with the avatars already placed. The effects layer draws its casts, hits and zones from here.</summary>
+        public event System.Action<TeamSnapshot> SnapshotApplied;
         public SelfSnapshot? Self { get; private set; }
         /// <summary>Avatar id → its object. The local player's is the camera target.</summary>
         public Dictionary<int, GameObject> Avatars { get; } = new Dictionary<int, GameObject>();
@@ -56,6 +58,7 @@ namespace DungeonGen.Unity
             foreach (var id in Avatars.Keys.Where(id => !_seenThisSnapshot.Contains(id)).ToList()) { if (Avatars[id] != null) Destroy(Avatars[id]); Avatars.Remove(id); _lerp.Remove(id); _ground.Remove(id); }
             Self = snap.Selves.Count == 0 ? (SelfSnapshot?)null : snap.Selves.FirstOrDefault(s => s.PlayerId == LocalPlayerId);
             if (Self.HasValue && Self.Value.PlayerId != LocalPlayerId) Self = null;
+            SnapshotApplied?.Invoke(snap);
         }
 
         private void Update()

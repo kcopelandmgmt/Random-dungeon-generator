@@ -128,6 +128,13 @@ namespace DungeonGen.Core.Combat
         public override string ToString() => Ok ? $"hit {Targets.Count} for {TotalDamage:0}" : "rejected: " + Rejection;
     }
 
+    /// <summary>One successful cast as a client needs it drawn: who, what, where it began, where it was aimed, where it ended, whom it touched.</summary>
+    public readonly struct CastRecord
+    {
+        public readonly float Time; public readonly int Caster, CasterTeam; public readonly string AbilityId; public readonly Vec2 From, Aim, End; public readonly int[] Targets;
+        public CastRecord(float time, int caster, int casterTeam, string abilityId, Vec2 from, Vec2 aim, Vec2 end, int[] targets) { Time = time; Caster = caster; CasterTeam = casterTeam; AbilityId = abilityId; From = from; Aim = aim; End = end; Targets = targets; }
+    }
+
     /// <summary>A zone on the ground that ticks once a second until it ends.</summary>
     public sealed class Zone
     {
@@ -150,6 +157,10 @@ namespace DungeonGen.Core.Combat
         public ISet<GridPoint> ClosedDoors { get; set; } = new HashSet<GridPoint>();
         public Dictionary<int, Combatant> Combatants { get; } = new Dictionary<int, Combatant>();
         public List<Zone> Zones { get; } = new List<Zone>();
+        /// <summary>Every successful cast in order, including mobs' and bosses'. The server feeds the ones a team may see into its snapshot.</summary>
+        public List<CastRecord> Casts { get; } = new List<CastRecord>();
+        /// <summary>Dev only: no cooldowns, no costs, no swing timer, ultimates always armed, and any spec's ability may be cast. For trying abilities and effects in practice mode; never on a live server.</summary>
+        public bool DevCasting { get; set; }
         public List<FightEvent> Events { get; } = new List<FightEvent>();
         public HitLog Hits { get; } = new HitLog();
         public float Time { get; private set; }
@@ -278,19 +289,19 @@ namespace DungeonGen.Core.Combat
             var caster = Get(casterId);
             if (caster == null || !AbilityBook.TryGet(abilityId, out var a)) { r.Rejection = "no such caster or ability"; return Reject(casterId, abilityId, r); }
             if (!caster.CanAct) { r.Rejection = caster.Dead ? "dead" : caster.Downed ? "downed" : "controlled"; return Reject(casterId, abilityId, r); }
-            if (a.Spec != caster.Spec) { r.Rejection = "not this spec's ability"; return Reject(casterId, abilityId, r); }
-            if (a.Kind == AbilityKind.Ultimate && !caster.UltimateArmed) { r.Rejection = "ultimate not armed"; return Reject(casterId, abilityId, r); }
+            if (a.Spec != caster.Spec && !DevCasting) { r.Rejection = "not this spec's ability"; return Reject(casterId, abilityId, r); }
+            if (a.Kind == AbilityKind.Ultimate && !caster.UltimateArmed && !DevCasting) { r.Rejection = "ultimate not armed"; return Reject(casterId, abilityId, r); }
             if (a.Kind != AbilityKind.Basic && caster.Has(BuffKind.Silenced)) { r.Rejection = "silenced"; return Reject(casterId, abilityId, r); }
-            if (caster.CooldownUntil.TryGetValue(a.Id, out float until) && Time < until - 1e-4f) { r.Rejection = $"on cooldown for {until - Time:0.0} s"; return Reject(casterId, abilityId, r); }
-            if (a.Kind == AbilityKind.Basic && Time < caster.NextBasicAt - 1e-4f) { r.Rejection = "swinging"; return Reject(casterId, abilityId, r); }
-            float cost = a.CostSlot.HasValue && caster.Resource != ResourceKind.None ? FightRules.AbilityCost(caster.ResourceMax, a.CostSlot.Value) : 0f;
+            if (!DevCasting && caster.CooldownUntil.TryGetValue(a.Id, out float until) && Time < until - 1e-4f) { r.Rejection = $"on cooldown for {until - Time:0.0} s"; return Reject(casterId, abilityId, r); }
+            if (!DevCasting && a.Kind == AbilityKind.Basic && Time < caster.NextBasicAt - 1e-4f) { r.Rejection = "swinging"; return Reject(casterId, abilityId, r); }
+            float cost = !DevCasting && a.CostSlot.HasValue && caster.Resource != ResourceKind.None ? FightRules.AbilityCost(caster.ResourceMax, a.CostSlot.Value) : 0f;
             if (cost > caster.ResourceNow + 1e-4f) { r.Rejection = $"needs {cost:0} {caster.Resource}"; return Reject(casterId, abilityId, r); }
             var toAim = aim - caster.Position;
             if (toAim.Length > 0.01f) caster.Facing = toAim.Normalized;
             if (a.Shape == AbilityShape.Dash && !caster.CanMove) { r.Rejection = "rooted"; return Reject(casterId, abilityId, r); }
 
             Vec2 origin = caster.Position;
-            var targets = SelectTargets(caster, a, aim, out var centre, out var dashEnd, out string why);
+            var targets = SelectTargets(caster, a, aim, out var centre, out var dashEnd, out var end, out string why);
             if (why != null) { r.Rejection = why; return Reject(casterId, abilityId, r); }
             if (a.Shape == AbilityShape.Circle && a.IsZone)
             {
@@ -311,6 +322,7 @@ namespace DungeonGen.Core.Combat
                 foreach (var t in targets.Where(t => t.Id == caster.Id ? a.Shape == AbilityShape.Self : Passes(a.Filter, caster, t)))
                     Affect(caster, t, a, r, aim);
             r.Ok = true;
+            Casts.Add(new CastRecord(Time, caster.Id, caster.Team, a.Id, origin, aim, end, r.Targets.ToArray()));
             return r;
         }
 
@@ -319,15 +331,16 @@ namespace DungeonGen.Core.Combat
         {
             var caster = Get(casterId);
             if (caster == null || !AbilityBook.TryGet(abilityId, out var a)) return new List<Combatant>();
-            var t = SelectTargets(caster, a, aim, out _, out _, out string why);
+            var t = SelectTargets(caster, a, aim, out _, out _, out _, out string why);
             return why == null ? t.Where(x => x.Id == caster.Id ? a.Shape == AbilityShape.Self : Passes(a.Filter, caster, x)).ToList() : new List<Combatant>();
         }
 
-        private List<Combatant> SelectTargets(Combatant caster, AbilityDefinition a, Vec2 aim, out Vec2 centre, out Vec2 dashEnd, out string rejection)
+        /// <summary>end: where the ability's visual stops, for the client: a projectile's last cell, the cone's far edge, the circle's centre, the dash's landing, the target's body.</summary>
+        private List<Combatant> SelectTargets(Combatant caster, AbilityDefinition a, Vec2 aim, out Vec2 centre, out Vec2 dashEnd, out Vec2 end, out string rejection)
         {
             var targets = new List<Combatant>();
             var toAim = aim - caster.Position;
-            centre = caster.Position; dashEnd = caster.Position; rejection = null;
+            centre = caster.Position; dashEnd = caster.Position; end = caster.Position; rejection = null;
             switch (a.Shape)
             {
                 case AbilityShape.Self: targets.Add(caster); break;
@@ -336,14 +349,15 @@ namespace DungeonGen.Core.Combat
                         if (toAim.Length > a.RangeCells + BodyRadiusCells) { rejection = "out of range"; break; }
                         var t = Bodies(a.Filter == TargetFilter.Allies || a.Filter == TargetFilter.Downed ? -1 : caster.Id).Where(b => Vec2.Distance(b.Position, aim) <= a.Size / 2f + BodyRadiusCells && Passes(a.Filter, caster, b) && CanSee(caster.Position, b.Position)).OrderBy(b => Vec2.Distance(b.Position, aim)).FirstOrDefault();
                         if (t == null) { rejection = "no target there"; break; }
-                        targets.Add(t); break;
+                        targets.Add(t); end = t.Position; break;
                     }
-                case AbilityShape.Projectile: targets = Travel(caster, aim, a.RangeCells, a.Size, true, out _); break;
-                case AbilityShape.Pierce: targets = Travel(caster, aim, a.RangeCells, a.Size, false, out _); break;
-                case AbilityShape.Cone: targets = InCone(caster, aim, a.RangeCells, a.Size); break;
+                case AbilityShape.Projectile: targets = Travel(caster, aim, a.RangeCells, a.Size, true, out end); break;
+                case AbilityShape.Pierce: targets = Travel(caster, aim, a.RangeCells, a.Size, false, out end); break;
+                case AbilityShape.Cone: targets = InCone(caster, aim, a.RangeCells, a.Size); end = toAim.Length > 0.01f ? caster.Position + toAim.Normalized * a.RangeCells : caster.Position; break;
                 case AbilityShape.Circle:
                     {
                         centre = a.RangeCells <= 0f ? caster.Position : (toAim.Length <= a.RangeCells ? aim : caster.Position + toAim.Normalized * a.RangeCells);
+                        end = centre;
                         if (a.RangeCells > 0f && !CanSee(caster.Position, centre)) { rejection = "no line of sight to the point"; break; }
                         if (!a.IsZone) targets = InCircle(centre, a.Size, caster.Id);
                         else targets = InCircle(centre, a.Size, caster.Id);   // for a preview: who is standing in it now
@@ -353,6 +367,7 @@ namespace DungeonGen.Core.Combat
                     {
                         var met = Travel(caster, aim, Math.Min(a.RangeCells, Math.Max(toAim.Length, 0.5f)), Math.Max(a.Size, 0.5f), a.Damage > 0f || a.KnockbackCells > 0f, out dashEnd);
                         if (a.Damage > 0f || a.KnockbackCells > 0f) targets = met;
+                        end = dashEnd;
                         break;
                     }
             }
