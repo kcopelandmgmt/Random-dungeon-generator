@@ -1,0 +1,12 @@
+<Project>
+  <!--
+    The .NET projects (Tests, Tools) live inside the Unity package. Unity imports any .dll it finds
+    under a package as a plugin, so a normal bin/ folder would load AsciiPreview.dll or the test
+    assembly next to DungeonGen.Core and every core type would exist twice. Folders whose name ends
+    in "~" are invisible to Unity, so all build output goes there.
+  -->
+  <PropertyGroup>
+    <BaseOutputPath>$(MSBuildProjectDirectory)/bin~/</BaseOutputPath>
+    <BaseIntermediateOutputPath>$(MSBuildProjectDirectory)/obj~/</BaseIntermediateOutputPath>
+  </PropertyGroup>
+</Project>

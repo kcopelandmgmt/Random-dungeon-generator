@@ -1,6 +1,8 @@
-# .NET build output (console tool + tests)
+# .NET build output (console tool + tests); Directory.Build.props sends it to bin~/obj~ so Unity ignores it
 bin/
 obj/
+bin~/
+obj~/
 *.user
 .vs/
 
