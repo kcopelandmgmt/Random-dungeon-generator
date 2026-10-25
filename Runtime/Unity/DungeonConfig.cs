@@ -34,7 +34,7 @@ namespace DungeonGen.Unity
             Settings.MaxRoomSize = Mathf.Max(Settings.MinRoomSize, Settings.MaxRoomSize);
             Settings.RoomSpacing = Mathf.Max(3, Settings.RoomSpacing);
             Settings.BorderPadding = Mathf.Max(1, Settings.BorderPadding);
-            Settings.CorridorWidth = Mathf.Clamp(Settings.CorridorWidth, 1, 2);
+            Settings.CorridorWidth = Mathf.Clamp(Settings.CorridorWidth, 1, 4);
             Settings.LoopChance = Mathf.Clamp01(Settings.LoopChance);
             Settings.LootRoomFraction = Mathf.Clamp01(Settings.LootRoomFraction);
             Settings.LootTiers = Mathf.Max(2, Settings.LootTiers);

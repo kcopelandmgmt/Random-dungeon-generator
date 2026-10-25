@@ -65,14 +65,21 @@ namespace DungeonGen.Core.Stages
                     corridor.Cells.Add(c);
                     if (occ[c.X, c.Y] != DoorCell) occ[c.X, c.Y] = Tunnel;
 
-                    if (s.CorridorWidth == 2 && i < path.Count - 1)
+                    // Widen perpendicular to travel. Width 2 adds one side, 3 adds both, 4 adds a second on
+                    // the right. Only free rock or an existing tunnel is taken, so halls narrow to the single
+                    // door cell where they meet a room wall: the door stays the chokepoint, the hall is the arena.
+                    if (s.CorridorWidth > 1 && i < path.Count - 1)
                     {
                         var dir = path[i + 1] - c;
-                        var side = c + new GridPoint(dir.Y, -dir.X);
-                        if (InBounds(s, side.X, side.Y) && (occ[side.X, side.Y] == Free || occ[side.X, side.Y] == Tunnel))
+                        var right = new GridPoint(dir.Y, -dir.X);
+                        foreach (int k in SideOffsets(s.CorridorWidth))
                         {
-                            occ[side.X, side.Y] = Tunnel;
-                            corridor.Cells.Add(side);
+                            var side = c + new GridPoint(right.X * k, right.Y * k);
+                            if (InBounds(s, side.X, side.Y) && (occ[side.X, side.Y] == Free || occ[side.X, side.Y] == Tunnel))
+                            {
+                                occ[side.X, side.Y] = Tunnel;
+                                corridor.Cells.Add(side);
+                            }
                         }
                     }
                 }
@@ -89,6 +96,18 @@ namespace DungeonGen.Core.Stages
         }
 
         private static bool InBounds(DungeonSettings s, int x, int y) => x >= 0 && y >= 0 && x < s.Width && y < s.Height;
+
+        /// <summary>Perpendicular cell offsets added beside the A* path for a corridor width: 2 → +1; 3 → -1, +1; 4 → -1, +1, +2.</summary>
+        public static int[] SideOffsets(int width)
+        {
+            switch (width)
+            {
+                case 2: return new[] { 1 };
+                case 3: return new[] { -1, 1 };
+                case 4: return new[] { -1, 1, 2 };
+                default: return System.Array.Empty<int>();
+            }
+        }
 
         /// <summary>
         /// Choose the wall-ring cell (never a corner) closest to the target. Prefer cells whose

@@ -36,8 +36,8 @@ namespace DungeonGen.Core
         // --- Corridors ----------------------------------------------------------
         /// <summary>Extra A* cost for digging through fresh rock vs. reusing an existing corridor. Higher = more merged, cave-like networks.</summary>
         public float NewCorridorCost = 4f;
-        /// <summary>Set to 2 for wide 2-cell corridors.</summary>
-        public int CorridorWidth = 1;
+        /// <summary>Corridor width in cells, 1-4. Default 3 (6 m at 2 m cells): room for a fight in the hall, not a queue. Halls narrow to the one door cell where they meet a room.</summary>
+        public int CorridorWidth = 3;
 
         // --- Roles --------------------------------------------------------------
         /// <summary>One spawn room per team. 1-16 supported; use <see cref="ForTeams"/> for a canvas sized to match.</summary>
@@ -167,7 +167,7 @@ namespace DungeonGen.Core
             if (MaxRoomSize < MinRoomSize) throw new ArgumentException("MaxRoomSize must be >= MinRoomSize.");
             if (TargetRoomCount < SpawnCount + ExtractCount + 1)
                 throw new ArgumentException("Need at least SpawnCount + ExtractCount + 1 rooms.");
-            if (CorridorWidth < 1 || CorridorWidth > 2) throw new ArgumentException("CorridorWidth must be 1 or 2.");
+            if (CorridorWidth < 1 || CorridorWidth > 4) throw new ArgumentException("CorridorWidth must be 1..4.");
             if (NearestNeighbours < 1) throw new ArgumentException("NearestNeighbours must be >= 1.");
             if (RoomSpacing < 3) throw new ArgumentException("RoomSpacing must be >= 3 so room walls never touch.");
             if (BorderPadding < 1) throw new ArgumentException("BorderPadding must be >= 1.");
