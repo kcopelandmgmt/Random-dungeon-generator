@@ -205,14 +205,26 @@ namespace DungeonGen.Unity
             go.transform.position = GridToWorld(cell) + Vector3.up * (closed ? CellSize * 0.75f : 0f);
         }
 
-        private static Material _fallbackMat;
-        /// <summary>Cubes and quads for anything with no prefab, so a fresh project builds a walkable greybox with nothing assigned.</summary>
+        private Transform _fallbackRoot;
+        /// <summary>
+        /// Cubes and quads for anything with no prefab, so a fresh project builds a walkable greybox with nothing assigned.
+        /// The templates live under an inactive, hidden holder: Instantiate copies a template's own active flag, so the
+        /// templates themselves must stay active or every spawned tile would be invisible.
+        /// </summary>
         public void EnsureFallbackPrefabs()
         {
+            if (_fallbackRoot == null)
+            {
+                var holder = new GameObject("FallbackPrefabs") { hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave };
+                holder.SetActive(false);
+                holder.transform.SetParent(transform, false);
+                _fallbackRoot = holder.transform;
+            }
             GameObject Make(string name, PrimitiveType type, Vector3 scale, Color colour, bool collider = true)
             {
                 var go = GameObject.CreatePrimitive(type);
                 go.name = name;
+                go.transform.SetParent(_fallbackRoot, false);
                 go.transform.localScale = scale;
                 if (!collider) { var c = go.GetComponent<Collider>(); if (c != null) Destroy(c); }
                 var r = go.GetComponent<Renderer>();
@@ -222,8 +234,6 @@ namespace DungeonGen.Unity
                     var m = new Material(shader) { color = colour };
                     r.sharedMaterial = m;
                 }
-                go.SetActive(false);
-                go.hideFlags = HideFlags.HideInHierarchy;
                 return go;
             }
             float c = CellSize;

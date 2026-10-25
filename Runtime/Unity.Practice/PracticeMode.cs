@@ -30,6 +30,8 @@ namespace DungeonGen.Unity
         public string[] BotSpecs = { "Berserker", "Warder", "Sharpshooter" };
         [Tooltip("Roaming bots play the round: explore, loot, fight what they meet, extract. Off, they stand at their spawn and fight only what comes.")]
         public bool BotsRoam = true;
+        [Tooltip("Host the round the moment Play starts, so the greybox needs no click. Off, use the on-screen button or the component's context menu.")]
+        public bool HostOnPlay = true;
 
         public LoopbackTransport Transport { get; private set; }
         public bool Hosting { get; private set; }
@@ -45,8 +47,15 @@ namespace DungeonGen.Unity
             GUILayout.EndArea();
         }
 
+        private void Start()
+        {
+            if (HostOnPlay && !Hosting) Host();
+        }
+
+        [ContextMenu("Host practice round")]
         public void Host()
         {
+            if (Hosting) return;
             Transport = new LoopbackTransport { IsServer = true, LocalTeam = 0, LocalPlayerId = 1 };
             Bootstrap.Attach(Transport);
             Server.Bootstrap = Bootstrap; Server.Builder = Builder; Server.Attach(Transport);
