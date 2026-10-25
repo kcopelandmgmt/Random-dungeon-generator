@@ -27,7 +27,9 @@ namespace DungeonGen.Unity
         public Dictionary<int, GameObject> Avatars { get; } = new Dictionary<int, GameObject>();
         public GameObject LocalAvatar => Avatars.TryGetValue(LocalPlayerId, out var go) ? go : null;
 
+        /// <summary>Ground-plane interpolation per avatar. The capsule's lift off the floor is added once, in Update, never fed back in.</summary>
         private readonly Dictionary<int, (Vector3 from, Vector3 to, float at)> _lerp = new Dictionary<int, (Vector3, Vector3, float)>();
+        private readonly Dictionary<int, Vector3> _ground = new Dictionary<int, Vector3>();
         private readonly HashSet<int> _seenThisSnapshot = new HashSet<int>();
         private IMatchTransport _transport;
 
@@ -47,11 +49,11 @@ namespace DungeonGen.Unity
                 _seenThisSnapshot.Add(a.Id);
                 if (!Avatars.TryGetValue(a.Id, out var go) || go == null) { go = Make(a); Avatars[a.Id] = go; }
                 var target = Builder.SimToWorld(new Vec2(a.X, a.Y));
-                _lerp[a.Id] = (go.transform.position, target, Time.time);
+                _lerp[a.Id] = (_ground.TryGetValue(a.Id, out var shown) ? shown : target, target, Time.time);   // from where it is drawn now, on the ground
                 go.transform.rotation = Quaternion.LookRotation(new Vector3(a.FacingX, 0f, a.FacingY).sqrMagnitude > 0.001f ? new Vector3(a.FacingX, 0f, a.FacingY) : Vector3.forward, Vector3.up);
                 Style(go, a);
             }
-            foreach (var id in Avatars.Keys.Where(id => !_seenThisSnapshot.Contains(id)).ToList()) { if (Avatars[id] != null) Destroy(Avatars[id]); Avatars.Remove(id); _lerp.Remove(id); }
+            foreach (var id in Avatars.Keys.Where(id => !_seenThisSnapshot.Contains(id)).ToList()) { if (Avatars[id] != null) Destroy(Avatars[id]); Avatars.Remove(id); _lerp.Remove(id); _ground.Remove(id); }
             Self = snap.Selves.Count == 0 ? (SelfSnapshot?)null : snap.Selves.FirstOrDefault(s => s.PlayerId == LocalPlayerId);
             if (Self.HasValue && Self.Value.PlayerId != LocalPlayerId) Self = null;
         }
@@ -62,7 +64,10 @@ namespace DungeonGen.Unity
             {
                 if (!Avatars.TryGetValue(kv.Key, out var go) || go == null) continue;
                 float t = InterpolationSeconds <= 0f ? 1f : Mathf.Clamp01((Time.time - kv.Value.at) / InterpolationSeconds);
-                go.transform.position = Vector3.Lerp(kv.Value.from, kv.Value.to, t) + Vector3.up * 1f;
+                var ground = Vector3.Lerp(kv.Value.from, kv.Value.to, t);
+                _ground[kv.Key] = ground;
+                // A Unity capsule is two units tall at scale 1 and centred, so its half-height is its Y scale: lift by that and the feet sit on the floor at any size.
+                go.transform.position = ground + Vector3.up * go.transform.localScale.y;
             }
         }
 
