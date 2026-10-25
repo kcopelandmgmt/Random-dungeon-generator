@@ -34,13 +34,23 @@ namespace DungeonGen.Unity.Editor
             var hud = root.AddComponent<PlayerHud>();
             hud.World = world; hud.Bootstrap = bootstrap;
             var compass = root.AddComponent<CompassHud>();
-            compass.Match = bootstrap; compass.Builder = builder;
+            compass.Match = bootstrap; compass.Builder = builder; compass.World = world;
             var minimap = root.AddComponent<MiniMapHud>();
-            minimap.Match = bootstrap; minimap.Builder = builder;
+            minimap.Match = bootstrap; minimap.Builder = builder; minimap.World = world;
 
-            var camGo = new GameObject("TopDownCamera");
-            var cam = camGo.AddComponent<Camera>();
-            var rig = camGo.AddComponent<TopDownCamera>();
+            // Reuse the scene's main camera (the URP template's, with its render-pipeline data) rather than adding a
+            // second base camera: a bare camera created here rendered on top of IMGUI until it was toggled off and on.
+            var cam = Camera.main;
+            GameObject camGo;
+            if (cam != null) camGo = cam.gameObject;
+            else
+            {
+                camGo = new GameObject("TopDownCamera");
+                cam = camGo.AddComponent<Camera>();
+                var urpData = System.Type.GetType("UnityEngine.Rendering.Universal.UniversalAdditionalCameraData, Unity.RenderPipelines.Universal.Runtime");
+                if (urpData != null) camGo.AddComponent(urpData);
+            }
+            var rig = camGo.GetComponent<TopDownCamera>() ?? camGo.AddComponent<TopDownCamera>();
             rig.Camera = cam;
             if (Object.FindFirstObjectByType<Light>() == null) { var light = new GameObject("Sun").AddComponent<Light>(); light.type = LightType.Directional; light.transform.rotation = Quaternion.Euler(55f, 30f, 0f); }
 

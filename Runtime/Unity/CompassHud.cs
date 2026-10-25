@@ -18,7 +18,9 @@ namespace DungeonGen.Unity
         public DungeonMatchBootstrap Match;
         public DungeonBuilder Builder;
         public TopDownCamera Camera;
+        [Tooltip("The local player's transform. Left empty, the local avatar from World is used once the server has spawned it.")]
         public Transform LocalPlayer;
+        public ClientWorldView World;
         public int LocalPlayerId = 1;
         [Tooltip("Other players' transforms by id, for teammate markers. Fill from the transport.")]
         public Dictionary<int, Transform> Players = new Dictionary<int, Transform>();
@@ -30,9 +32,10 @@ namespace DungeonGen.Unity
 
         private void OnGUI()
         {
-            if (Match == null || Match.State == null || Builder == null || LocalPlayer == null) return;
+            var localPlayer = LocalPlayer != null ? LocalPlayer : World != null && World.LocalAvatar != null ? World.LocalAvatar.transform : null;
+            if (Match == null || Match.State == null || Builder == null || localPlayer == null) return;
             float yaw = Camera != null ? Camera.YawDegrees : 0f;
-            var me = Builder.WorldToGrid(LocalPlayer.position);
+            var me = Builder.WorldToGrid(localPlayer.position);
             _cells.Clear();
             foreach (var kv in Players) if (kv.Value != null) _cells[kv.Key] = Builder.WorldToGrid(kv.Value.position);
 

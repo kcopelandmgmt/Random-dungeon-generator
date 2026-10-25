@@ -16,7 +16,9 @@ namespace DungeonGen.Unity
     {
         public DungeonMatchBootstrap Match;
         public DungeonBuilder Builder;
+        [Tooltip("The local player's transform. Left empty, the local avatar from World is used once the server has spawned it.")]
         public Transform LocalPlayer;
+        public ClientWorldView World;
         public int LocalPlayerId = 1;
         public Dictionary<int, Transform> Players = new Dictionary<int, Transform>();
         public List<TeamPing> Pings = new List<TeamPing>();
@@ -32,9 +34,10 @@ namespace DungeonGen.Unity
 
         private void OnGUI()
         {
-            if (Match == null || Match.State == null || Builder == null || LocalPlayer == null) return;
+            var localPlayer = LocalPlayer != null ? LocalPlayer : World != null && World.LocalAvatar != null ? World.LocalAvatar.transform : null;
+            if (Match == null || Match.State == null || Builder == null || localPlayer == null) return;
             if (_white == null) { _white = new Texture2D(1, 1); _white.SetPixel(0, 0, Color.white); _white.Apply(); }
-            var me = Builder.WorldToGrid(LocalPlayer.position);
+            var me = Builder.WorldToGrid(localPlayer.position);
             _cells.Clear();
             foreach (var kv in Players) if (kv.Value != null) _cells[kv.Key] = Builder.WorldToGrid(kv.Value.position);
             var model = MiniMap.Build(Match.State, LocalPlayerId, me, _cells, Pings, Match.State.Time);
