@@ -147,5 +147,35 @@ namespace DungeonGen.Tests
             var later = sim.Events.Skip(before).SelectMany(e => FightBridge.ToMatchEvents(e, sim, _ => 0)).ToList();
             Assert.Empty(later);
         }
+            [Fact]
+        public void AHeldInteractOpensAClosedDoorAndLeavesItOpen()
+        {
+            var server = Seated();
+            int rejected = 0; server.EventRejected += (e, why) => rejected++;
+            var idle = new PlayerIntent { PlayerId = 1 };
+            for (int i = 0; i < 220; i++) { server.SetIntent(1, idle); server.Step(0.05f); }   // past the 10 s countdown
+            Assert.True(server.State.DoorsOpen);
+            var c = server.Sim.Get(1);
+            int room = server.RoomOf(1);
+            var door = server.State.Index.Doors.First(kv => kv.Value.room == room);
+            var inside = GridPoint.Cardinals.Select(d => door.Value.cell + d).First(p => server.Layout.InBounds(p) && server.Layout.RoomIdAt[p.X, p.Y] == room);
+            c.Position = Vec2.Of(inside);
+            server.SetIntent(1, idle); server.Step(0.05f);
+            Assert.DoesNotContain(door.Value.cell, server.State.ClosedDoors);
+
+            var hold = new PlayerIntent { PlayerId = 1, Interact = true, AimX = c.Position.X, AimY = c.Position.Y };
+            server.SetIntent(1, hold); server.Step(0.05f);                                     // a press on an open door shuts it at once
+            Assert.Contains(door.Value.cell, server.State.ClosedDoors);
+            server.SetIntent(1, idle); server.Step(0.05f);                                     // release
+
+            for (int i = 0; i < 100; i++) { server.SetIntent(1, hold); server.Step(0.05f); }   // 5 s held: the 3 s channel opens it ...
+            Assert.DoesNotContain(door.Value.cell, server.State.ClosedDoors);                   // ... and the key still being down does not shut it again
+            Assert.Null(server.ChannelOf(1));
+            Assert.Equal(0, rejected);
+
+            server.SetIntent(1, idle); server.Step(0.05f);
+            server.SetIntent(1, hold); server.Step(0.05f);                                     // a fresh press shuts it again
+            Assert.Contains(door.Value.cell, server.State.ClosedDoors);
+        }
     }
 }

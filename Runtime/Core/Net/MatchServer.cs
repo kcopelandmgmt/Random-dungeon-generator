@@ -72,6 +72,8 @@ namespace DungeonGen.Core.Net
         private readonly Dictionary<int, PlayerIntent> _intents = new Dictionary<int, PlayerIntent>();
         private readonly Dictionary<int, int> _lastRoom = new Dictionary<int, int>();
         private readonly Dictionary<int, Channel> _channels = new Dictionary<int, Channel>();
+        /// <summary>Player → the door their still-held Interact just opened. Closing is instant, so without this a held key would shut the door the tick after the channel opened it.</summary>
+        private readonly Dictionary<int, int> _heldSinceDoorOpened = new Dictionary<int, int>();
         private readonly Dictionary<int, string> _spec = new Dictionary<int, string>();
         private readonly List<IServerBot> _bots = new List<IServerBot>();
         private readonly List<int> _botIds = new List<int>();
@@ -249,9 +251,13 @@ namespace DungeonGen.Core.Net
                 }
             }
             if (intent.Ping && Wire != null && State.PlayerTeam.TryGetValue(playerId, out int team)) Wire.SendPingToTeam(team, new TeamPing(playerId, team, (PingKind)intent.PingKind, aim.Cell, Sim.Time).ToBytes());
-            // Channels: hold to continue, release to stop.
+            // Channels: hold to continue, release to stop. Releasing also re-arms the instant door close.
             if (intent.Interact) Interact(playerId, c);
-            else if (_channels.TryGetValue(playerId, out var held)) Interrupt(playerId, held);
+            else
+            {
+                _heldSinceDoorOpened.Remove(playerId);
+                if (_channels.TryGetValue(playerId, out var held)) Interrupt(playerId, held);
+            }
         }
 
         private void Interrupt(int playerId, Channel ch)
@@ -286,7 +292,10 @@ namespace DungeonGen.Core.Net
                     case "chest": if (!State.OpenedContainers.Contains(ch.Target)) Raise(new MatchEvent(MatchEventKind.ContainerOpened, Sim.Time, ch.Target, playerId)); break;
                     case "corpse": if (!State.OpenedCorpses.Contains(ch.Target)) Raise(new MatchEvent(MatchEventKind.CorpseOpened, Sim.Time, ch.Target, playerId)); break;
                     case "key": if (!State.KeyHolder.ContainsKey(ch.Target)) Raise(new MatchEvent(MatchEventKind.KeyPickedUp, Sim.Time, ch.Target, playerId)); break;
-                    case "door": if (State.Index.Doors.TryGetValue(ch.Target, out var d) && State.ClosedDoors.Contains(d.cell)) Raise(new MatchEvent(MatchEventKind.DoorOpened, Sim.Time, ch.Target, playerId)); break;
+                    case "door":
+                        if (State.Index.Doors.TryGetValue(ch.Target, out var d) && State.ClosedDoors.Contains(d.cell) && Raise(new MatchEvent(MatchEventKind.DoorOpened, Sim.Time, ch.Target, playerId)))
+                            _heldSinceDoorOpened[playerId] = ch.Target;   // the key is still down; it must not shut what it just opened
+                        break;
                     case "hazard": if (!State.DisarmedHazards.Contains(ch.Target)) Raise(new MatchEvent(MatchEventKind.HazardDisarmed, Sim.Time, ch.Target, playerId)); break;
                     case "revive": if (State.Downed.ContainsKey(ch.Target) && Raise(new MatchEvent(MatchEventKind.PlayerRevived, Sim.Time, ch.Target, playerId))) Sim.Revive(Sim.Get(ch.Target), FightRules.ReviveHealthFraction); break;
                     case "extract": Raise(new MatchEvent(MatchEventKind.PlayerExtracted, Sim.Time, playerId, ch.Target, State.PlayerTeam[playerId])); break;
@@ -311,7 +320,8 @@ namespace DungeonGen.Core.Net
             }
             // 1. A door within reach: shut it now, or start opening it.
             var door = State.Index.Doors.Where(kv => Vec2.Distance(Vec2.Of(kv.Value.cell), c.Position) <= 1.3f).OrderBy(kv => Vec2.Distance(Vec2.Of(kv.Value.cell), c.Position)).FirstOrDefault();
-            if (door.Key != 0)
+            bool justOpenedAndStillHeld = door.Key != 0 && _heldSinceDoorOpened.TryGetValue(playerId, out int opened) && opened == door.Key && !State.ClosedDoors.Contains(door.Value.cell);
+            if (door.Key != 0 && !justOpenedAndStillHeld)
             {
                 if (State.ClosedDoors.Contains(door.Value.cell)) { Start("door", door.Key, DoorRules.OpenSeconds, new MatchEvent(MatchEventKind.LootStarted, Sim.Time, playerId, door.Key, 4)); return "door-open"; }
                 if (!act || Raise(new MatchEvent(MatchEventKind.DoorClosed, Sim.Time, door.Key, playerId))) return "door-close";
