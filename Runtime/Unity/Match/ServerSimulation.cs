@@ -16,6 +16,8 @@ namespace DungeonGen.Unity
         public DungeonBuilder Builder;
         [Tooltip("Server ticks per second. Twenty is plenty for a 5 m/s game with 2 m cells.")]
         public int TickRate = 20;
+        [Tooltip("Simulation seconds per real second. 1 is real time. The greybox runs at 1.1 so the pace feels right while movement and abilities are tuned; movement, cooldowns, mobs and the round clock all scale together. A dedicated server runs at 1.")]
+        [Range(0.25f, 3f)] public float GameSpeed = 1.1f;
 
         public MatchServer Server => Bootstrap != null ? Bootstrap.Server : null;
         public FightSim Sim => Server?.Sim;
@@ -44,7 +46,7 @@ namespace DungeonGen.Unity
         {
             if (!Running) return;
             float dt = 1f / Mathf.Max(1, TickRate);
-            _accum += Time.deltaTime;
+            _accum += Time.deltaTime * Mathf.Max(0f, GameSpeed);
             int steps = 0;
             while (_accum >= dt && steps++ < 5) { _accum -= dt; Server.Step(dt); }
         }
