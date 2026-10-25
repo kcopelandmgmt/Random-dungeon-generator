@@ -3,6 +3,25 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-24 · Camera: Albion's angle, zoom and aspect rule — BUILT (`TopDownCamera`)
+
+Amends the 2026-10-22 presentation entry after the first greybox session in Unity. Albion Online's
+camera, taken literally:
+
+1. **Fixed angle, never rotatable.** Yaw **45°**, so grid north-east is up-right on screen and
+   corridors run diagonally, the way Albion's roads do. Pitch 50° (range 35–70 in the inspector).
+   The 2026-10-22 call for yaw 0 (corridors axis-aligned to the screen) is dropped; readability
+   still comes from everyone sharing one frame, not from the grid being square on screen.
+2. **Zoom is the player's only camera control:** scroll wheel (gamepad d-pad) moves the camera
+   along its view direction between **12 and 28 m**, 2 m per notch, smoothed. Default 20 m.
+3. **Wider monitors see more, to a point.** The vertical field of view is fixed (40°), so the
+   horizontal view scales with the aspect ratio; past **21:9** the view is pillarboxed so an
+   ultra-wide gains nothing more. A real tactical edge up to that limit, by design.
+4. **Up on screen is the camera's forward.** WASD and the stick are screen-relative and the rig
+   rotates them by its yaw before they become an intent (`TopDownCamera.ScreenToWorldDirection`).
+
+The camera reads no input itself; the Input System layer feeds it the aim point and the zoom.
+
 ## 2026-10-24 · The server loop lives in the core; whole rounds play headless — BUILT
 
 The Unity server component was the only place the round's rules were wired together, and it could
@@ -516,7 +535,8 @@ Answered in one sitting; each line is a decision, not a default. Code: `PlayerPr
 Albion Online's model for the camera, Bloodline Champions' for control.
 
 * **Camera.** 3D scene viewed from above, pitch 55–60°, **fixed yaw** so corridors stay
-  axis-aligned to the generator's grid. No player rotation: an eight-team fight is only readable
+  axis-aligned to the generator's grid *(amended 2026-10-24: yaw 45°, pitch 50°, scroll zoom,
+  21:9 aspect cap; see the camera entry above)*. No player rotation: an eight-team fight is only readable
   if everyone shares the frame. Slight lead toward the mouse so a Marksman can see down a hall.
   (`TopDownCamera`.)
 * **Scale.** One grid cell = 2 m. A 9-cell boss arena is 18 m across; a corridor is a 2 m hall;

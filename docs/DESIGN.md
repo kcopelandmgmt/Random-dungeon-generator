@@ -52,7 +52,9 @@ other room whose outward neighbour is open. Then run **A\*** on the cell grid fr
 * If strict A\* fails (a room boxed in by others), a lenient pass may cut through a wall ring at
   high cost. If that also fails the edge is dropped and a warning is recorded; the final validator
   catches any resulting disconnection.
-* `CorridorWidth = 2` widens every step perpendicular to travel for 2-cell halls.
+* `CorridorWidth` (1-4, default 3) widens every step perpendicular to travel: 2 adds one side, 3 both
+  sides (a 6 m hall at 2 m cells, wide enough to fight in), 4 a second on the right. Halls narrow to
+  the single door cell where they meet a room wall, so doors stay chokepoints.
 
 ### 4. Role assignment (`RoleAssigner`)
 Roles come from **walking distance along corridors** (corridor length plus room crossings, all-pairs
@@ -748,7 +750,7 @@ Eight character slots share one bank.
 ## Presentation: top-down, 3D, line-of-sight (locked)
 
 See `docs/DECISIONS.md` for the reasoning. The short form: a 3D scene viewed from a fixed-yaw
-camera pitched 55–60° (`TopDownCamera`), one cell = 2 m (`DungeonBuilder.CellSize`), **WASD plus
+camera at a fixed 45° yaw, pitched 50°, zoomable 12–28 m (`TopDownCamera`), one cell = 2 m (`DungeonBuilder.CellSize`), **WASD plus
 mouse aim** as the only control scheme (`MovementRules`: 5 m/s base, screen-relative, facing
 follows the mouse, no click-to-move, no universal dodge) with floor telegraphs, and **line-of-sight fog**: walls and locked doors
 occlude, you see what your character could see. The vision rule is in the core (`LineOfSight`:
