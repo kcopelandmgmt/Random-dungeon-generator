@@ -43,6 +43,14 @@ namespace DungeonGen.Unity
         /// <summary>The smoothed distance actually in use this frame.</summary>
         public float CurrentDistance { get; private set; }
 
+        /// <summary>
+        /// Screen shake, in metres along the camera's own right/up/forward axes, set each frame by <c>HitFeel</c>. It is added after the camera is placed, so it
+        /// never enters the follow focus, and aiming (<see cref="ScreenToGround"/>, the aim lead) subtracts it again: a shaking camera aims exactly like a still one.
+        /// </summary>
+        public Vector3 ShakeOffset;
+
+        private Vector3 _shakeWorld;
+
         private Vector3 _focus;
         private Vector2 _aimScreen;
         private bool _hasAim;
@@ -81,7 +89,8 @@ namespace DungeonGen.Unity
             Vector3 desired = Target.position + AimOffset() * AimLead;
             _focus = Vector3.Lerp(_focus, desired, 1f - Mathf.Exp(-FollowSharpness * Time.deltaTime));
             var rot = Quaternion.Euler(PitchDegrees, YawDegrees, 0f);
-            Camera.transform.SetPositionAndRotation(_focus - rot * Vector3.forward * CurrentDistance, rot);
+            _shakeWorld = rot * ShakeOffset;
+            Camera.transform.SetPositionAndRotation(_focus - rot * Vector3.forward * CurrentDistance + _shakeWorld, rot);
         }
 
         /// <summary>Fixed vertical FOV; pillarbox past the widest supported aspect so the horizontal view stops growing.</summary>
@@ -104,6 +113,7 @@ namespace DungeonGen.Unity
         private Vector3 AimOffset()
         {
             var ray = Camera.ScreenPointToRay(AimScreenPosition);
+            ray.origin -= _shakeWorld;
             var ground = new Plane(Vector3.up, new Vector3(0f, Target.position.y, 0f));
             if (!ground.Raycast(ray, out float t)) return Vector3.zero;
             var hit = ray.GetPoint(t) - Target.position;
@@ -114,6 +124,7 @@ namespace DungeonGen.Unity
         public bool ScreenToGround(Vector3 screen, out Vector3 world)
         {
             var ray = Camera.ScreenPointToRay(screen);
+            ray.origin -= _shakeWorld;
             var ground = new Plane(Vector3.up, Vector3.zero);
             if (ground.Raycast(ray, out float t)) { world = ray.GetPoint(t); return true; }
             world = default; return false;

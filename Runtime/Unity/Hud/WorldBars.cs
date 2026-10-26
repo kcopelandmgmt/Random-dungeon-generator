@@ -15,6 +15,9 @@ namespace DungeonGen.Unity
     /// when a Hit effect lands on it, through a MaterialPropertyBlock that works for capsules and skinned models alike and is restored exactly.
     /// The assembly has no uGUI reference, so the widgets are CanvasRenderers with hand-built meshes (rectangles, a font-atlas text run, a
     /// pixel-art skull) on the engine's own Canvas; they use the always-included Sprites/Default shader.
+    /// The same canvas carries the floating damage numbers (this replaces the old IMGUI ones in <see cref="AbilityEffects"/>): sized by the amount,
+    /// bigger and yellow with a pop for a crit, orange for an ultimate, green for a heal, red for damage the local player takes, grey for a blocked blow;
+    /// numbers that land on one target within a moment stack and fan out so they never overlap. And a banner line (<see cref="ShowNote"/>) near the top of the view.
     /// </summary>
     public sealed class WorldBars : MonoBehaviour
     {
@@ -24,6 +27,13 @@ namespace DungeonGen.Unity
         public Camera Camera;
         public float FlashSeconds = 0.12f;
         public float HeadroomMetres = 0.35f;
+
+        [Header("Floating numbers")]
+        public bool DamageNumbers = true;
+        public int MaxLiveNumbers = 40;
+        public float NumberSeconds = 1.0f, CritNumberSeconds = 1.35f;
+        public Color DamageColour = new Color(0.97f, 0.97f, 0.97f), OthersColour = new Color(0.78f, 0.78f, 0.82f), TakenColour = new Color(1f, 0.3f, 0.27f),
+            CritColour = new Color(1f, 0.88f, 0.22f), UltimateColour = new Color(1f, 0.58f, 0.14f), HealColour = new Color(0.45f, 1f, 0.55f), BlockedColour = new Color(0.62f, 0.64f, 0.7f);
 
         public Color AllyBar = new Color(0.2f, 0.85f, 0.7f), EnemyBar = new Color(0.95f, 0.2f, 0.2f), MobBar = new Color(1f, 0.6f, 0.1f), BossBar = new Color(0.62f, 0.2f, 0.9f), DownedBar = new Color(0.55f, 0.55f, 0.58f);
 
@@ -40,6 +50,15 @@ namespace DungeonGen.Unity
             public string LastLetter, LastName; public int LastFontVersion, LastSkullKey = -1;
         }
 
+        /// <summary>What a floating number was drawn as; read by tests.</summary>
+        public struct NumberInfo { public string Text; public Color Colour; public int Size; public bool Crit, Ultimate, Heal, Taken; public int Target, Slot; public float Amount, Lift; }
+
+        private sealed class Num
+        {
+            public GameObject Go; public RectTransform Rt; public CanvasRenderer R; public Mesh M;
+            public float Born, Life, Lift, DriftX, Dir; public Vector3 Anchor; public int Size, Slot, Target, FontVersion; public bool Crit; public string Text; public Color Colour, Outline;
+        }
+
         private sealed class AvatarCache { public GameObject Go; public Renderer[] Rends = new Renderer[0]; public float RefreshAt; }
         private sealed class Flash { public GameObject Go; public Renderer[] Rends; public MaterialPropertyBlock[] Saved; public float Until; }
 
@@ -54,7 +73,8 @@ namespace DungeonGen.Unity
         private readonly Dictionary<int, Flash> _flashes = new Dictionary<int, Flash>();
         private readonly List<int> _scratch = new List<int>();
         private readonly HashSet<int> _seen = new HashSet<int>();
-        private AbilityEffects _subscribed;
+        private ClientWorldView _hookedWorld;
+        private uint _lastTick; private bool _haveTick;
         private int _localTeam = -1;
         private readonly List<Vector3> _verts = new List<Vector3>();
         private readonly List<Color32> _cols = new List<Color32>();
@@ -70,6 +90,25 @@ namespace DungeonGen.Unity
         }
         public bool IsFlashing(int id) => _flashes.ContainsKey(id);
 
+        /// <summary>Floating numbers alive now, and how many have been drawn in all (for tests).</summary>
+        public int LiveNumbers => _nums.Count;
+        public int NumbersSpawned { get; private set; }
+        /// <summary>The last numbers drawn, newest last (capped at 64).</summary>
+        public IReadOnlyList<NumberInfo> RecentNumbers => _recentNumbers;
+        private readonly List<NumberInfo> _recentNumbers = new List<NumberInfo>();
+        private readonly List<Num> _nums = new List<Num>();
+        private readonly Stack<Num> _numPool = new Stack<Num>();
+        private bool _tookNumbers;
+        private float _lastPx = 1f;
+
+        // the banner line
+        public string NoteText { get; private set; }
+        public int NotesShown { get; private set; }
+        public bool NoteVisible => _noteGo != null && _noteGo.activeSelf;
+        private GameObject _noteGo; private RectTransform _noteRt; private CanvasRenderer _noteBg, _noteTextR; private Mesh _noteBgMesh, _noteTextMesh;
+        private float _noteBorn = -99f, _noteLife; private Color _noteColour = new Color(0.8f, 0.95f, 1f);
+        private int _noteBuiltFor = -1, _noteBuiltFont = -1; private string _noteBuiltText;
+
         /// <summary>Render the bars through a camera (so a camera render, such as a test screenshot, includes them). Overlay canvases are not part of camera renders.</summary>
         public void UseCameraSpace(Camera cam)
         {
@@ -81,10 +120,12 @@ namespace DungeonGen.Unity
 
         private void OnDisable()
         {
-            if (_subscribed != null) _subscribed.EffectArrived -= OnEffect;
-            _subscribed = null;
+            if (_hookedWorld != null) _hookedWorld.SnapshotApplied -= OnSnapshot;
+            _hookedWorld = null; _haveTick = false;
             foreach (var f in new List<Flash>(_flashes.Values)) Restore(f);
             _flashes.Clear();
+            if (_tookNumbers && Effects != null) Effects.FloatingNumbers = true;    // the old IMGUI numbers come back if these are gone
+            _tookNumbers = false;
             Font.textureRebuilt -= OnFontRebuilt;
         }
 
@@ -98,18 +139,23 @@ namespace DungeonGen.Unity
             if (_textMat != null) Destroy(_textMat);
             if (_skullMat != null) Destroy(_skullMat);
             if (_skullTex != null) Destroy(_skullTex);
+            foreach (var n in _nums) if (n.M != null) Destroy(n.M);
+            foreach (var n in _numPool) if (n.M != null) Destroy(n.M);
+            if (_noteBgMesh != null) Destroy(_noteBgMesh);
+            if (_noteTextMesh != null) Destroy(_noteTextMesh);
         }
 
         // ---- frame ----
 
         private void Update()
         {
-            if (Effects != _subscribed)
+            if (World != _hookedWorld)
             {
-                if (_subscribed != null) _subscribed.EffectArrived -= OnEffect;
-                _subscribed = Effects;
-                if (_subscribed != null) _subscribed.EffectArrived += OnEffect;
+                if (_hookedWorld != null) _hookedWorld.SnapshotApplied -= OnSnapshot;
+                _hookedWorld = World; _haveTick = false;
+                if (_hookedWorld != null) _hookedWorld.SnapshotApplied += OnSnapshot;
             }
+            if (Effects != null && DamageNumbers && Effects.FloatingNumbers) { Effects.FloatingNumbers = false; _tookNumbers = true; }   // these numbers replace the effects layer's IMGUI ones
         }
 
         private void LateUpdate()
@@ -117,12 +163,13 @@ namespace DungeonGen.Unity
             UpdateFlashes();
             var cam = Camera != null ? Camera : UnityEngine.Camera.main;
             var snap = World != null ? World.Latest : null;
-            if (cam == null || snap == null) { HideAll(); return; }
+            if (cam == null) { HideAll(); HideNumbers(); return; }
+            if (snap == null) HideAll();
             EnsureCanvas();
             if (_canvas.renderMode == RenderMode.ScreenSpaceCamera && _canvas.worldCamera != cam) _canvas.worldCamera = cam;
 
             _localTeam = -1;
-            foreach (var a in snap.Avatars) if (a.Id == World.LocalPlayerId) { _localTeam = a.Team; break; }
+            if (snap != null) foreach (var a in snap.Avatars) if (a.Id == World.LocalPlayerId) { _localTeam = a.Team; break; }
 
             float px = Mathf.Clamp(cam.pixelHeight / 900f, 0.75f, 2.5f);
             int scaleKey = Mathf.RoundToInt(px * 4f);
@@ -131,6 +178,10 @@ namespace DungeonGen.Unity
             bool overlay = _canvas.renderMode == RenderMode.ScreenSpaceOverlay;
             var origin = overlay ? Vector2.zero : new Vector2(rect.x, rect.y);
             float inv = 1f / Mathf.Max(0.01f, _canvas.scaleFactor);
+            _lastPx = px;
+            UpdateNumbers(cam, origin, inv, px);
+            UpdateNote(rect, origin, inv, px);
+            if (snap == null) return;
 
             _seen.Clear();
             foreach (var a in snap.Avatars)
@@ -217,9 +268,19 @@ namespace DungeonGen.Unity
 
         // ---- hit flash ----
 
+        /// <summary>Each snapshot's effects once: the same tick is never drawn twice, even if the view applies it twice.</summary>
+        private void OnSnapshot(TeamSnapshot snap)
+        {
+            if (_haveTick && snap.Tick == _lastTick) return;
+            _haveTick = true; _lastTick = snap.Tick;
+            foreach (var e in snap.Effects) OnEffect(e);
+        }
+
         private void OnEffect(EffectSnapshot e)
         {
-            if (e.Kind != EffectKind.Hit || World == null) return;
+            if (World == null) return;
+            if (e.Kind == EffectKind.Hit || e.Kind == EffectKind.Heal) SpawnNumber(e);
+            if (e.Kind != EffectKind.Hit) return;
             if (!World.Avatars.TryGetValue(e.Target, out var go) || go == null) return;
             if (_flashes.TryGetValue(e.Target, out var running)) { running.Until = Time.time + FlashSeconds; return; }
             var rends = new List<Renderer>();
@@ -259,6 +320,195 @@ namespace DungeonGen.Unity
             }
         }
 
+        // ---- floating numbers ----
+
+        private void SpawnNumber(EffectSnapshot e)
+        {
+            if (!DamageNumbers || Builder == null) return;
+            EnsureCanvas();
+            var kind = HitFeel.Classify(e);
+            bool heal = e.Kind == EffectKind.Heal;
+            int me = World.LocalPlayerId;
+            bool taken = !heal && e.Target == me, byMe = e.Source == me, mine = taken || byMe || (heal && e.Target == me);
+            float amount = Mathf.Max(0f, e.Amount);
+            string text;
+            Color col;
+            bool crit = kind.Crit && !kind.Blocked, ult = kind.Ultimate && !kind.Blocked;
+            if (kind.Blocked && !heal) { text = "Blocked"; col = BlockedColour; crit = false; ult = false; }
+            else
+            {
+                int shown = Mathf.Max(1, Mathf.RoundToInt(amount));
+                text = heal ? "+" + shown : (crit || ult) ? shown + "!" : shown.ToString();
+                col = heal ? HealColour : taken ? TakenColour : ult ? UltimateColour : crit ? CritColour : byMe ? DamageColour : OthersColour;
+            }
+            // Size grows with the amount (logarithmically, so a boss's thousand does not fill the screen), crits and ultimates are bigger, other people's hits smaller.
+            float size = 16f + 5f * Mathf.Log(1f + amount / 8f, 2f);
+            if (crit || ult) size *= 1.4f;
+            if (heal) size *= 0.92f;
+            if (!mine) size *= 0.8f;
+            if (kind.Blocked && !heal) size = 15f;
+            int px = Mathf.Clamp(Mathf.RoundToInt(size * _lastPx), 10, 84);
+
+            // Where: above the target's head (over its bar), or above where the server says the hit landed.
+            Vector3 anchor;
+            if (World.Avatars.TryGetValue(e.Target, out var go) && go != null) anchor = HeadPoint(e.Target, go) + Vector3.up * 0.25f;
+            else anchor = Builder.SimToWorld(new DungeonGen.Core.Combat.Vec2(e.X, e.Y)) + Vector3.up * 2.2f;
+
+            // Stack: every number rises at the same speed, so a new one on a target starts at the lowest height that clears the numbers already above that
+            // target (a burst becomes a column, and the gaps stay), with a little sideways wander so a column does not look ruled.
+            int slot = 0;
+            foreach (var o in _nums) if (o.Target == e.Target && Time.time - o.Born < 0.8f) slot++;
+            _near.Clear();
+            foreach (var o in _nums) if (o.Target == e.Target) _near.Add(o);
+            _near.Sort((x, y) => NumberHeight(x).CompareTo(NumberHeight(y)));
+            float lift = 0f;
+            foreach (var o in _near)
+            {
+                float at = NumberHeight(o), gap = (o.Size + px) * 0.55f + 2f;
+                if (lift > at - gap && lift < at + gap) lift = at + gap;
+            }
+            float jitter = ((e.Target * 31 + NumbersSpawned * 17) % 7 - 3) * 3f;
+            float drift = (slot == 0 ? 0f : (slot % 2 == 0 ? -1f : 1f) * 8f) + jitter;
+
+            Num n;
+            while (_nums.Count >= Mathf.Max(4, MaxLiveNumbers)) { Retire(_nums[0]); _nums.RemoveAt(0); }
+            if (_numPool.Count > 0) n = _numPool.Pop();
+            else
+            {
+                n = new Num();
+                n.Go = new GameObject("Number", typeof(RectTransform), typeof(CanvasRenderer));
+                n.Rt = (RectTransform)n.Go.transform;
+                n.Rt.SetParent(_canvas.transform, false);
+                n.Rt.anchorMin = n.Rt.anchorMax = Vector2.zero; n.Rt.pivot = new Vector2(0.5f, 0.5f); n.Rt.sizeDelta = Vector2.zero;
+                n.R = n.Go.GetComponent<CanvasRenderer>();
+                n.M = new Mesh { name = "WorldBarsNumber" }; n.M.MarkDynamic();
+                n.R.materialCount = 1; n.R.SetMaterial(_textMat, 0);
+            }
+            n.Born = Time.time; n.Life = (crit || ult) ? CritNumberSeconds : NumberSeconds;
+            n.Anchor = anchor; n.Size = px; n.Slot = slot; n.Target = e.Target; n.Crit = crit || ult; n.Text = text; n.Colour = col;
+            n.Outline = (crit || ult) ? new Color(0.22f, 0.1f, 0f, 0.95f) : new Color(0f, 0f, 0f, 0.92f);
+            n.Lift = lift; n.DriftX = drift; n.Dir = ((e.Target + NumbersSpawned) & 1) == 0 ? 1f : -1f;
+            BuildNumber(n);
+            n.Go.SetActive(true);
+            _nums.Add(n);
+            NumbersSpawned++;
+            _recentNumbers.Add(new NumberInfo { Text = text, Colour = col, Size = px, Crit = crit, Ultimate = ult, Heal = heal, Taken = taken, Target = e.Target, Slot = slot, Amount = amount, Lift = lift });
+            if (_recentNumbers.Count > 64) _recentNumbers.RemoveAt(0);
+        }
+
+        private const float RiseSpeed = 58f;     // screen pixels per second at 900p, for every number
+        private readonly List<Num> _near = new List<Num>();
+
+        /// <summary>How far above its anchor a number is now, in screen pixels.</summary>
+        private float NumberHeight(Num n) => RiseSpeed * _lastPx * (Time.time - n.Born) + n.Lift;
+
+        private void BuildNumber(Num n)
+        {
+            n.FontVersion = _fontVersion;
+            Begin();
+            float width = TextWidth(n.Text, n.Size);
+            AddOutlined(n.Text, n.Size, -width / 2f, 0f, n.Colour, n.Outline);
+            Flush(n.M, n.R);
+            SyncFont(n.R);
+        }
+
+        /// <summary>
+        /// Hand the font atlas to a text renderer through the renderer itself, as uGUI does: an alpha-only texture then gets the UI text shader's white
+        /// sample-add, and the glyphs draw in their vertex colour (set on the material alone they would sample black).
+        /// </summary>
+        private void SyncFont(CanvasRenderer cr)
+        {
+            if (_font == null || _font.material == null) return;
+            var tex = _font.material.mainTexture;
+            _textMat.mainTexture = tex;
+            cr.SetTexture(tex);
+        }
+
+        private void Retire(Num n) { n.Go.SetActive(false); _numPool.Push(n); }
+
+        private void HideNumbers()
+        {
+            foreach (var n in _nums) Retire(n);
+            _nums.Clear();
+            if (_noteGo != null) _noteGo.SetActive(false);
+        }
+
+        private void UpdateNumbers(Camera cam, Vector2 origin, float inv, float px)
+        {
+            for (int i = _nums.Count - 1; i >= 0; i--)
+            {
+                var n = _nums[i];
+                float age = Time.time - n.Born;
+                if (age >= n.Life) { Retire(n); _nums.RemoveAt(i); continue; }
+                if (n.FontVersion != _fontVersion) BuildNumber(n);      // the font atlas was rebuilt under the glyph UVs
+                var sp = cam.WorldToScreenPoint(n.Anchor);
+                if (sp.z <= 0f) { n.R.SetAlpha(0f); continue; }
+                float k = age / n.Life;
+                float rise = RiseSpeed * px * age + n.Lift;
+                float pop, sideways = 0f;
+                if (n.Crit)
+                {
+                    pop = age < 0.09f ? Mathf.Lerp(0.5f, 1.6f, age / 0.09f) : Mathf.Lerp(1.6f, 1f, Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((age - 0.09f) / 0.24f)));
+                    sideways = n.Dir * 22f * px * Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(age / 0.35f));   // a crit pops out sideways as well as up
+                }
+                else pop = age < 0.08f ? Mathf.Lerp(0.7f, 1.12f, age / 0.08f) : Mathf.Lerp(1.12f, 1f, Mathf.Clamp01((age - 0.08f) / 0.12f));
+                n.Rt.anchoredPosition = new Vector2((sp.x - origin.x + n.DriftX * px + sideways) * inv, (sp.y - origin.y + rise + 18f * px) * inv);
+                n.Rt.localScale = Vector3.one * pop;
+                n.R.SetAlpha(k < 0.55f ? 1f : Mathf.Clamp01(1f - (k - 0.55f) / 0.45f));
+            }
+        }
+
+        // ---- the banner line ----
+
+        /// <summary>Show a line of text near the top of the view for a few seconds (an exit opened, and the like). A new line replaces the old one.</summary>
+        public void ShowNote(string text, float seconds = 4f, Color? colour = null)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            EnsureCanvas();
+            NoteText = text; NotesShown++;
+            _noteBorn = Time.time; _noteLife = Mathf.Max(0.5f, seconds);
+            _noteColour = colour ?? new Color(0.8f, 0.97f, 1f);
+            _noteBuiltText = null;
+            if (_noteGo == null)
+            {
+                _noteGo = new GameObject("Note", typeof(RectTransform));
+                _noteRt = (RectTransform)_noteGo.transform;
+                _noteRt.SetParent(_canvas.transform, false);
+                _noteRt.anchorMin = _noteRt.anchorMax = Vector2.zero; _noteRt.pivot = new Vector2(0.5f, 0.5f); _noteRt.sizeDelta = Vector2.zero;
+                _noteBg = Child(_noteGo, "Bg", _flatMat, out _noteBgMesh);
+                _noteTextR = Child(_noteGo, "Text", _textMat, out _noteTextMesh);
+            }
+            _noteGo.SetActive(true);
+        }
+
+        private void UpdateNote(Rect rect, Vector2 origin, float inv, float px)
+        {
+            if (_noteGo == null || !_noteGo.activeSelf) return;
+            float age = Time.time - _noteBorn;
+            if (age >= _noteLife) { _noteGo.SetActive(false); return; }
+            int scaleKey = Mathf.RoundToInt(px * 4f);
+            if (_noteBuiltText != NoteText || _noteBuiltFor != scaleKey || _noteBuiltFont != _fontVersion)
+            {
+                _noteBuiltText = NoteText; _noteBuiltFor = scaleKey; _noteBuiltFont = _fontVersion;
+                int size = Mathf.Max(12, Mathf.RoundToInt(22f * px));
+                float width = TextWidth(NoteText, size);
+                float padX = size * 1.1f, h = size * 1.9f, line = Mathf.Max(1f, px);
+                Begin();
+                Quad(-width / 2f - padX, -h / 2f, width + padX * 2f, h, new Color(0.02f, 0.03f, 0.04f, 0.62f));
+                Quad(-width / 2f - padX, -h / 2f, width + padX * 2f, line, new Color(_noteColour.r, _noteColour.g, _noteColour.b, 0.85f));
+                Quad(-width / 2f - padX, h / 2f - line, width + padX * 2f, line, new Color(_noteColour.r, _noteColour.g, _noteColour.b, 0.85f));
+                Flush(_noteBgMesh, _noteBg);
+                Begin();
+                AddOutlined(NoteText, size, -width / 2f, 0f, _noteColour, new Color(0f, 0f, 0f, 0.9f));
+                Flush(_noteTextMesh, _noteTextR);
+                SyncFont(_noteTextR);
+            }
+            float a = Mathf.Clamp01(age / 0.18f) * Mathf.Clamp01((_noteLife - age) / 0.7f);
+            _noteBg.SetAlpha(a); _noteTextR.SetAlpha(a);
+            _noteRt.anchoredPosition = new Vector2((rect.center.x - origin.x) * inv, (rect.yMin + rect.height * 0.8f - origin.y) * inv);
+            _noteRt.localScale = Vector3.one * Mathf.Lerp(0.92f, 1f, Mathf.Clamp01(age / 0.18f));
+        }
+
         // ---- canvas and widgets ----
 
         private void EnsureCanvas()
@@ -270,7 +520,10 @@ namespace DungeonGen.Unity
             _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             _canvas.sortingOrder = -10;                  // under menus and the HUD
             _flatMat = new Material(Shader.Find("Sprites/Default")) { name = "WorldBarsFlat" };
-            _textMat = new Material(Shader.Find("Sprites/Default")) { name = "WorldBarsText" };
+            // Font atlases are alpha-only: sampled by a plain sprite shader their colour is black, so the text goes through the engine's own UI text material
+            // (it adds white to the sample), which every player build carries because uGUI text uses it.
+            var textBase = Canvas.GetDefaultCanvasTextMaterial();
+            _textMat = textBase != null ? new Material(textBase) { name = "WorldBarsText" } : new Material(Shader.Find("Sprites/Default")) { name = "WorldBarsText" };
             _skullTex = MakeSkull();
             _skullMat = new Material(Shader.Find("Sprites/Default")) { name = "WorldBarsSkull", mainTexture = _skullTex };
             _flatMat.mainTexture = Texture2D.whiteTexture;
@@ -347,7 +600,7 @@ namespace DungeonGen.Unity
                     AddText(name, bigger, -width / 2f, bh + 4f * px + bigger * 0.5f, new Color(0.95f, 0.8f, 1f));
                 }
                 Flush(w.TextMesh, w.Text);
-                if (_font != null && _font.material != null) _textMat.mainTexture = _font.material.mainTexture;
+                SyncFont(w.Text);
                 w.LastLetter = letter; w.LastName = name; w.LastTextKey = scaleKey;
             }
 
@@ -418,6 +671,33 @@ namespace DungeonGen.Unity
             {
                 float pen = x; var col = pass == 0 ? new Color(0f, 0f, 0f, 0.9f) : c;
                 float ox = pass == 0 ? 1f : 0f, oy = pass == 0 ? -1f : 0f;
+                foreach (char ch in s)
+                {
+                    if (!_font.GetCharacterInfo(ch, out var ci, size, FontStyle.Bold)) continue;
+                    int i = _verts.Count;
+                    _verts.Add(new Vector3(pen + ci.minX + ox, baseline + ci.minY + oy, 0)); _verts.Add(new Vector3(pen + ci.minX + ox, baseline + ci.maxY + oy, 0));
+                    _verts.Add(new Vector3(pen + ci.maxX + ox, baseline + ci.maxY + oy, 0)); _verts.Add(new Vector3(pen + ci.maxX + ox, baseline + ci.minY + oy, 0));
+                    for (int k = 0; k < 4; k++) _cols.Add(col);
+                    _uvs.Add(ci.uvBottomLeft); _uvs.Add(ci.uvTopLeft); _uvs.Add(ci.uvTopRight); _uvs.Add(ci.uvBottomRight);
+                    _tris.Add(i); _tris.Add(i + 1); _tris.Add(i + 2); _tris.Add(i); _tris.Add(i + 2); _tris.Add(i + 3);
+                    pen += ci.advance;
+                }
+            }
+        }
+
+        /// <summary>Glyph quads with a thick dark outline (eight offsets) under the coloured run, centred vertically on centreY. For the floating numbers and the banner.</summary>
+        private void AddOutlined(string s, int size, float x, float centreY, Color c, Color outline)
+        {
+            if (_font == null) return;
+            _font.RequestCharactersInTexture(s, size, FontStyle.Bold);
+            float baseline = centreY - size * 0.35f;
+            float o = Mathf.Max(1f, size * 0.075f);
+            for (int pass = 0; pass < 9; pass++)
+            {
+                float ox = 0f, oy = 0f;
+                if (pass < 8) { float ang = pass * Mathf.PI * 0.25f; ox = Mathf.Cos(ang) * o; oy = Mathf.Sin(ang) * o; }
+                var col = pass < 8 ? outline : c;
+                float pen = x;
                 foreach (char ch in s)
                 {
                     if (!_font.GetCharacterInfo(ch, out var ci, size, FontStyle.Bold)) continue;
