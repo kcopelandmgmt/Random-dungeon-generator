@@ -10,8 +10,10 @@ namespace DungeonGen.Unity
     /// <summary>
     /// The client's picture of the fight: avatars from the team snapshot (interpolated between ticks),
     /// shut doors and known hazards from the team view. Enemies exist here only while the server says a
-    /// teammate can see them; when the snapshot stops listing one it fades out. Greybox visuals: capsules
-    /// coloured by team, a red ring for an armed ultimate's gold aura, a flattened capsule when downed.
+    /// teammate can see them; when the snapshot stops listing one it fades out. Each avatar is the model its
+    /// <see cref="Library"/> names (driven by an <see cref="AvatarVisual"/>: animator, team ring, facing), or, with no
+    /// library or no prefab, a greybox capsule coloured by team and flattened when downed. Both carry a gold
+    /// "UltimateAura" disc while an ultimate is armed.
     /// </summary>
     public sealed class ClientWorldView : MonoBehaviour
     {
@@ -19,7 +21,9 @@ namespace DungeonGen.Unity
         public DungeonBuilder Builder;
         public int LocalPlayerId = 1;
         public float InterpolationSeconds = 0.1f;
-        public Color AllyColour = new Color(0.3f, 0.7f, 1f), EnemyColour = new Color(1f, 0.3f, 0.3f), MobColour = new Color(0.8f, 0.6f, 0.2f), SelfColour = Color.white, BossColour = new Color(0.7f, 0.1f, 0.4f);
+        [Tooltip("Class, mob and boss models. Empty: every avatar is a greybox capsule.")]
+        public AvatarVisualLibrary Library;
+        public Color AllyColour = new Color(0.3f, 0.7f, 1f), EnemyColour = new Color(1f, 0.3f, 0.3f), MobColour = new Color(0.8f, 0.6f, 0.2f), SelfColour = Color.white, BossColour = new Color(0.6f, 0.2f, 0.9f);
 
         public TeamSnapshot Latest { get; private set; }
         /// <summary>Raised after every snapshot is applied, with the avatars already placed. The effects layer draws its casts, hits and zones from here.</summary>
@@ -52,10 +56,18 @@ namespace DungeonGen.Unity
                 if (!Avatars.TryGetValue(a.Id, out var go) || go == null) { go = Make(a); Avatars[a.Id] = go; }
                 var target = Builder.SimToWorld(new Vec2(a.X, a.Y));
                 _lerp[a.Id] = (_ground.TryGetValue(a.Id, out var shown) ? shown : target, target, Time.time);   // from where it is drawn now, on the ground
-                go.transform.rotation = Quaternion.LookRotation(new Vector3(a.FacingX, 0f, a.FacingY).sqrMagnitude > 0.001f ? new Vector3(a.FacingX, 0f, a.FacingY) : Vector3.forward, Vector3.up);
-                Style(go, a);
+                var facing = new Vector3(a.FacingX, 0f, a.FacingY);
+                var visual = go.GetComponent<AvatarVisual>();
+                if (visual != null) visual.SetFacing(facing);
+                else go.transform.rotation = Quaternion.LookRotation(facing.sqrMagnitude > 0.001f ? facing : Vector3.forward, Vector3.up);
+                Style(go, a, visual);
             }
-            foreach (var id in Avatars.Keys.Where(id => !_seenThisSnapshot.Contains(id)).ToList()) { if (Avatars[id] != null) Destroy(Avatars[id]); Avatars.Remove(id); _lerp.Remove(id); _ground.Remove(id); }
+            foreach (var e in snap.Effects)
+            {
+                if (e.Kind == EffectKind.Cast && Avatars.TryGetValue(e.Source, out var caster) && caster != null) caster.GetComponent<AvatarVisual>()?.OnCast(e.Ability);
+                else if (e.Kind == EffectKind.Hit && Avatars.TryGetValue(e.Target, out var victim) && victim != null) victim.GetComponent<AvatarVisual>()?.OnHit();
+            }
+            foreach (var id in Avatars.Keys.Where(id => !_seenThisSnapshot.Contains(id)).ToList()) { if (Avatars[id] != null) Destroy(Avatars[id]); Avatars.Remove(id); _lerp.Remove(id); _ground.Remove(id); _models.Remove(id); }
             Self = snap.Selves.Count == 0 ? (SelfSnapshot?)null : snap.Selves.FirstOrDefault(s => s.PlayerId == LocalPlayerId);
             if (Self.HasValue && Self.Value.PlayerId != LocalPlayerId) Self = null;
             SnapshotApplied?.Invoke(snap);
@@ -70,16 +82,59 @@ namespace DungeonGen.Unity
                 var ground = Vector3.Lerp(kv.Value.from, kv.Value.to, t);
                 _ground[kv.Key] = ground;
                 // A Unity capsule is two units tall at scale 1 and centred, so its half-height is its Y scale: lift by that and the feet sit on the floor at any size.
-                go.transform.position = ground + Vector3.up * go.transform.localScale.y;
+                // A model prefab is normalised with its feet at its origin.
+                go.transform.position = _models.Contains(kv.Key) ? ground : ground + Vector3.up * go.transform.localScale.y;
             }
         }
 
+        private readonly HashSet<int> _models = new HashSet<int>();
+
+        /// <summary>A boss by its label: an archetype name from the pool, or the final boss.</summary>
+        public static bool IsBossLabel(AvatarSnapshot a) => a.IsMob && a.Label != null && (BossArchetype.DefaultPool.Any(b => a.Label.StartsWith(b.Name)) || a.Label.StartsWith(BossArchetype.FinalBoss.Name));
+
         private GameObject Make(AvatarSnapshot a)
+        {
+            var entry = Library != null ? Library.Resolve(a) : null;
+            if (entry != null)
+            {
+                GameObject model = null;
+                try { model = MakeModel(a, entry); }
+                catch (System.Exception ex) { Debug.LogWarning($"DungeonGen: avatar model for {a.Label} failed ({ex.Message}); using the capsule."); if (model != null) Destroy(model); model = null; }
+                if (model != null) { _models.Add(a.Id); return model; }
+            }
+            _models.Remove(a.Id);
+            return MakeCapsule(a);
+        }
+
+        private GameObject MakeModel(AvatarSnapshot a, AvatarVisualLibrary.Entry entry)
+        {
+            var go = Instantiate(entry.Prefab);
+            go.name = $"Avatar_{a.Id}_{a.Label}";
+            if (entry.Scale > 0f && !Mathf.Approximately(entry.Scale, 1f)) go.transform.localScale = go.transform.localScale * entry.Scale;
+            foreach (var c in go.GetComponentsInChildren<Collider>(true)) Destroy(c);
+            var visual = go.GetComponent<AvatarVisual>();
+            if (visual == null) visual = go.AddComponent<AvatarVisual>();
+            visual.Init(Library, entry);
+            var ring = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            ring.name = "UltimateAura";
+            var rc = ring.GetComponent<Collider>(); if (rc != null) Destroy(rc);
+            ring.transform.SetParent(go.transform, false);
+            float d = Mathf.Max(0.6f, entry.RingRadius) * 2.4f;
+            ring.transform.localScale = new Vector3(d, 0.02f, d);
+            ring.transform.localPosition = Vector3.up * 0.02f;
+            var rr = ring.GetComponent<Renderer>();
+            rr.sharedMaterial = new Material(AvatarShader());
+            rr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            ring.SetActive(false);
+            return go;
+        }
+
+        private GameObject MakeCapsule(AvatarSnapshot a)
         {
             var go = GameObject.CreatePrimitive(PrimitiveType.Capsule);
             go.name = $"Avatar_{a.Id}_{a.Label}";
             var col = go.GetComponent<Collider>(); if (col != null) Destroy(col);
-            go.transform.localScale = a.IsMob && a.Label != null && BossArchetype.DefaultPool.Any(b => a.Label.StartsWith(b.Name)) || (a.Label ?? "").StartsWith(BossArchetype.FinalBoss.Name) ? new Vector3(2f, 2.5f, 2f) : Vector3.one;
+            go.transform.localScale = IsBossLabel(a) ? new Vector3(2f, 2.5f, 2f) : Vector3.one;
             var ring = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             ring.name = "UltimateAura";
             var rc = ring.GetComponent<Collider>(); if (rc != null) Destroy(rc);
@@ -99,19 +154,35 @@ namespace DungeonGen.Unity
             return _avatarShader;
         }
 
-        private void Style(GameObject go, AvatarSnapshot a)
+        /// <summary>The team colour this avatar is drawn with: self, ally, enemy, mob or boss.</summary>
+        public Color ColourFor(AvatarSnapshot a)
         {
+            int myTeam = Bootstrap != null && Bootstrap.State != null && Bootstrap.State.PlayerTeam.TryGetValue(LocalPlayerId, out int t) ? t : (Latest != null && Latest.Selves.Count > 0 ? a.Team : -1);
+            return a.Id == LocalPlayerId ? SelfColour : a.IsMob ? (IsBossLabel(a) ? BossColour : MobColour) : a.Team == myTeam ? AllyColour : EnemyColour;
+        }
+
+        private void Style(GameObject go, AvatarSnapshot a, AvatarVisual visual)
+        {
+            if (visual != null)
+            {
+                visual.Apply(a, ColourFor(a));
+                StyleAura(go, a);
+                return;
+            }
             var r = go.GetComponent<Renderer>();
             if (r != null)
             {
-                int myTeam = Bootstrap != null && Bootstrap.State != null && Bootstrap.State.PlayerTeam.TryGetValue(LocalPlayerId, out int t) ? t : (Latest != null && Latest.Selves.Count > 0 ? a.Team : -1);
-                bool boss = a.IsMob && go.transform.localScale.x > 1.5f;
-                var colour = a.Id == LocalPlayerId ? SelfColour : a.IsMob ? (boss ? BossColour : MobColour) : a.Team == myTeam ? AllyColour : EnemyColour;
+                var colour = ColourFor(a);
                 if (a.Downed) colour *= 0.5f;
                 if (a.Invisible) colour.a = 0.3f;
                 if (r.material.color != colour) r.material.color = colour;
             }
             go.transform.localScale = new Vector3(go.transform.localScale.x, a.Downed ? 0.3f : (go.transform.localScale.x > 1.5f ? 2.5f : 1f), go.transform.localScale.z);
+            StyleAura(go, a);
+        }
+
+        private static void StyleAura(GameObject go, AvatarSnapshot a)
+        {
             var aura = go.transform.Find("UltimateAura");
             if (aura != null)
             {

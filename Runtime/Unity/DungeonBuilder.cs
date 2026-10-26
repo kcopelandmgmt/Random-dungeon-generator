@@ -52,6 +52,8 @@ namespace DungeonGen.Unity
         [Tooltip("Spawned at the final boss room center, disabled. Enable it when the final boss dies.")]
         public GameObject BossGatedExitPrefab;
         public GameObject KeyMarkerPrefab;
+        [Tooltip("Optional light source placed in one floor corner of every room (one point light per room at most). Visual only.")]
+        public GameObject RoomLightPrefab;
 
         [Header("Events")]
         public UnityEvent<DungeonLayout> OnBuilt;
@@ -119,7 +121,10 @@ namespace DungeonGen.Unity
                 {
                     var prefab = PrefabFor(Layout.Tiles[x, y]);
                     if (prefab == null) continue;
-                    var tile = Instantiate(prefab, GridToWorld(new GridPoint(x, y)), Quaternion.identity, _root);
+                    var t = Layout.Tiles[x, y];
+                    // Door leaves are modelled across X: turn them a quarter when the wall they sit in runs north-south.
+                    var rot = (t == TileType.Door || t == TileType.LockedDoor) && !WallAt(x - 1, y) && !WallAt(x + 1, y) && (WallAt(x, y - 1) || WallAt(x, y + 1)) ? Quaternion.Euler(0f, 90f, 0f) : Quaternion.identity;
+                    var tile = Instantiate(prefab, GridToWorld(new GridPoint(x, y)), rot, _root);
                     if (Layout.Tiles[x, y] == TileType.Door) DoorObjects[new GridPoint(x, y)] = tile;
                 }
             foreach (var hz in Layout.Hazards)
@@ -154,6 +159,15 @@ namespace DungeonGen.Unity
                     go.name = room.Boss != null ? $"{room.Type}_{room.Id}_{room.Boss.DisplayName}" : $"{room.Type}_{room.Id}_tier{room.LootTier}";
                 }
             }
+
+            if (RoomLightPrefab != null)
+                foreach (var room in Layout.Rooms)
+                {
+                    var cell = LightCell(room);
+                    if (cell == null) continue;
+                    var go = Instantiate(RoomLightPrefab, GridToWorld(cell.Value), Quaternion.Euler(0f, 45f, 0f), _root);
+                    go.name = $"RoomLight_{room.Id}";
+                }
 
             KeyObjects.Clear();
             if (KeyMarkerPrefab != null)
@@ -197,12 +211,39 @@ namespace DungeonGen.Unity
         public Vector3 SimToWorld(DungeonGen.Core.Combat.Vec2 p) => UseXZPlane ? new Vector3((p.X - 0.5f) * CellSize, 0f, (p.Y - 0.5f) * CellSize) : new Vector3((p.X - 0.5f) * CellSize, (p.Y - 0.5f) * CellSize, 0f);
         public DungeonGen.Core.Combat.Vec2 WorldToSim(Vector3 w) => new DungeonGen.Core.Combat.Vec2(w.x / CellSize + 0.5f, (UseXZPlane ? w.z : w.y) / CellSize + 0.5f);
 
-        /// <summary>Show a door shut or open. The server state decides; this only draws it.</summary>
+        /// <summary>Show a door shut or open. The server state decides; this only draws it. The tile object itself stands tall when shut and
+        /// lies flat when open (the greybox contract); a model door's <see cref="DoorVisual"/> undoes that for its children and sinks its leaf.</summary>
         public void SetDoorClosed(GridPoint cell, bool closed)
         {
             if (!DoorObjects.TryGetValue(cell, out var go) || go == null) return;
             var s = go.transform.localScale; go.transform.localScale = new Vector3(s.x, closed ? CellSize * 1.5f : Mathf.Max(0.1f, CellSize * 0.1f), s.z);
             go.transform.position = GridToWorld(cell) + Vector3.up * (closed ? CellSize * 0.75f : 0f);
+            var visual = go.GetComponent<DoorVisual>();
+            if (visual != null) visual.Apply(closed, GridToWorld(cell).y);
+        }
+
+        private bool WallAt(int x, int y) => Layout != null && Layout.InBounds(new GridPoint(x, y)) && Layout.Tiles[x, y] == TileType.Wall;
+
+        /// <summary>A room floor corner cell for the room's light: not next to a door, not under a hazard. Null when none fits.</summary>
+        private GridPoint? LightCell(Room room)
+        {
+            var b = room.Bounds;
+            if (b.Width < 3 || b.Height < 3) return null;
+            var corners = new[] { new GridPoint(b.X, b.YMax - 1), new GridPoint(b.XMax - 1, b.YMax - 1), new GridPoint(b.X, b.Y), new GridPoint(b.XMax - 1, b.Y) };
+            foreach (var c in corners)
+            {
+                if (!Layout.InBounds(c) || Layout.Tiles[c.X, c.Y] != TileType.RoomFloor) continue;
+                bool nearDoor = false;
+                for (int dx = -1; dx <= 1 && !nearDoor; dx++)
+                    for (int dy = -1; dy <= 1 && !nearDoor; dy++)
+                    {
+                        var n = new GridPoint(c.X + dx, c.Y + dy);
+                        if (Layout.InBounds(n) && (Layout.Tiles[n.X, n.Y] == TileType.Door || Layout.Tiles[n.X, n.Y] == TileType.LockedDoor)) nearDoor = true;
+                    }
+                if (nearDoor || Layout.Hazards.Any(h => h.Bounds.Contains(c))) continue;
+                return c;
+            }
+            return null;
         }
 
         private Transform _fallbackRoot;
