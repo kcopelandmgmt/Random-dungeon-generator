@@ -43,6 +43,10 @@ Scripting Define `FISHNET` only once Fishnet is installed.
 | Piloto Studio Elemental VFX Mega Bundle (1,786 prefabs, Shader Graph) | `Assets/Piloto Studio` | Ability effects via `AbilityVfxLibrary`; chosen in the audition |
 | Packs on disk, not yet imported | `D:\Unity Assets\*.unitypackage` | Animations (RPG, Paladin, Archer, Caster, Synty locomotion), weapons, environments, monsters |
 
+## Animation packs used (from `D:/Unity Assets/`, clips only)
+
+Synty Base Locomotion, Paladin Anim Set, Human Melee Animations, RPG Animations - Bow, Caster Mage Animations, Twin Daggers Animset, RPG Animations Pack (loot and pray), Monster Animations: Sword Wielding Skeleton, Monster Animations: Zombie. Only the clips in use and their source avatar models are copied into `Assets/Animation/Clips/` (85 clips, 8 models, ~125 MB); no package is imported whole.
+
 ## External services (keys in `D:\unity dungeon game\.secrets\keys.env`)
 
 | Service | Endpoint | Used by | Budget |
