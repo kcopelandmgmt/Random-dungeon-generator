@@ -40,7 +40,9 @@ bash Tools/Build/unity-batch.sh smoke-net [port]             # two dev players o
 ```
 
 The player's settings and its always-included shaders are set by `Editor/PlayerBuild.cs`, never by
-hand. Windows is pinned to Direct3D 11 (D3D12 crashed the player at shutdown, exit 139, a fault in
+hand. Before every build it runs `Editor/BuildSizeSetup.Run` (Standalone texture overrides on every texture the player embeds:
+hero and boss colour maps 2048, mobs, props and effects 1024, flipbooks 2048, crunch, normals resized only), and the release
+build uses LZ4HC (about 158 MB). Windows is pinned to Direct3D 11 (D3D12 crashed the player at shutdown, exit 139, a fault in
 `D3D12Core.dll`). A native crash leaves no Unity crash folder: read the Windows Event Log
 (Application Error) to diagnose one. Anything that calls `Shader.Find` at runtime must have that shader in
 `PlayerBuild.IncludeShaders`, or the player strips it and renders magenta or crashes. The smoke run
