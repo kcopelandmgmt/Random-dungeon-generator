@@ -21,6 +21,7 @@ namespace DungeonGen.Unity.UI
             var hud = go.AddComponent<GameHud>();
             hud.World = world; hud.Bootstrap = bootstrap; hud.Server = server;
             ItemPanels.Install(go, world, bootstrap, server);   // loot, inventory (I), group rolls, item tooltips
+            ShrinePanel.Install(go, world, bootstrap, server);   // arm the ultimate, resurrect, buy, while standing at a shrine
             var es = UiStyle.EnsureEventSystem();
             if (parent != null && es.transform.parent == null && es.gameObject.scene == go.scene) es.transform.SetParent(parent, false);
             return hud;

@@ -505,6 +505,15 @@ namespace DungeonGen.Core.Net
                         int cost = ResurrectionCostAt(e.C);
                         if (SoulsOf(e.B) < cost) { rejection = $"resurrector needs {cost} souls"; return false; }
                         Souls[e.B] = SoulsOf(e.B) - cost;
+                        // The body does not come back with them: they return naked (2026-10-22 "Round, progression…" #3). What the corpse still held falls on
+                        // the floor of the room it lay in, open to anyone like a dropped item; its silver and an unclaimed kill soul go with the body (2026-10-26 shrines).
+                        if (Corpses.TryGetValue(e.A, out var left))
+                        {
+                            int fell = PlayerRoom.TryGetValue(e.A, out int lay) ? lay : -1;
+                            foreach (int it in left.OrderBy(i => i)) if (fell >= 0 && !DestroyedItems.Contains(it) && !ItemOwner.ContainsKey(it)) FloorItems[it] = fell;
+                            Corpses.Remove(e.A);
+                        }
+                        OpenedCorpses.Remove(e.A); CorpseSilver.Remove(e.A); CorpseSouls.Remove(e.A);
                         DeadPlayers.Remove(e.A); PlayerRoom[e.A] = e.C;
                         ResurrectedOnce.Add(e.A);
                         break;
@@ -797,5 +806,100 @@ namespace DungeonGen.Core.Net
             OpenedContainers.Contains(roomId) ? Index.Items.Where(kv => Index.ItemRoom[kv.Key] == roomId && !ItemOwner.ContainsKey(kv.Key) && !EverTaken.Contains(kv.Key) && !DestroyedItems.Contains(kv.Key)).Select(kv => kv.Key) : Enumerable.Empty<int>();
         /// <summary>Items that left their chest at least once. A dead owner's items lie on the corpse, never back in the chest.</summary>
         public HashSet<int> EverTaken { get; } = new HashSet<int>();
+    }
+
+    /// <summary>What a player asks a shrine for (<see cref="PlayerIntent.ShrineAction"/>; the byte on the wire).</summary>
+    public enum ShrineAction : byte { None = 0, ArmUltimate = 1, Resurrect = 2, Buy = 3 }
+
+    /// <summary>One thing a shrine offers this player: what it is, its price in souls, and why not when it cannot be had (null when it can).</summary>
+    public sealed class ShrineChoice
+    {
+        public ShrineAction Action;
+        /// <summary>The dead teammate's player id (Resurrect), the index into <see cref="Items.Consumable.All"/> (Buy), 0 otherwise. What <see cref="PlayerIntent.ShrineArg"/> carries.</summary>
+        public int Arg;
+        public string Label;
+        public int Cost;
+        public string Refusal;
+        public bool Available => Refusal == null;
+        public override string ToString() => $"{Action} {Arg} {Label} ({Cost} souls){(Refusal == null ? "" : ": " + Refusal)}";
+    }
+
+    /// <summary>Everything the shrine where a player stands offers them now (<see cref="MatchServer.ShrineOptionsFor"/>, <see cref="ShrineRules.OptionsFor"/>).</summary>
+    public sealed class ShrineOptions
+    {
+        public int Player;
+        /// <summary>The shrine room the player stands in, or -1.</summary>
+        public int ShrineRoom = -1;
+        public bool AtShrine => ShrineRoom >= 0;
+        /// <summary>Why the shrine offers nothing at all right now (not at one, the shrines are dark, downed, busy), or null.</summary>
+        public string Refusal;
+        public int Souls;
+        /// <summary>What a resurrection costs at this shrine now (the cheap-shrine event makes it one).</summary>
+        public int ResurrectionCost;
+        public ShrineChoice Arm;
+        /// <summary>One entry per dead teammate (players who left for the hub included, refused).</summary>
+        public List<ShrineChoice> Resurrect = new List<ShrineChoice>();
+        /// <summary>One entry per consumable, in <see cref="Items.Consumable.All"/> order.</summary>
+        public List<ShrineChoice> Buy = new List<ShrineChoice>();
+        public IEnumerable<ShrineChoice> All { get { if (Arm != null) yield return Arm; foreach (var c in Resurrect) yield return c; foreach (var c in Buy) yield return c; } }
+        public ShrineChoice Find(ShrineAction action, int arg) => action == ShrineAction.ArmUltimate ? Arm : All.FirstOrDefault(c => c.Action == action && c.Arg == arg);
+    }
+
+    /// <summary>
+    /// The shrine, as decided (DECISIONS 2026-10-22 "Round, progression…" #3 and "Moment-to-moment…" #7; 2026-10-23 "Souls are personal", "Economy-in-the-dungeon
+    /// and ultimates" #3; 2026-10-23 "Interiors, doors, hazards, mutators, events, bots" #4 and #5; 2026-10-26 shrines): used by standing in its room (the shrine stands at the centre of a hub);
+    /// no channel. Everything is paid from the user's own souls. Arm the ultimate: 2 souls, one use, only while not already armed, lost on death and
+    /// at extraction. Resurrect a dead teammate: 2 souls (1 at the cheap-shrine event's shrine during its minute), once per player per round, never one
+    /// who left for the hub; they stand up at the shrine at full health, naked, pockets empty. Buy a consumable: 1 soul each, any of
+    /// <see cref="Items.Consumable.All"/>. All of it dark under the Godless mutator. Not while dead, downed or channelling.
+    /// The state validates the events again (<see cref="MatchEventKind.UltimateArmed"/>, <see cref="MatchEventKind.PlayerResurrected"/>,
+    /// <see cref="MatchEventKind.ShrinePurchase"/>); this only names what would pass and why not.
+    /// </summary>
+    public static class ShrineRules
+    {
+        /// <summary>
+        /// What the shrine in <paramref name="room"/> offers <paramref name="player"/>. <paramref name="blocked"/> is the caller's reason the player
+        /// cannot act at all (downed, channelling, not in the round), or null. Works on the server's state and on a client's mirror (which does not know
+        /// who was already resurrected once; the server refuses that).
+        /// </summary>
+        public static ShrineOptions OptionsFor(MatchState st, int player, int room, string blocked = null)
+        {
+            var o = new ShrineOptions { Player = player, Souls = st.SoulsOf(player) };
+            bool atShrine = room >= 0 && room < st.Layout.Rooms.Count && st.Layout.Rooms[room].HasShrine;
+            if (atShrine) o.ShrineRoom = room;
+            o.ResurrectionCost = atShrine ? st.ResurrectionCostAt(room) : st.Descriptor.Rules.ResurrectionCost;
+            if (!st.PlayerTeam.TryGetValue(player, out int team)) o.Refusal = "not in the round";
+            else if (st.DeadPlayers.Contains(player) || st.ExtractedPlayers.Contains(player)) o.Refusal = "not in the round";
+            else if (!st.Descriptor.Rules.ShrinesUsable) o.Refusal = "the shrines are dark";
+            else if (!atShrine) o.Refusal = "not at a shrine";
+            else if (st.Downed.ContainsKey(player)) o.Refusal = "downed";
+            else if (blocked != null) o.Refusal = blocked;
+            string Price(int cost) => o.Souls >= cost ? null : $"needs {cost} soul{(cost == 1 ? "" : "s")} (you have {o.Souls})";
+
+            int arm = Combat.FightRules.SoulsToArmUltimate;
+            o.Arm = new ShrineChoice { Action = ShrineAction.ArmUltimate, Label = "Arm ultimate", Cost = arm,
+                Refusal = o.Refusal ?? (st.UltimateCharges.TryGetValue(player, out int have) && have > 0 ? "already armed" : Price(arm)) };
+            foreach (int mate in st.PlayerTeam.Where(kv => kv.Value == team && kv.Key != player && st.DeadPlayers.Contains(kv.Key)).Select(kv => kv.Key).OrderBy(p => p))
+            {
+                string why = o.Refusal ?? (st.LeftPlayers.Contains(mate) ? "left for the hub" : st.ResurrectedOnce.Contains(mate) ? "already resurrected this round" : Price(o.ResurrectionCost));
+                o.Resurrect.Add(new ShrineChoice { Action = ShrineAction.Resurrect, Arg = mate, Label = "Resurrect " + (st.ClassOf(mate)?.Name ?? "teammate") + " " + mate, Cost = o.ResurrectionCost, Refusal = why });
+            }
+            var all = Items.Consumable.All;
+            for (int i = 0; i < all.Count; i++)
+                o.Buy.Add(new ShrineChoice { Action = ShrineAction.Buy, Arg = i, Label = all[i].Name, Cost = MatchState.SoulsPerShrinePurchase, Refusal = o.Refusal ?? Price(MatchState.SoulsPerShrinePurchase) });
+            return o;
+        }
+
+        /// <summary>The event a choice becomes, for <paramref name="player"/> at <paramref name="shrineRoom"/> (the state validates it).</summary>
+        public static MatchEvent EventFor(ShrineAction action, int arg, int player, int shrineRoom, float time)
+        {
+            switch (action)
+            {
+                case ShrineAction.ArmUltimate: return new MatchEvent(MatchEventKind.UltimateArmed, time, player, shrineRoom);
+                case ShrineAction.Resurrect: return new MatchEvent(MatchEventKind.PlayerResurrected, time, arg, player, shrineRoom);
+                case ShrineAction.Buy: return new MatchEvent(MatchEventKind.ShrinePurchase, time, player, arg, shrineRoom);
+                default: throw new ArgumentOutOfRangeException(nameof(action));
+            }
+        }
     }
 }

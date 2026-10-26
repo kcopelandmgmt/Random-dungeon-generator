@@ -38,6 +38,15 @@ namespace DungeonGen.Core.Net
         /// with zeros), so every older payload reads as "no salvage". One press, one use.
         /// </summary>
         public int SalvageItemId;
+        /// <summary>
+        /// A shrine choice (<see cref="DungeonGen.Core.Net.ShrineAction"/>: 0 none, 1 arm the ultimate, 2 resurrect, 3 buy) with its argument: the dead teammate's
+        /// player id to resurrect, or the index into <see cref="DungeonGen.Core.Items.Consumable.All"/> to buy. The server routes it to
+        /// <see cref="MatchServer.UseShrine"/> (the shrine room you stand in) and clears it: one press, one use. Appended after the salvage id: when set,
+        /// the item block and the salvage id are written too (zeros), then 1 + 4 bytes; an intent without it is byte-for-byte the old format and every
+        /// older payload reads as "no shrine action".
+        /// </summary>
+        public byte ShrineAction;
+        public int ShrineArg;
 
         public bool AnyItemAction => TakeItemId != 0 || DropItemId != 0 || RollItemId != 0 || SalvageItemId != 0;
         public Vec2 Move => new Vec2(MoveX, MoveY);
@@ -50,7 +59,9 @@ namespace DungeonGen.Core.Net
             byte flags = 0;
             if (Basic) flags |= 1; if (Bolt) flags |= 2; if (Zone) flags |= 4; if (Mobility) flags |= 8; if (Ultimate) flags |= 16; if (Interact) flags |= 32; if (Ping) flags |= 64;
             w.Write(flags); w.Write(PingKind); w.Write(ConsumableSlot);
-            if (AnyItemAction) { w.Write(TakeItemId); w.Write(DropItemId); w.Write(RollItemId); w.Write(RollChoice); if (SalvageItemId != 0) w.Write(SalvageItemId); }
+            bool shrine = ShrineAction != 0;
+            if (AnyItemAction || shrine) { w.Write(TakeItemId); w.Write(DropItemId); w.Write(RollItemId); w.Write(RollChoice); if (SalvageItemId != 0 || shrine) w.Write(SalvageItemId); }
+            if (shrine) { w.Write(ShrineAction); w.Write(ShrineArg); }
         }
         public static PlayerIntent Read(BinaryReader r)
         {
@@ -59,7 +70,7 @@ namespace DungeonGen.Core.Net
             i.Basic = (f & 1) != 0; i.Bolt = (f & 2) != 0; i.Zone = (f & 4) != 0; i.Mobility = (f & 8) != 0; i.Ultimate = (f & 16) != 0; i.Interact = (f & 32) != 0; i.Ping = (f & 64) != 0;
             // The item block is optional: present only when the sender set an item action.
             var bs = r.BaseStream;
-            if (bs.CanSeek && bs.Length - bs.Position >= ItemBlockLength) { i.TakeItemId = r.ReadInt32(); i.DropItemId = r.ReadInt32(); i.RollItemId = r.ReadInt32(); i.RollChoice = r.ReadByte(); if (bs.Length - bs.Position >= 4) i.SalvageItemId = r.ReadInt32(); }
+            if (bs.CanSeek && bs.Length - bs.Position >= ItemBlockLength) { i.TakeItemId = r.ReadInt32(); i.DropItemId = r.ReadInt32(); i.RollItemId = r.ReadInt32(); i.RollChoice = r.ReadByte(); if (bs.Length - bs.Position >= 4) i.SalvageItemId = r.ReadInt32(); if (bs.Length - bs.Position >= ShrineBlockLength) { i.ShrineAction = r.ReadByte(); i.ShrineArg = r.ReadInt32(); } }
             return i;
         }
         public byte[] ToBytes() { using var ms = new MemoryStream(); using (var w = new BinaryWriter(ms)) Write(w); return ms.ToArray(); }
@@ -72,6 +83,8 @@ namespace DungeonGen.Core.Net
         private const int LegacyLength = 4 + 4 + 4 * 4 + 1 + 1;
         /// <summary>Bytes of the optional item block: three ids and the roll choice.</summary>
         public const int ItemBlockLength = 4 + 4 + 4 + 1;
+        /// <summary>Bytes of the optional shrine block after the salvage id: the action and its argument.</summary>
+        public const int ShrineBlockLength = 1 + 4;
     }
 
     /// <summary>Anything that produces intents for a player: the local input reader, a bot, a replay.</summary>

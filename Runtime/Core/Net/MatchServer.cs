@@ -463,6 +463,13 @@ namespace DungeonGen.Core.Net
                 intent.TakeItemId = intent.DropItemId = intent.RollItemId = intent.SalvageItemId = 0; intent.RollChoice = 0;
                 _intents[playerId] = intent;   // one press, one action: a held intent must not repeat it
             }
+            if (intent.ShrineAction != 0)
+            {
+                // A shrine choice (arm, resurrect, buy) at the shrine room this player stands in, through the same validated events as everything else.
+                UseShrine(playerId, (ShrineAction)intent.ShrineAction, intent.ShrineArg);
+                intent.ShrineAction = 0; intent.ShrineArg = 0;
+                _intents[playerId] = intent;   // one press, one use
+            }
             var aim = intent.Aim;
             if (intent.Move.Length > 0.05f && !_channels.ContainsKey(playerId)) Sim.Move(playerId, c.Position + intent.Move.Normalized * 10f, dt);
             else if ((aim - c.Position).Length > 0.1f) c.Facing = (aim - c.Position).Normalized;
@@ -475,8 +482,12 @@ namespace DungeonGen.Core.Net
                 {
                     int charges = State.UltimateCharges.TryGetValue(playerId, out int ch) ? ch : 0;
                     if (want.Kind == AbilityKind.Ultimate) c.UltimateArmed = Sim.IsDevCaster(playerId) || charges > 0;
+                    int eventsBefore = Sim.Events.Count;
                     var r = Sim.Cast(playerId, want.Id, want.Shape == AbilityShape.Self ? c.Position : aim);
-                    if (r.Ok && want.Kind == AbilityKind.Ultimate && charges > 0) Raise(new MatchEvent(MatchEventKind.UltimateUsed, Sim.Time, playerId));   // a dev's free ultimate spends nothing
+                    // Last Breath spends its charge through its own LastBreath event (raised from the simulator's Revived); spending it here as well would be refused.
+                    bool lastBreath = false;
+                    for (int i = eventsBefore; i < Sim.Events.Count && !lastBreath; i++) lastBreath = Sim.Events[i].Kind == FightEventKind.Revived && Sim.Events[i].Source == playerId && Sim.Events[i].Detail == "lastbreath";
+                    if (r.Ok && want.Kind == AbilityKind.Ultimate && charges > 0 && !lastBreath) Raise(new MatchEvent(MatchEventKind.UltimateUsed, Sim.Time, playerId));   // a dev's free ultimate spends nothing
                     if (r.Ok && _channels.TryGetValue(playerId, out var open)) Interrupt(playerId, open);
                 }
             }
@@ -643,6 +654,90 @@ namespace DungeonGen.Core.Net
             bool gate = r.Type == RoomType.Extract && State.ExtractsOpen, exit = r.Type == RoomType.FinalBoss && State.BossExitOpen;
             if (gate || exit) { Start("extract", room, Descriptor.Rules.ExtractChannelSeconds, new MatchEvent(MatchEventKind.ExtractStarted, Sim.Time, playerId, room)); return "extract"; }
             return null;
+        }
+
+        // ---------------- shrines (PlayerIntent.ShrineAction / ShrineArg) ----------------
+
+        private readonly Dictionary<int, string> _shrineRefusals = new Dictionary<int, string>();
+
+        /// <summary>Why this player's last shrine choice was refused, or null if it went through (or none was made).</summary>
+        public string ShrineRefusal(int playerId) => _shrineRefusals.TryGetValue(playerId, out var why) ? why : null;
+
+        /// <summary>
+        /// What the shrine this player stands at offers them now, and why not for each choice (<see cref="ShrineRules.OptionsFor"/>): arm the
+        /// ultimate, resurrect each dead teammate, buy each consumable. A shrine is used by standing in its room (the cell the player is on, not the
+        /// last room the state heard of); not while downed or channelling.
+        /// </summary>
+        public ShrineOptions ShrineOptionsFor(int playerId)
+        {
+            var c = Sim?.Get(playerId);
+            string blocked = c == null || c.Dead || !State.PlayersInside.Contains(playerId) ? "not in the round" : c.Downed ? "downed" : _channels.ContainsKey(playerId) ? "busy channelling" : null;
+            return ShrineRules.OptionsFor(State, playerId, c == null ? -1 : CellRoom(c), blocked);
+        }
+
+        /// <summary>
+        /// Carry out a shrine choice (what <see cref="PlayerIntent.ShrineAction"/> does): checked against <see cref="ShrineOptionsFor"/>, then raised as
+        /// the validated event (<see cref="MatchEventKind.UltimateArmed"/>, <see cref="MatchEventKind.PlayerResurrected"/>,
+        /// <see cref="MatchEventKind.ShrinePurchase"/>). Arming lights the ultimate on the body; a resurrection stands the teammate up at this shrine
+        /// at full health and naked. False with <see cref="ShrineRefusal"/> set when refused.
+        /// </summary>
+        public bool UseShrine(int playerId, ShrineAction action, int arg)
+        {
+            if (Sim == null) return false;
+            var o = ShrineOptionsFor(playerId);
+            var choice = o.Find(action, arg);
+            string why = choice == null ? (action == ShrineAction.Resurrect ? "not a dead teammate" : "the shrine offers no such thing") : choice.Refusal;
+            if (why == null && !Raise(ShrineRules.EventFor(action, arg, playerId, o.ShrineRoom, Sim.Time))) why = RecentRejections.Count > 0 ? RecentRejections[RecentRejections.Count - 1] : "refused";
+            if (why != null) { _shrineRefusals[playerId] = why; return false; }
+            _shrineRefusals.Remove(playerId);
+            if (action == ShrineAction.ArmUltimate) { var body = Sim.Get(playerId); if (body != null) body.UltimateArmed = true; }   // a bot's fight brain casts from the body
+            else if (action == ShrineAction.Resurrect) StandUpAtShrine(arg, o.ShrineRoom);
+            return true;
+        }
+
+        /// <summary>
+        /// A bot's fight brain casts on the simulator directly, so its armed ultimate is spent there, not through an intent: when the body has used
+        /// it (the simulator clears the flag) and the state still counts a charge, raise <see cref="MatchEventKind.UltimateUsed"/>. Returns true if it did.
+        /// </summary>
+        public bool SettleUltimateCast(int playerId)
+        {
+            var body = Sim?.Get(playerId);
+            if (body == null || body.Dead || body.Downed || body.UltimateArmed) return false;
+            if (!State.UltimateCharges.TryGetValue(playerId, out int charges) || charges <= 0) return false;
+            return Raise(new MatchEvent(MatchEventKind.UltimateUsed, Sim.Time, playerId));
+        }
+
+        /// <summary>The resurrected body: up at the shrine, full health and resource, nothing on it (the state already put the corpse's leftovers on its floor).</summary>
+        private void StandUpAtShrine(int playerId, int room)
+        {
+            var body = Sim.Get(playerId);
+            if (body == null) return;
+            body.Dead = false; body.Downed = false; body.FinishDamage = 0f;
+            body.Position = ShrineSpot(room);
+            // Naked: a loadout player's sheet was rebuilt from what they wear (nothing) when the event was raised; anyone else gets the bare sheet, keeping their spec.
+            if (body.Class != null && !_broughtBy.ContainsKey(playerId) && _spec.TryGetValue(playerId, out var spec))
+                body.ApplyStats(PlayerStats.For(body.Class, WornBy(playerId), Descriptor.Settings.Combat), spec);
+            body.Health = body.MaxHealth; body.ResourceNow = body.ResourceMax;
+            body.Status.Cleanse(); body.Buffs.Clear(); body.DotBase.Clear(); body.DotPending = 0f; body.Threat.Clear(); body.CooldownUntil.Clear();
+            body.UltimateArmed = false; body.ChannelName = null; body.ChannelUntil = -1f;
+            _channels.Remove(playerId); _intents.Remove(playerId); _lastRoom[playerId] = room;
+            RefreshCarry(playerId);
+        }
+
+        /// <summary>Where a resurrected player stands: the walkable cell nearest the shrine room's centre, beside the shrine itself.</summary>
+        private Vec2 ShrineSpot(int room)
+        {
+            var r = Layout.Rooms[room];
+            var centre = Vec2.Of(r.Center);
+            for (int ring = 1; ring <= 4; ring++)
+                for (int dx = -ring; dx <= ring; dx++)
+                    for (int dy = -ring; dy <= ring; dy++)
+                    {
+                        if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != ring) continue;
+                        var p = centre + new Vec2(dx, dy);
+                        if (Layout.InBounds(p.Cell) && Layout.RoomIdAt[p.Cell.X, p.Cell.Y] == room && Sim.Walkable(p)) return p;
+                    }
+            return centre;
         }
 
         // ---------------- item choices (PlayerIntent.TakeItemId / DropItemId / RollItemId) ----------------
