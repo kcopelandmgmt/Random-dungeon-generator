@@ -87,7 +87,16 @@ namespace DungeonGen.Unity
             ring.transform.localScale = new Vector3(1.6f, 0.05f, 1.6f);
             ring.transform.localPosition = Vector3.down * 0.95f;
             ring.SetActive(false);
+            // CreatePrimitive's default material is stripped from player builds (it renders magenta): give both an explicit URP Lit material.
+            foreach (var rend in go.GetComponentsInChildren<Renderer>(true)) rend.sharedMaterial = new Material(AvatarShader());
             return go;
+        }
+
+        private static Shader _avatarShader;
+        private static Shader AvatarShader()
+        {
+            if (_avatarShader == null) _avatarShader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Universal Render Pipeline/Simple Lit") ?? Shader.Find("Standard");
+            return _avatarShader;
         }
 
         private void Style(GameObject go, AvatarSnapshot a)
