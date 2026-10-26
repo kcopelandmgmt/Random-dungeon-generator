@@ -163,6 +163,12 @@ text, including how each fight interacts with a third team arriving, is in
 outside the pool: a tank check, then a flooding arena with adds, then stacking blight under a
 90-second enrage; one phase per role a full party has to prove.
 
+Tuned from sims on 2026-10-26 (`Tests/FinalBossTuningTests.cs`, `AsciiPreview --sim round` prints a FINAL BOSS block): health ×0.5 and damage ×0.7 of the
+budget below (bots land about a third of their sheet damage, not the 55% the budget assumed), phase-2 flood pools drain after 45 s, and
+**the Sovereign's judgement**: from 5 s into the fight it counts the most players that have stood in its arena together; while that peak is
+under three it hits ×2 per missing player and shrugs off 60% of damage. A trio that loses a member keeps the trio's fight. Result: a
+tier-2 trio kills it on about 35–41% of serious attempts with 29–36% wipes; the strongest geared pair wins 2 fights in 24.
+
 ### Affixes
 
 Each room boss rolls 0, 1 or 2 affixes (40 / 40 / 20%) from a weighted pool, deterministically

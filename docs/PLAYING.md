@@ -47,11 +47,14 @@ Rebuild either one from the package repository with `bash Tools/Build/unity-batc
 | Health potion | 1 | D-pad left |
 | Antidote | 2 | D-pad right |
 | Ping | F | West button |
-| Full map (hold) | Tab | Select |
+| Map (toggle) | M | Select |
 | Zoom | Mouse wheel | D-pad up and down |
 | Inventory | I | |
 | Pause menu | Esc | |
 | Effects audition (development build only) | F1 | |
+
+Every keyboard and mouse key can be rebound in **Settings → Controls** (a key already in use swaps with the action you rebind); gamepad buttons are fixed.
+Menus work with a gamepad or the arrow keys and Enter; B or Esc goes back.
 
 Mouse clicks on a panel act on the panel, not the dungeon. Offline, the pause menu pauses the
 round; online it does not. Leaving a round from the pause menu counts as a death.
@@ -67,7 +70,10 @@ From the Prepare screen choose **Play online…**:
 * **Dedicated server**: `DungeonGame.exe -batchmode -nographics -server -port 7770` (optional
   `-bind <address>`, `-autostart <seconds>`, `-minplayers <n>`, `-botteams <n>`).
 
-Over the internet the host must forward the UDP port; there is no relay or matchmaking service yet.
+When you host, the game asks your router to open the UDP port (UPnP). The lobby says whether it worked and which
+address friends outside your network should use. If your router refuses, forward UDP 7770 to your PC by hand, or play on
+the LAN. You can join by IP or by host name. There is no relay or matchmaking service. Your own movement is predicted on
+your machine, so it stays responsive over the internet.
 A lost connection rejoins automatically within 60 seconds.
 
 ## Your progress

@@ -65,7 +65,7 @@ namespace DungeonGen.Unity
             Row(BindingAction.Ping, "Ping", "Ping", "Actions", "<Keyboard>/f"),
             Row(BindingAction.Potion, "Potion", "Health potion", "Actions", "<Keyboard>/1"),
             Row(BindingAction.Antidote, "Antidote", "Antidote", "Actions", "<Keyboard>/2"),
-            Row(BindingAction.Map, "Map", "Full map (hold)", "Actions", "<Keyboard>/tab"),
+            Row(BindingAction.Map, "Map", "Map (toggle)", "Actions", "<Keyboard>/m"),
             Row(BindingAction.Inventory, "Inventory", "Inventory", "Actions", "<Keyboard>/i"),
             Row(BindingAction.Pause, "Pause", "Pause menu", "Actions", "<Keyboard>/escape"),
         };

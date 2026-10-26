@@ -9,7 +9,7 @@ namespace DungeonGen.Unity
     /// Reads the New Input System and turns it into a <see cref="PlayerIntent"/> every server tick:
     /// WASD as a screen-relative direction turned into world space under the camera's fixed yaw, mouse aim as a point
     /// on the ground in simulator cells, LMB basic, RMB bolt, Q zone, E mobility, R ultimate, 1 health potion, 2 antidote, Space held
-    /// to interact, F to ping, Tab held for the full map (pushed into MiniMapHud). The base assembly
+    /// to interact, F to ping, the Map key toggles the large map overlay (MiniMapHud.ToggleFullMap). The base assembly
     /// reads no input, so this component also feeds the camera's aim point and scroll-wheel zoom each frame. Rebindable through the
     /// actions asset; controller sticks map to the same actions. Nothing moves locally: the server does.
     /// </summary>
@@ -18,7 +18,7 @@ namespace DungeonGen.Unity
         public DungeonBuilder Builder;
         public TopDownCamera Camera;
         public ClientWorldView World;
-        [Tooltip("Optional: receives FullMapHeld while the Map action is pressed.")]
+        [Tooltip("Optional: its map overlay toggles each time the Map action is pressed.")]
         public MiniMapHud MiniMap;
         public int LocalPlayerId = 1;
         public int SendRate = 20;
@@ -57,32 +57,91 @@ namespace DungeonGen.Unity
             else
             {
                 _move = new InputAction("Move", InputActionType.Value);
-                _move.AddCompositeBinding("2DVector").With("Up", "<Keyboard>/w").With("Down", "<Keyboard>/s").With("Left", "<Keyboard>/a").With("Right", "<Keyboard>/d");
+                _move.AddCompositeBinding("2DVector").With("Up", GameBindings.Path(BindingAction.MoveUp)).With("Down", GameBindings.Path(BindingAction.MoveDown)).With("Left", GameBindings.Path(BindingAction.MoveLeft)).With("Right", GameBindings.Path(BindingAction.MoveRight));
                 _move.AddBinding("<Gamepad>/leftStick");
                 _aim = new InputAction("Aim", InputActionType.Value, "<Mouse>/position");
-                _basic = new InputAction("Basic", InputActionType.Button, "<Mouse>/leftButton"); _basic.AddBinding("<Gamepad>/rightTrigger");
-                _bolt = new InputAction("Bolt", InputActionType.Button, "<Mouse>/rightButton"); _bolt.AddBinding("<Gamepad>/leftTrigger");
-                _zone = new InputAction("Zone", InputActionType.Button, "<Keyboard>/q"); _zone.AddBinding("<Gamepad>/rightShoulder");
-                _mobility = new InputAction("Mobility", InputActionType.Button, "<Keyboard>/e"); _mobility.AddBinding("<Gamepad>/leftShoulder");
-                _ultimate = new InputAction("Ultimate", InputActionType.Button, "<Keyboard>/r"); _ultimate.AddBinding("<Gamepad>/buttonNorth");
-                _interact = new InputAction("Interact", InputActionType.Button, "<Keyboard>/space"); _interact.AddBinding("<Gamepad>/buttonSouth");
-                _ping = new InputAction("Ping", InputActionType.Button, "<Keyboard>/f"); _ping.AddBinding("<Gamepad>/buttonWest");
-                _potion = new InputAction("Potion", InputActionType.Button, "<Keyboard>/1"); _potion.AddBinding("<Gamepad>/dpad/left");
-                _antidote = new InputAction("Antidote", InputActionType.Button, "<Keyboard>/2"); _antidote.AddBinding("<Gamepad>/dpad/right");
+                _basic = new InputAction("Basic", InputActionType.Button, GameBindings.Path(BindingAction.Basic)); _basic.AddBinding("<Gamepad>/rightTrigger");
+                _bolt = new InputAction("Bolt", InputActionType.Button, GameBindings.Path(BindingAction.Bolt)); _bolt.AddBinding("<Gamepad>/leftTrigger");
+                _zone = new InputAction("Zone", InputActionType.Button, GameBindings.Path(BindingAction.Zone)); _zone.AddBinding("<Gamepad>/rightShoulder");
+                _mobility = new InputAction("Mobility", InputActionType.Button, GameBindings.Path(BindingAction.Mobility)); _mobility.AddBinding("<Gamepad>/leftShoulder");
+                _ultimate = new InputAction("Ultimate", InputActionType.Button, GameBindings.Path(BindingAction.Ultimate)); _ultimate.AddBinding("<Gamepad>/buttonNorth");
+                _interact = new InputAction("Interact", InputActionType.Button, GameBindings.Path(BindingAction.Interact)); _interact.AddBinding("<Gamepad>/buttonSouth");
+                _ping = new InputAction("Ping", InputActionType.Button, GameBindings.Path(BindingAction.Ping)); _ping.AddBinding("<Gamepad>/buttonWest");
+                _potion = new InputAction("Potion", InputActionType.Button, GameBindings.Path(BindingAction.Potion)); _potion.AddBinding("<Gamepad>/dpad/left");
+                _antidote = new InputAction("Antidote", InputActionType.Button, GameBindings.Path(BindingAction.Antidote)); _antidote.AddBinding("<Gamepad>/dpad/right");
                 _potion.Enable(); _antidote.Enable();
-                _map = new InputAction("Map", InputActionType.Button, "<Keyboard>/tab"); _map.AddBinding("<Gamepad>/select");
+                _map = new InputAction("Map", InputActionType.Button, GameBindings.Path(BindingAction.Map)); _map.AddBinding("<Gamepad>/select");
                 _zoom = new InputAction("Zoom", InputActionType.Value, "<Mouse>/scroll/y");
                 _zoomHold = new InputAction("ZoomHold", InputActionType.Value, "<Gamepad>/dpad/y");
                 foreach (var a in new[] { _move, _aim, _basic, _bolt, _zone, _mobility, _ultimate, _interact, _ping, _map, _zoom, _zoomHold }) a.Enable();
             }
+            ApplyBindings();
+            GameBindings.Changed -= ApplyBindings; GameBindings.Changed += ApplyBindings;   // rebinds in the settings screen take effect at once
             _basic.performed += _ => { if (!PointerOverUi()) _basicQueued = true; }; _bolt.performed += _ => { if (!PointerOverUi()) _boltQueued = true; }; _zone.performed += _ => _zoneQueued = true;
             _mobility.performed += _ => _mobilityQueued = true; _ultimate.performed += _ => _ultQueued = true; _ping.performed += _ => _pingQueued = true;
             if (_potion != null) _potion.performed += _ => _consumableQueued = 1;
             if (_antidote != null) _antidote.performed += _ => _consumableQueued = 2;
         }
 
+        /// <summary>Point every keyboard and mouse binding at the table's current key (the gamepad bindings stay as they are).</summary>
+        private void ApplyBindings()
+        {
+            BindKey(_move, "up", BindingAction.MoveUp); BindKey(_move, "down", BindingAction.MoveDown); BindKey(_move, "left", BindingAction.MoveLeft); BindKey(_move, "right", BindingAction.MoveRight);
+            BindKey(_basic, null, BindingAction.Basic); BindKey(_bolt, null, BindingAction.Bolt); BindKey(_zone, null, BindingAction.Zone); BindKey(_mobility, null, BindingAction.Mobility);
+            BindKey(_ultimate, null, BindingAction.Ultimate); BindKey(_interact, null, BindingAction.Interact); BindKey(_ping, null, BindingAction.Ping);
+            BindKey(_potion, null, BindingAction.Potion); BindKey(_antidote, null, BindingAction.Antidote); BindKey(_map, null, BindingAction.Map);
+        }
+
+        /// <summary>The keyboard or mouse control this controller's action for <paramref name="which"/> is reading right now (tests and diagnostics); null if it has none.</summary>
+        public string BoundPath(BindingAction which)
+        {
+            InputAction a; string part = null;
+            switch (which)
+            {
+                case BindingAction.MoveUp: a = _move; part = "up"; break;
+                case BindingAction.MoveDown: a = _move; part = "down"; break;
+                case BindingAction.MoveLeft: a = _move; part = "left"; break;
+                case BindingAction.MoveRight: a = _move; part = "right"; break;
+                case BindingAction.Basic: a = _basic; break;
+                case BindingAction.Bolt: a = _bolt; break;
+                case BindingAction.Zone: a = _zone; break;
+                case BindingAction.Mobility: a = _mobility; break;
+                case BindingAction.Ultimate: a = _ultimate; break;
+                case BindingAction.Interact: a = _interact; break;
+                case BindingAction.Ping: a = _ping; break;
+                case BindingAction.Potion: a = _potion; break;
+                case BindingAction.Antidote: a = _antidote; break;
+                case BindingAction.Map: a = _map; break;
+                default: return null;   // pause and inventory are read by the HUD through GameBindings
+            }
+            if (a == null) return null;
+            foreach (var b in a.bindings)
+            {
+                if (b.isComposite || b.isPartOfComposite != (part != null)) continue;
+                if (part != null && !string.Equals(b.name, part, System.StringComparison.OrdinalIgnoreCase)) continue;
+                if (b.path.StartsWith("<Keyboard>") || b.path.StartsWith("<Mouse>")) return b.effectivePath;
+            }
+            return null;
+        }
+
+        private static void BindKey(InputAction action, string compositePart, BindingAction which)
+        {
+            if (action == null) return;
+            string path = GameBindings.Path(which);
+            var bindings = action.bindings;
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                var b = bindings[i];
+                if (b.isComposite || b.isPartOfComposite != (compositePart != null)) continue;
+                if (compositePart != null && !string.Equals(b.name, compositePart, System.StringComparison.OrdinalIgnoreCase)) continue;
+                if (!b.path.StartsWith("<Keyboard>") && !b.path.StartsWith("<Mouse>")) continue;
+                if (b.effectivePath != path) action.ApplyBindingOverride(i, path);
+            }
+        }
+
         private void OnDisable()
         {
+            GameBindings.Changed -= ApplyBindings;
             if (Actions == null) foreach (var a in new[] { _move, _aim, _basic, _bolt, _zone, _mobility, _ultimate, _interact, _ping, _map, _zoom, _zoomHold }) a?.Disable();
             _potion?.Disable(); _antidote?.Disable();
         }
@@ -91,7 +150,7 @@ namespace DungeonGen.Unity
         {
             FeedZoom();
             MapHeld = _map != null && _map.IsPressed();
-            if (MiniMap != null) MiniMap.FullMapHeld = MapHeld;
+            if (_map != null && _map.WasPressedThisFrame() && MiniMap != null) MiniMap.ToggleFullMap();   // a toggle: press once to open the map, again to close it
             if (Camera != null && _aim != null) Camera.AimScreenPosition = _aim.ReadValue<Vector2>();
             _accum += Time.deltaTime;
             float period = 1f / Mathf.Max(1, SendRate);
