@@ -21,6 +21,26 @@ could not be verified headless (say why).
 | 1.8 | Greybox setup steps: `[GreyboxStep]` hook so features wire themselves into the scene from their own files; `GreyboxRebuild.Run` rebuilds SampleScene headless | orchestrator | done | compile | Fixed `??` on a Unity component lookup in the setup |
 | 1.5 | Player build: `Editor/PlayerBuild.cs` (Windows, development), `-mute` and `-minimized` flags honoured at startup, `unity-batch.sh build-win` | agent | done | build, smoke (exit 0: 30 s, 24 casts ok, 0 exceptions) | Build 382 MB with URP shaders always included (stripping crashed the first player). Follow-ups: avatar capsules rendered magenta (fixed by orchestrator: explicit URP material); audition panel showed in players (sent to 1.3); one 2.7 s frame in the smoke run, cause unknown; `smoke` moved out of the Unity lock (orchestrator). |
 
+## Wave 5: every recommendation (started 2026-10-26)
+
+The owner asked for all of the orchestrator's suggestions. Shared agent rules: `docs/agents/WAVE5_COMMON.md`.
+Two limits stay: no third-party relay or matchmaking (needs an account), and the final-boss check is done in sims, not by hand.
+
+| # | Task | Owner | Status | Verified |
+|---|------|-------|--------|----------|
+| 5.0 | Plug-in hooks: `MainMenuUi.Register(ExtraScreen)` adds a screen and a Main button without editing the menu; `unity-batch.sh tests <platform> <filter>` runs one test class | orchestrator | done | compile clean |
+| 5.1 | Hit feel (camera shake, visual hit-stop, clearer damage numbers), rarity light beams on floor loot and glowing chests, extract beacons with a channel effect and an "exit opened nearby" cue | agent (sonnet) | doing | |
+| 5.2 | uGUI minimap (fog-respecting, M for a large map) and compass strip replacing the OnGUI ones | agent (sonnet) | doing | |
+| 5.3 | Settings: key rebinding through one binding table, graphics options, controller and keyboard navigation in every menu | agent (sonnet) | doing | |
+| 5.4 | Online beyond the LAN: UPnP port mapping on host, client-side movement prediction with reconciliation, simulated latency for smoke-net | agent (opus) | doing | |
+| 5.5 | Regenerate the four off-theme models (Ember Wisp, Frostbound, Ashen Colossus, Glasswright), budget 320 credits | agent (sonnet) | doing | |
+| 5.6 | Final boss tuning from sims: attempts, kills and wipes measured; cause fixed | agent (sonnet) | doing | |
+| 5.7 | Crafting Bench screen over the core `Crafting` rules | agent (sonnet) | doing | |
+| 5.8 | Animations from the bought packs retargeted to the characters | agent | next | |
+| 5.9 | Smaller download: strip unused VFX and assets from the player | agent | next | |
+| 5.10 | Tutorial: a guided solo dungeon teaching souls, shrines and extraction | agent | next | |
+| 5.11 | Gear showcase: four drops per tier and the paper doll, rendered for the owner | agent | doing | |
+
 ## Wave 4: the owner's answers (started 2026-10-26)
 
 | # | Task | Owner | Status | Verified |
