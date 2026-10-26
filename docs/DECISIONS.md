@@ -3,6 +3,14 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-26 · When gear breaks (owner) — LOCKED, already true, pinned by `Tests/GearBreakRuleTests.cs`
+
+1. **Downed and revived by a teammate: nothing breaks.** No break roll and no durability lost; every piece stays worn.
+2. **Gear breaks only on a real death**: finished by an enemy while downed (a gank), or bleeding out after 60 s with nobody
+   coming. Each piece then rolls `DurabilityRules.DeathTrashChance` (50%) to be destroyed; the rest lie on the corpse for looting.
+3. **A shrine resurrection does not undo the break.** The roll happens at death; the resurrected player comes back naked and
+   their corpse keeps what survived.
+
 ## Tutorial (2026-10-26, wave 5)
 
 1. The tutorial is an offline round of its own: the smallest dungeon, the player plus two follower bots, no enemy teams, one

@@ -24,13 +24,18 @@ Rebuild either one from the package repository with `bash Tools/Build/unity-batc
 4. **Explore and loot.** Open chests and corpses (hold Space; looting is a channel that damage
    breaks), choose items in the loot panel, kill mobs and room bosses, collect souls from boss chests
    and fallen players. Carry weight slows you when you are overloaded.
-5. **Shrines.** Spend souls to arm your ultimate, resurrect a fallen teammate, or buy supplies.
+5. **Shrines.** Stand at the altar and hold still for 2 s to spend souls: arm your ultimate, or resurrect a fallen
+   teammate (they come back without their gear; it stays on their body).
 6. **10:00.** A mid-round event: a roaming elite with a relic, a vault that unseals for a minute,
    or a cheap shrine.
 7. **Get out.** Extracts open after 4 minutes. Stand in an extract room and hold Space to channel
    out. Defeating the final boss, the Sovereign Below, opens an exit in the centre.
 8. **Settlement.** Extract and you keep everything you carried out. Die and you lose everything you
    brought and found (full loot); account XP is paid either way. The summary shows what changed.
+
+**Downed is not dead.** At zero health you go down for 60 s. A teammate who holds Space on you for 8 s revives you with all
+your gear intact. If an enemy finishes you, or nobody comes in time, you die: each piece of gear you had has a 50% chance
+to break for good, and the rest stays on your body for anyone to loot.
 
 New to the game? Choose **Tutorial** on the main menu: a five-minute guided round with two friendly bots. Nothing you own
 is at risk, and finishing it the first time pays 100 silver.
