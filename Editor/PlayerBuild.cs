@@ -77,6 +77,11 @@ namespace DungeonGen.Unity.Editor
             PlayerSettings.defaultScreenHeight = 900;
             PlayerSettings.resizableWindow = true;
             PlayerSettings.runInBackground = true;
+            // Direct3D 11 only on Windows. The Unity 6 default (Direct3D 12 first) makes the development player die with an access
+            // violation inside D3D12Core.dll while it tears the device down (exit code 139) once many particle systems have been
+            // drawn; the same build under Direct3D 11 exits 0 every time.
+            PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.StandaloneWindows64, false);
+            PlayerSettings.SetGraphicsAPIs(BuildTarget.StandaloneWindows64, new[] { UnityEngine.Rendering.GraphicsDeviceType.Direct3D11 });
             // Active Input Handling is deliberately left alone (it must stay Both).
             IncludeShaders("Universal Render Pipeline/Lit", "Universal Render Pipeline/Unlit", "Universal Render Pipeline/Simple Lit", "Unlit/Color", "Standard", "Sprites/Default");
         }
