@@ -108,12 +108,21 @@ namespace DungeonGen.Core.Combat
                 9, 12, DamageProfile.Pure(DamageType.Poison), "Carrion Crawler", 0.9f, 0.9f),
         };
 
+
+        /// <summary>
+        /// The Sovereign's budget against the tuner's final-boss budget (a geared trio, 90 s). The tuner assumes a party lands 55% of its sheet damage; against the
+        /// Sovereign's trample, crush and flooding floor it lands about a third, so the unscaled fight ran 130 s or more and no bot trio survived it (0 kills in 96
+        /// rounds, 10% in a forced fight, 2026-10-26). Half the health puts a kill at 70-90 s, near the tuned time; 0.7 of the damage then sets how often a
+        /// committed trio wins (30-50%) and how often it wipes (25% and up). Measured in `AsciiPreview --sim round` with FB_RUSH; see FinalBossTuningTests.
+        /// </summary>
+        public const float FinalHealthMultiplier = 0.5f, FinalDpsMultiplier = 0.7f;
+
         /// <summary>The center boss. Not part of the pool; appears once in every dungeon.</summary>
         public static readonly BossArchetype FinalBoss = new BossArchetype("The Sovereign Below", BossFamily.Check,
             "Three phases, one for each thing a full party has to prove.",
             new[] { "Phase 1 (100-70%): Juggernaut-pattern single hits and a trample; tank check", "Phase 2 (70-35%): the floor floods from the edges, adds rise from the water; space and add control", "Phase 3 (35-0%): stacking Blight plus a 90 s enrage; healer and damage check", "On death: the gated exit opens at the center of the arena" },
             "Needs all three roles. A geared Warden / Reaver / Mender is the reference kill; two geared players cannot.",
             "Every team can reach it on equal terms and everyone knows the exit opens when it dies. The last fight of the round is always here.",
-            12, 14, new DamageProfile((DamageType.Physical, 0.4f), (DamageType.Frost, 0.3f), (DamageType.Poison, 0.3f)));
+            12, 14, new DamageProfile((DamageType.Physical, 0.4f), (DamageType.Frost, 0.3f), (DamageType.Poison, 0.3f)), null, FinalHealthMultiplier, FinalDpsMultiplier);
     }
 }

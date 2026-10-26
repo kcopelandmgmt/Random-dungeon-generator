@@ -65,7 +65,7 @@ namespace DungeonGen.Tools
                     case "--batch": batch = int.Parse(Next()); break;
                     case "--no-legend": legend = false; break;
                     case "--help":
-                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1-4 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear --lifetime --craft --net --tier 1..3 --view TEAM --no-interiors --no-hazards --sim duels|teams|boss|bosses|packs|trace|round [--sim-tier N --sim-seeds N --sim-teams 2..8 --sim-size N (round only)]");
+                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1-4 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear --lifetime --craft --net --tier 1..3 --view TEAM --no-interiors --no-hazards --sim duels|teams|boss|bosses|packs|trace|sovtrace (final boss damage timeline; PARTY=a,b,c env) |round (round also prints the FINAL BOSS attempt report; env FB_RUSH=0,2 sets those teams down at the final boss door, FB_EAGER=1 counts every squad as having beaten a room boss, FBTRACE=1 prints a ten-second timeline of each fight and every down, FB_DOOR=1 why squads at the door did not go in) [--sim-tier N --sim-seeds N --sim-teams 2..8 --sim-size N (round only)]");
                         return 0;
                     default:
                         Console.Error.WriteLine("Unknown argument " + args[i]);
@@ -238,6 +238,47 @@ namespace DungeonGen.Tools
             return 0;
         }
 
+        /// <summary>
+        /// Lab switch FB_RUSH=0,2: once the doors open, the listed teams are set down in the corridor at the final boss's door with the squad's goal set to it and room bosses counted
+        /// as beaten, so the natural sim's few attempts (squads rarely get there) become enough fights to read a kill rate from. Everything else is the normal bot loop.
+        /// </summary>
+        private static void RushFinalBoss(DungeonGen.Core.Net.MatchServer sv, System.Collections.Generic.List<int> teams)
+        {
+            bool done = false;
+            sv.Ticked += srv =>
+            {
+                if (done || !srv.State.DoorsOpen) return;
+                done = true;
+                var room = srv.Layout.FinalBossRoom; if (room == null) return;
+                var door = room.Doors.First();
+                var outside = DungeonGen.Core.GridPoint.Cardinals.Select(c => door + c).FirstOrDefault(p => !room.Bounds.Contains(p) && srv.Layout.IsWalkable(p));
+                int n = 0;
+                foreach (var bb in srv.BotBrains)
+                {
+                    if (!(bb is DungeonGen.Core.Net.RoundBot rb) || !teams.Contains(rb.Squad.Team)) continue;
+                    var c = srv.Sim.Get(rb.PlayerId); if (c == null) continue;
+                    c.Position = DungeonGen.Core.Combat.Vec2.Of(outside) + new DungeonGen.Core.Combat.Vec2((n % 3) * 0.1f, 0f); n++;
+                    rb.Squad.BossesKilled = Math.Max(1, rb.Squad.BossesKilled); rb.Squad.GoalRoom = room.Id; rb.Squad.Resting = false;
+                }
+            };
+        }
+
+        /// <summary>The final boss across a batch of rounds: engagements, serious attempts (a full team of 3 in the arena for 20 s or more), kills, wipes, time to kill.</summary>
+        private static void PrintFinalBossReport(System.Collections.Generic.List<DungeonGen.Core.Net.RoundReport> reports, System.Collections.Generic.List<FinalBossWatcher> watchers)
+        {
+            var all = watchers.SelectMany(w => w.Attempts).ToList();
+            var serious = all.Where(a => a.Serious).ToList();
+            int kills = serious.Count(a => a.Kill), wipes = serious.Count(a => a.Wipe && !a.Kill), retreats = serious.Count - kills - wipes;
+            float Pct(int n, int d) => 100f * n / Math.Max(1, d);
+            Console.WriteLine($"FINAL BOSS: rounds with any engagement {watchers.Count(w => w.Attempts.Count > 0)}/{watchers.Count}; team engagements {all.Count}; serious attempts {serious.Count} (full team of 3, >= 20 s) in {serious.Select(a => a.Seed).Distinct().Count()} rounds");
+            Console.WriteLine($"  serious: kills {kills} ({Pct(kills, serious.Count):0}%), wipes {wipes} ({Pct(wipes, serious.Count):0}%), retreats {retreats} ({Pct(retreats, serious.Count):0}%); final boss killed in {watchers.Count(w => w.BossKilled)}/{watchers.Count} rounds");
+            var ttk = serious.Where(a => a.Kill).Select(a => a.FightLength).ToList();
+            if (ttk.Count > 0) Console.WriteLine($"  time to kill (engage to death): mean {ttk.Average():0} s, min {ttk.Min():0}, max {ttk.Max():0}");
+            var nk = serious.Where(a => !a.Kill).ToList();
+            if (nk.Count > 0) Console.WriteLine($"  non-kill attempts: mean boss health left {nk.Average(a => a.BossHealthAtEnd) * 100f:0}%, mean best {nk.Average(a => a.MinBossHealth) * 100f:0}%, mean length {nk.Average(a => a.FightLength):0} s; of all serious: enraged {serious.Count(a => a.Enraged)}, reached phase 2 {serious.Count(a => a.PhaseReached >= 2)}, phase 3 {serious.Count(a => a.PhaseReached >= 3)}");
+            foreach (var a in all.OrderBy(a => a.Seed).ThenBy(a => a.FightStart)) Console.WriteLine($"  seed {a.Seed,5} T{a.Team} {(a.Serious ? "SERIOUS" : "minor  ")} {a.Outcome,-7} start {a.FightStart,5:0}s len {a.FightLength,4:0}s present {a.Present,4:0}s dealt {a.DamageToBoss,6:0} peak {a.PeakInArena} boss left {a.BossHealthAtEnd * 100f,3:0}% (best {a.MinBossHealth * 100f:0}%) phase {a.PhaseReached}{(a.Enraged ? " ENRAGED" : "")}");
+        }
+
         /// <summary>--sim duels|teams|boss|trace: run the fight lab and print win rates, times and, for trace, one fight blow by blow.</summary>
         private static int SimDemo(string mode, int tier, int seeds, int seed, int simTeams = 4, int simSize = 3)
         {
@@ -249,12 +290,21 @@ namespace DungeonGen.Tools
                         Console.WriteLine($"ROUNDS, {simTeams} teams of {simSize} bots, gear tier {tier}, {seeds} seeds. The real server loop, headless; a rejected event is a bug.");
 if (Environment.GetEnvironmentVariable("BOTLOG") == "1") DungeonGen.Core.Net.RoundBot.DebugLog = Console.WriteLine;   // squad decisions: commits, drops, leaves
                         var reports = new System.Collections.Generic.List<DungeonGen.Core.Net.RoundReport>();
+                        var watchers = new System.Collections.Generic.List<FinalBossWatcher>();
                         for (int sd = seed; sd < seed + seeds; sd++)
-                            reports.Add(DungeonGen.Core.Net.RoundLab.Play(sd, simTeams, simSize, tier, configure: Environment.GetEnvironmentVariable("BOTDUMP") == null ? (Action<DungeonGen.Core.Net.MatchServer>)null : sv =>
+                        {
+                            var watcher = new FinalBossWatcher(sd); watchers.Add(watcher);
+                            reports.Add(DungeonGen.Core.Net.RoundLab.Play(sd, simTeams, simSize, tier, configure: sv =>
                             {
+                                watcher.Attach(sv);
+                                if (Environment.GetEnvironmentVariable("FB_RUSH") is string rush && rush.Length > 0) RushFinalBoss(sv, rush.Split(',').Select(int.Parse).ToList());
+                                if (Environment.GetEnvironmentVariable("FB_EAGER") == "1") foreach (var bb in sv.BotBrains) if (bb is DungeonGen.Core.Net.RoundBot eb) eb.Squad.BossesKilled = Math.Max(1, eb.Squad.BossesKilled);   // lab switch: every squad counts as having beaten a room boss, so many more reach the final boss
+                                if (Environment.GetEnvironmentVariable("FBTRACE") == "1") watcher.Trace = Console.WriteLine;
+                                if (Environment.GetEnvironmentVariable("BOTDUMP") == null) return;
                                 float at = float.Parse(Environment.GetEnvironmentVariable("BOTDUMP"), System.Globalization.CultureInfo.InvariantCulture); bool done = false;
                                 sv.Ticked += srv => { if (done || srv.Elapsed < at) return; done = true; foreach (var b in srv.BotBrains) if (b is DungeonGen.Core.Net.RoundBot rb) Console.WriteLine("DUMP " + rb.Describe(srv)); };
                             }));
+                        }
                         foreach (var r in reports) { Console.WriteLine(r); foreach (var rej in r.Rejections.Take(5)) Console.WriteLine("    " + rej); }
                         {
                             var withEvent = reports.Where(r => r.EventKind != DungeonGen.Core.Net.DungeonEventKind.None).ToList();
@@ -270,6 +320,7 @@ if (Environment.GetEnvironmentVariable("BOTLOG") == "1") DungeonGen.Core.Net.Rou
                             float Pct(int n) => 100f * n / Math.Max(1, deaths.Count);
                             Console.WriteLine($"SUMMARY: extraction {100f * reports.Sum(r => r.Extracted) / Math.Max(1, players):0.0}%  deaths {deaths.Count} = pvp {pvp} ({Pct(pvp):0}%) / boss {boss} ({Pct(boss):0}%) / mobs {mob} ({Pct(mob):0}%) / hazard-clock-other {other} ({Pct(other):0}%)  room bosses killed {reports.Sum(r => r.BossKills)} ({reports.Average(r => r.BossKills):0.00} per round)  final boss killed {reports.Count(r => r.FinalBossKilled)}/{reports.Count}  mean round {reports.Average(r => r.Seconds):0} s ({reports.Average(r => r.Seconds) / 60f:0.0} min)  rejected {reports.Sum(r => r.Rejected)}");
                         }
+                        PrintFinalBossReport(reports, watchers);
                         {
                             var byMinute = reports.SelectMany(r => r.DeathCauses.Select((d, i) => (d, t: r.DeathTimes[i]))).GroupBy(x => (int)(x.t / 60f)).OrderBy(g => g.Key);
                             Console.WriteLine("DEATHS PER MINUTE OF THE ROUND (pvp / other): " + string.Join("  ", byMinute.Select(g => $"{g.Key}m {g.Count(x => x.d.Split('|')[1].Trim().StartsWith("player"))}/{g.Count(x => !x.d.Split('|')[1].Trim().StartsWith("player"))}")));
@@ -407,6 +458,32 @@ if (Environment.GetEnvironmentVariable("BOTLOG") == "1") foreach (var r in repor
                             for (int s = 1; s <= seeds; s++) { var r = DungeonGen.Core.Combat.FightLab.BossFight(arch, party, tier, s); if (r.WinnerTeam == 0) wins++; secs += r.Seconds; downs += r.Downs; }
                             Console.WriteLine($"  {arch,-20} win {wins / (float)seeds:0.00}  avg {secs / seeds,5:0.0}s  downs/fight {downs / (float)seeds:0.0}");
                         }
+                        return 0;
+                    }
+                case "sovtrace":
+                    {
+                        // The final boss alone with a trio in its real room: where the health goes, bucket by bucket (--seed picks the fight, --sim-tier the gear).
+                        var party = (Environment.GetEnvironmentVariable("PARTY") ?? "Sentinel,Berserker,Warder").Split(',');
+                        Console.WriteLine($"SOVEREIGN TRACE: {string.Join("/", party)} tier {tier} seed {seed}");
+                        var rep = DungeonGen.Core.Combat.FightLab.BossFight(DungeonGen.Core.Combat.BossArchetype.FinalBoss.Name, party, tier, seed, 300f, (sim, dir) =>
+                        {
+                            var boss = dir.Boss.Boss;
+                            Console.WriteLine($"  boss {boss.MaxHealth:0} hp, dps {boss.Dps:0.0}, enrage at {dir.Boss.Enraged}");
+                            foreach (var c in sim.Combatants.Values.Where(c => !c.IsMob)) Console.WriteLine($"  {c}  dps {c.Dps:0}");
+                            var ev = sim.Events;
+                            for (int t0 = 0; t0 < (int)sim.Time + 1; t0 += 10)
+                            {
+                                float toBoss = ev.Where(e => e.Kind == DungeonGen.Core.Combat.FightEventKind.Hit && e.Target == boss.Id && e.Time >= t0 && e.Time < t0 + 10).Sum(e => e.Amount);
+                                var onPlayers = ev.Where(e => e.Kind == DungeonGen.Core.Combat.FightEventKind.Hit && e.Time >= t0 && e.Time < t0 + 10 && sim.Get(e.Target) is DungeonGen.Core.Combat.Combatant tc && !tc.IsMob).ToList();
+                                string by(Func<DungeonGen.Core.Combat.FightEvent, bool> f) => onPlayers.Where(f).Sum(e => e.Amount).ToString("0");
+                                float heal = ev.Where(e => e.Kind == DungeonGen.Core.Combat.FightEventKind.Heal && e.Time >= t0 && e.Time < t0 + 10 && e.Target != boss.Id).Sum(e => e.Amount);
+                                Console.WriteLine($"  {t0,3}-{t0 + 10,3}s  to boss {toBoss,6:0}  to players: boss {by(e => e.Source == boss.Id)} adds {by(e => e.Source > 9000)} other {by(e => e.Source != boss.Id && e.Source <= 9000)}  healed {heal:0}  downs {ev.Count(e => e.Kind == DungeonGen.Core.Combat.FightEventKind.Downed && e.Time >= t0 && e.Time < t0 + 10)}");
+                            }
+                            foreach (var e in ev.Where(e => e.Kind == DungeonGen.Core.Combat.FightEventKind.Phase || e.Kind == DungeonGen.Core.Combat.FightEventKind.Downed || e.Kind == DungeonGen.Core.Combat.FightEventKind.Died && !(sim.Get(e.Target)?.IsMob ?? false))) Console.WriteLine("  " + e);
+                            foreach (var g in ev.Where(e => e.Kind == DungeonGen.Core.Combat.FightEventKind.Hit && sim.Get(e.Target) is DungeonGen.Core.Combat.Combatant tc && !tc.IsMob).GroupBy(e => (e.Source == boss.Id ? "boss" : e.Source > 9000 ? "add" : e.Source < 0 ? "env" : "ally:" + (sim.Get(e.Source)?.Spec ?? "?")) + " " + e.Detail).OrderByDescending(g => g.Sum(e => e.Amount)).Take(10)) Console.WriteLine($"    damage on players: {g.Key,-32} {g.Sum(e => e.Amount),7:0} in {g.Count()} hits");
+                            Console.WriteLine($"  boss left {boss.Health:0}/{boss.MaxHealth:0}  phase {dir.Boss.Phase}  enraged {dir.Boss.Enraged}  adds spawned {dir.Boss.Adds.Count}");
+                        });
+                        Console.WriteLine("  " + rep);
                         return 0;
                     }
                 case "packs":

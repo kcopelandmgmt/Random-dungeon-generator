@@ -336,6 +336,9 @@ namespace DungeonGen.Core.Combat
             }
         }
 
+        /// <summary>How long a pool of the Sovereign's phase-2 flood lasts. Pools were permanent (600 s) and a long fight ended in a floor with nowhere to stand; they now drain, so the flood is a rotating hazard.</summary>
+        public const float SovereignLavaSeconds = 45f;
+
         private void Mechanic(FightSim sim, Combatant target, CombatBaseline b)
         {
             switch (Archetype.Name)
@@ -372,7 +375,7 @@ namespace DungeonGen.Core.Combat
                     break;
                 case "The Sovereign Below":
                     if (Phase == 1) Boss.StartChannel("crush:" + target.Id, 3f, sim.Time);
-                    else if (Phase == 2) { SpawnAdd(sim, "Gravewalker", Boss.Position + new Vec2(1.5f, 0f), b); if (_layout != null) { var room = _layout.Rooms[RoomId]; Lava(sim, Vec2.Of(new GridPoint(room.Bounds.X + 1, room.Bounds.Y + 1)), 1.5f, 600f); Lava(sim, Vec2.Of(new GridPoint(room.Bounds.XMax - 2, room.Bounds.YMax - 2)), 1.5f, 600f); } }
+                    else if (Phase == 2) { SpawnAdd(sim, "Gravewalker", Boss.Position + new Vec2(1.5f, 0f), b); if (_layout != null) { var room = _layout.Rooms[RoomId]; Lava(sim, Vec2.Of(new GridPoint(room.Bounds.X + 1, room.Bounds.Y + 1)), 1.5f, SovereignLavaSeconds); Lava(sim, Vec2.Of(new GridPoint(room.Bounds.XMax - 2, room.Bounds.YMax - 2)), 1.5f, SovereignLavaSeconds); } }
                     else sim.Zones.Add(new Zone { Ability = AbilityBook.Get("Plaguebearer.zone"), Caster = Boss.Id, CasterTeam = Boss.Team, Centre = target.Position, Until = sim.Time + 6f, NextTick = sim.Time });
                     break;
             }

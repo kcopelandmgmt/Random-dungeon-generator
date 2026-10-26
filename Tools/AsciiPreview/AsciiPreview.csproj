@@ -11,5 +11,6 @@
     <!-- Compile the engine-agnostic core straight from the Unity package so there is one source of truth. -->
     <Compile Include="../../Runtime/Core/**/*.cs" />
     <Compile Include="Program.cs" />
+    <Compile Include="FinalBossWatcher.cs" />
   </ItemGroup>
 </Project>

@@ -34,9 +34,9 @@ namespace DungeonGen.Core.Net
         /// <summary>The boss room the squad has committed to (all three gathered and fit), or -1. A boss the squad has not committed to is walked away from, never fought.</summary>
         public int EngagedBoss = -1;
         /// <summary>Lowest health fraction every member needs before the squad walks into a room boss, and the team average it needs for the final boss.</summary>
-        public float BossReadyHealth = 0.9f, FinalReadyHealth = 0.95f;
-        /// <summary>The final boss is taken only by a squad that has already beaten a room boss together and walks in with this many potions each (the lab: a bot trio beats it 0–25% of the time).</summary>
-        public int FinalBossPotionsEach = 2;
+        public float BossReadyHealth = 0.9f, FinalReadyHealth = 0.85f;
+        /// <summary>The final boss is taken only by a squad that has already beaten a room boss together and walks in with this many potions each. One, not two: with two and 95% average health, 1 squad in 60 that reached its door ever went in (they stood there to the end of the round), and the boss was untouchable besides; tuned 2026-10-26 (wave 5.6).</summary>
+        public int FinalBossPotionsEach = 1;
         public int BossesKilled;
         /// <summary>A squad this weak (standing members' average health) heads for the gate once it is open.</summary>
         public float LeaveBelowHealth = 0.45f;
