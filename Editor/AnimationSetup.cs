@@ -67,11 +67,10 @@ namespace DungeonGen.Unity.Editor
         /// </summary>
         public static readonly Dictionary<string, Dictionary<string, string>> Roles = new Dictionary<string, Dictionary<string, string>>
         {
+            // The Warden's mesh came without its sword and shield, so the Paladin's weapon-holding idle and walk read as empty fists
+            // held out: it stands and moves on the neutral Synty set (the fallback) and swings with the Paladin set.
             ["Warden"] = new Dictionary<string, string>
             {
-                { "idle", Paladin + "idle01.fbx" },
-                { "walkF", Paladin + "move_walk_front.fbx" }, { "walkB", Paladin + "move_walk_back.fbx" }, { "walkL", Paladin + "move_walk_left.fbx" }, { "walkR", Paladin + "move_walk_right.fbx" },
-                { "runF", Paladin + "move_run_front.fbx" }, { "runB", Paladin + "move_run_back.fbx" }, { "runL", Paladin + "move_run_left.fbx" }, { "runR", Paladin + "move_run_right.fbx" },
                 { "attack0", Paladin + "Attack01.fbx" }, { "attack1", Paladin + "Attack02.fbx" }, { "cast0", Paladin + "Attack_Shield01.fbx" }, { "cast1", Paladin + "Buff01.fbx" },
                 { "hit", Paladin + "hit_body_front.fbx" }, { "death", Paladin + "dead01.fbx" },
             },
@@ -117,7 +116,7 @@ namespace DungeonGen.Unity.Editor
                 { "idle", Daggers + "TwinDaggers_Idle_Inplace.FBX" },
                 { "walkF", Daggers + "TwinDaggers_Walk_F_Loop_Root.FBX" }, { "walkB", Daggers + "TwinDaggers_Walk_B_Loop_Root.FBX" }, { "walkL", Daggers + "TwinDaggers_Walk_L_Loop_Root.FBX" }, { "walkR", Daggers + "TwinDaggers_Walk_R_Loop_Root.FBX" },
                 { "runF", Daggers + "TwinDaggers_Run_F_Loop_Root.FBX" }, { "runB", Daggers + "TwinDaggers_Run_B_Loop_Root.FBX" }, { "runL", Daggers + "TwinDaggers_Run_L_Loop_Root.FBX" }, { "runR", Daggers + "TwinDaggers_Run_R_Loop_Root.FBX" },
-                { "attack0", Daggers + "TwinDaggers_Attack1_1_Inplace.FBX" }, { "attack1", Daggers + "TwinDaggers_Attack3_Inplace.FBX" }, { "cast0", Daggers + "TwinDaggers_SPAttack2_Inplace.FBX" },
+                { "attack0", Daggers + "TwinDaggers_Attack5_1_Inplace.FBX" }, { "attack1", Daggers + "TwinDaggers_Attack9_Inplace.FBX" }, { "cast0", Daggers + "TwinDaggers_Attack14_Inplace.FBX" },
                 { "hit", Daggers + "TwinDaggers_Hit_F_Inplace.FBX" }, { "death", Daggers + "TwinDaggers_Die_1_Inplace.FBX" },
             },
             ["Skeleton"] = new Dictionary<string, string>
