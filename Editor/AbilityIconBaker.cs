@@ -30,8 +30,21 @@ namespace DungeonGen.Unity.Editor
         public const string LibraryPath = "Assets/AbilityVfxLibrary.asset";
         public const int Size = 128;
 
+        /// <summary>Folder of the painted source images (<c>&lt;abilityId&gt;.png</c>, from <c>Tools/AssetGen/meshy_images.py</c>).</summary>
+        public const string PaintedFolder = "Assets/Generated/icons";
+
         [MenuItem("Dungeon Gen/Bake Ability Icons")]
-        public static void Bake()
+        public static void Bake() => Run(false);
+
+        /// <summary>
+        /// Uses the painted images in <see cref="PaintedFolder"/> (box-filtered to 128 px, then the element frame; a gold double line for
+        /// ultimates) and falls back to the particle baker for any ability with no image.
+        /// Run: <c>bash Tools/Build/unity-batch.sh method DungeonGen.Unity.Editor.AbilityIconBaker.FromImages</c>.
+        /// </summary>
+        [MenuItem("Dungeon Gen/Ability Icons From Painted Images")]
+        public static void FromImages() => Run(true);
+
+        private static void Run(bool painted)
         {
             var report = new StringBuilder();
             report.AppendLine($"Ability icons {DateTime.Now:yyyy-MM-dd HH:mm}  ({AbilityBook.All.Count} abilities)");
@@ -48,6 +61,20 @@ namespace DungeonGen.Unity.Editor
                 {
                     foreach (var a in AbilityBook.All)
                     {
+                        var src = painted ? Abs($"{PaintedFolder}/{a.Id}.png") : null;
+                        if (src != null && File.Exists(src))
+                        {
+                            var pngPainted = ComposePainted(File.ReadAllBytes(src), ElementColour(a.Element), a.Kind == AbilityKind.Ultimate);
+                            if (pngPainted != null)
+                            {
+                                var pp = $"{Folder}/{a.Id}.png";
+                                File.WriteAllBytes(Abs(pp), pngPainted);
+                                paths.Add((a.Id, pp));
+                                report.AppendLine($"{a.Id} | painted | {a.Id}.png | - | - |");
+                                made++;
+                                continue;
+                            }
+                        }
                         var (role, prefab) = Choose(lib, a);
                         var buf = new float[Size * Size * 3];
                         int count = 0; float t = 0f; string note = "";
@@ -360,6 +387,47 @@ namespace DungeonGen.Unity.Editor
             var png = tex.EncodeToPNG();
             UnityEngine.Object.DestroyImmediate(tex);
             return png;
+        }
+
+        /// <summary>A painted source image, box-filtered down to <see cref="Size"/> and framed. Null if the bytes are not an image.</summary>
+        private static byte[] ComposePainted(byte[] file, Color element, bool ultimate)
+        {
+            var src = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            try
+            {
+                if (!src.LoadImage(file)) return null;
+                int w = src.width, h = src.height;
+                var sp = src.GetPixels32();
+                var px = new Color32[Size * Size];
+                for (int y = 0; y < Size; y++)
+                    for (int x = 0; x < Size; x++)
+                    {
+                        int x0 = x * w / Size, x1 = Mathf.Max(x0 + 1, (x + 1) * w / Size), y0 = y * h / Size, y1 = Mathf.Max(y0 + 1, (y + 1) * h / Size);
+                        float r = 0, g = 0, b = 0; int n = 0;
+                        for (int yy = y0; yy < y1; yy++)
+                            for (int xx = x0; xx < x1; xx++) { var c = sp[yy * w + xx]; r += c.r; g += c.g; b += c.b; n++; }
+                        var col = new Color(r / n / 255f, g / n / 255f, b / n / 255f);
+                        px[y * Size + x] = Frame(col, x, y, element, ultimate);
+                    }
+                var tex = new Texture2D(Size, Size, TextureFormat.RGBA32, false);
+                tex.SetPixels32(px); tex.Apply();
+                var png = tex.EncodeToPNG();
+                UnityEngine.Object.DestroyImmediate(tex);
+                return png;
+            }
+            finally { UnityEngine.Object.DestroyImmediate(src); }
+        }
+
+        /// <summary>The frame: a dark outer line, the element colour, a thin inner highlight; ultimates get a gold double line.</summary>
+        private static Color32 Frame(Color c, int x, int y, Color element, bool ultimate)
+        {
+            int edge = Mathf.Min(Mathf.Min(x, Size - 1 - x), Mathf.Min(y, Size - 1 - y));
+            if (edge == 0) c = new Color(0.01f, 0.01f, 0.01f);
+            else if (edge <= 3) c = Color.Lerp(element * 0.55f, element, (edge - 1) / 2f);
+            else if (edge == 4) c = Color.Lerp(c, Color.white, 0.25f) * 0.9f;
+            else if (ultimate && (edge == 7 || edge == 8)) c = Color.Lerp(c, new Color(1f, 0.85f, 0.4f), 0.75f);
+            else if (edge < 12) c *= 0.75f + 0.025f * edge;
+            return new Color32((byte)(Mathf.Clamp01(c.r) * 255f), (byte)(Mathf.Clamp01(c.g) * 255f), (byte)(Mathf.Clamp01(c.b) * 255f), 255);
         }
 
         private static float Tone(float v) => 1f - Mathf.Exp(-Mathf.Max(0f, v));
