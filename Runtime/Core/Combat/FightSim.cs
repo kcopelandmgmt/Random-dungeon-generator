@@ -207,6 +207,10 @@ namespace DungeonGen.Core.Combat
         public List<CastRecord> Casts { get; } = new List<CastRecord>();
         /// <summary>Dev only: no cooldowns, no costs, no swing timer, ultimates always armed, and any spec's ability may be cast. For trying abilities and effects in practice mode; never on a live server.</summary>
         public bool DevCasting { get; set; }
+        /// <summary>When not empty, <see cref="DevCasting"/> applies only to these combatants (practice mode: the local player, not the bots). Empty keeps the global behaviour.</summary>
+        public HashSet<int> DevCasters { get; } = new HashSet<int>();
+        /// <summary>Does dev casting apply to this caster?</summary>
+        public bool IsDevCaster(int casterId) => DevCasting && (DevCasters.Count == 0 || DevCasters.Contains(casterId));
         public List<FightEvent> Events { get; } = new List<FightEvent>();
         public HitLog Hits { get; } = new HitLog();
         public float Time { get; private set; }
@@ -333,14 +337,15 @@ namespace DungeonGen.Core.Combat
         {
             var r = new CastResult();
             var caster = Get(casterId);
+            bool dev = IsDevCaster(casterId);
             if (caster == null || !AbilityBook.TryGet(abilityId, out var a)) { r.Rejection = "no such caster or ability"; return Reject(casterId, abilityId, r); }
             if (!caster.CanAct) { r.Rejection = caster.Dead ? "dead" : caster.Downed ? "downed" : "controlled"; return Reject(casterId, abilityId, r); }
-            if (a.Spec != caster.Spec && !DevCasting) { r.Rejection = "not this spec's ability"; return Reject(casterId, abilityId, r); }
-            if (a.Kind == AbilityKind.Ultimate && !caster.UltimateArmed && !DevCasting) { r.Rejection = "ultimate not armed"; return Reject(casterId, abilityId, r); }
+            if (a.Spec != caster.Spec && !dev) { r.Rejection = "not this spec's ability"; return Reject(casterId, abilityId, r); }
+            if (a.Kind == AbilityKind.Ultimate && !caster.UltimateArmed && !dev) { r.Rejection = "ultimate not armed"; return Reject(casterId, abilityId, r); }
             if (a.Kind != AbilityKind.Basic && caster.Has(BuffKind.Silenced)) { r.Rejection = "silenced"; return Reject(casterId, abilityId, r); }
-            if (!DevCasting && caster.CooldownUntil.TryGetValue(a.Id, out float until) && Time < until - 1e-4f) { r.Rejection = $"on cooldown for {until - Time:0.0} s"; return Reject(casterId, abilityId, r); }
-            if (!DevCasting && a.Kind == AbilityKind.Basic && Time < caster.NextBasicAt - 1e-4f) { r.Rejection = "swinging"; return Reject(casterId, abilityId, r); }
-            float cost = !DevCasting && a.CostSlot.HasValue && caster.Resource != ResourceKind.None ? FightRules.AbilityCost(caster.ResourceMax, a.CostSlot.Value) : 0f;
+            if (!dev && caster.CooldownUntil.TryGetValue(a.Id, out float until) && Time < until - 1e-4f) { r.Rejection = $"on cooldown for {until - Time:0.0} s"; return Reject(casterId, abilityId, r); }
+            if (!dev && a.Kind == AbilityKind.Basic && Time < caster.NextBasicAt - 1e-4f) { r.Rejection = "swinging"; return Reject(casterId, abilityId, r); }
+            float cost = !dev && a.CostSlot.HasValue && caster.Resource != ResourceKind.None ? FightRules.AbilityCost(caster.ResourceMax, a.CostSlot.Value) : 0f;
             if (cost > caster.ResourceNow + 1e-4f) { r.Rejection = $"needs {cost:0} {caster.Resource}"; return Reject(casterId, abilityId, r); }
             var toAim = aim - caster.Position;
             if (toAim.Length > 0.01f) caster.Facing = toAim.Normalized;
@@ -701,6 +706,25 @@ namespace DungeonGen.Core.Combat
     /// </summary>
     public static class FightBridge
     {
+        /// <summary>
+        /// Two of a pack dying on one tick each see the pack wiped out. The room is cleared once: only the pack member whose Died event is the latest
+        /// of the pack's (the last one in the log at equal times) reports it, so the same events always give one MobPackCleared however they are drained.
+        /// </summary>
+        private static bool IsLastOfPackToDie(FightEvent e, FightSim sim, Func<int, int?> packOf, int pack)
+        {
+            var events = sim.Events;
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                var o = events[i];
+                if (o.Time < e.Time) break;
+                if (o.Kind != FightEventKind.Died) continue;
+                var t = sim.Get(o.Target);
+                if (t == null || !t.IsMob || packOf(o.Target) != pack) continue;
+                return o.Target == e.Target;
+            }
+            return true;
+        }
+
         public static IEnumerable<MatchEvent> ToMatchEvents(FightEvent e, FightSim sim, Func<int, int> roomOf, Func<int, int?> bossRoomOf = null, Func<int, int?> packOf = null)
         {
             var target = sim.Get(e.Target);
@@ -716,7 +740,7 @@ namespace DungeonGen.Core.Combat
                     {
                         int? boss = bossRoomOf?.Invoke(e.Target);
                         if (boss.HasValue) { var killer = sim.Get(e.Source); yield return new MatchEvent(MatchEventKind.BossKilled, e.Time, boss.Value, killer?.Team ?? -1); }
-                        else { int? pack = packOf?.Invoke(e.Target); if (pack.HasValue && sim.Combatants.Values.Where(c => c.IsMob && packOf(c.Id) == pack).All(c => c.Dead)) yield return new MatchEvent(MatchEventKind.MobPackCleared, e.Time, pack.Value); }
+                        else { int? pack = packOf?.Invoke(e.Target); if (pack.HasValue && sim.Combatants.Values.Where(c => c.IsMob && packOf(c.Id) == pack).All(c => c.Dead) && IsLastOfPackToDie(e, sim, packOf, pack.Value)) yield return new MatchEvent(MatchEventKind.MobPackCleared, e.Time, pack.Value); }
                         break;
                     }
                 case FightEventKind.Revived when target != null && !target.IsMob && e.Source >= 0:

@@ -84,6 +84,12 @@ namespace DungeonGen.Core.Net
         /// <summary>Seconds a bot takes to walk one room.</summary>
         public const float SecondsPerRoom = 6f;
         public static bool IsBot(int playerId) => playerId >= BotIdBase && playerId < BotIdBase + 100;
+        /// <summary>
+        /// Potions a round bot walks in with: the new-account kit (<see cref="DungeonGen.Core.Combat.FightRules.StartingHealthPotions"/>) at tier 1, one more per tier above it
+        /// (a squad that plays higher tiers has a bigger bank), at most four. Bots have no profile; this is what their bank would hold.
+        /// </summary>
+        public static IReadOnlyDictionary<string, int> DefaultConsumables(int tier) =>
+            new Dictionary<string, int> { [DungeonGen.Core.Items.Consumable.HealthPotionName] = System.Math.Min(4, DungeonGen.Core.Combat.FightRules.StartingHealthPotions + System.Math.Max(0, tier - 1)) };
     }
 
     /// <summary>

@@ -24,7 +24,7 @@ namespace DungeonGen.Tools
                 if (args[i] == "--teams") settings = DungeonSettings.ForTeams(int.Parse(args[i + 1]));
             for (int i = 0; i + 1 < args.Length; i++)
                 if (args[i] == "--tier") DungeonTier.For(int.Parse(args[i + 1])).Apply(settings);
-            int viewTeam = -1; string simMode = "duels"; int simTier = 2, simSeeds = 40;
+            int viewTeam = -1; string simMode = "duels"; int simTier = 2, simSeeds = 40, simTeams = 4, simSize = 3;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -37,6 +37,8 @@ namespace DungeonGen.Tools
                     case "--sim": simMode = Next(); command = "--sim"; break;
                     case "--sim-tier": simTier = int.Parse(Next()); break;
                     case "--sim-seeds": simSeeds = int.Parse(Next()); break;
+                    case "--sim-teams": simTeams = Math.Max(2, Math.Min(8, int.Parse(Next()))); break;
+                    case "--sim-size": simSize = Math.Max(1, int.Parse(Next())); break;
                     case "--no-interiors": settings.InteriorsEnabled = false; break;
                     case "--no-hazards": settings.HazardsEnabled = false; break;
                     case "--ring": settings.SpawnPlacement = SpawnPlacement.Ring; break;
@@ -63,7 +65,7 @@ namespace DungeonGen.Tools
                     case "--batch": batch = int.Parse(Next()); break;
                     case "--no-legend": legend = false; break;
                     case "--help":
-                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear --lifetime --craft --net --tier 1..3 --view TEAM --no-interiors --no-hazards --sim duels|teams|boss|bosses|packs|trace|round [--sim-tier N --sim-seeds N]");
+                        Console.WriteLine("--teams N (preset) --seed N --width N --height N --rooms N --loops 0..1 --spawns N --extracts N --ring|--fringe --candidates N --bosses N --vaults N --corridor-width 1|2 --batch N --no-legend --fights --stats --roll N LEVEL --loot --wear --lifetime --craft --net --tier 1..3 --view TEAM --no-interiors --no-hazards --sim duels|teams|boss|bosses|packs|trace|round [--sim-tier N --sim-seeds N --sim-teams 2..8 --sim-size N (round only)]");
                         return 0;
                     default:
                         Console.Error.WriteLine("Unknown argument " + args[i]);
@@ -80,7 +82,7 @@ namespace DungeonGen.Tools
                 case "--craft": return CraftDemo(settings, seed);
                 case "--net": return NetDemo(settings, seed);
                 case "--view": return ViewDemo(settings, seed, viewTeam);
-                case "--sim": return SimDemo(simMode, simTier, simSeeds, seed);
+                case "--sim": return SimDemo(simMode, simTier, simSeeds, seed, simTeams, simSize);
                 case "--roll": return RollItems(rollN, rollLevel, seed);
                 case "--loot":
                     {
@@ -237,18 +239,39 @@ namespace DungeonGen.Tools
         }
 
         /// <summary>--sim duels|teams|boss|trace: run the fight lab and print win rates, times and, for trace, one fight blow by blow.</summary>
-        private static int SimDemo(string mode, int tier, int seeds, int seed)
+        private static int SimDemo(string mode, int tier, int seeds, int seed, int simTeams = 4, int simSize = 3)
         {
             var specs = DungeonGen.Core.Combat.WeaponSpec.All.Select(w => w.Name).Concat(DungeonGen.Core.Combat.ElementKit.All.Select(k => k.Name)).ToList();
             switch (mode)
             {
                 case "round":
                     {
-                        Console.WriteLine($"ROUNDS, 4 teams of 3 bots, gear tier {tier}, {seeds} seeds. The real server loop, headless; a rejected event is a bug.");
-                        var reports = DungeonGen.Core.Net.RoundLab.PlayMany(seed, seeds, 4, 3, tier);
+                        Console.WriteLine($"ROUNDS, {simTeams} teams of {simSize} bots, gear tier {tier}, {seeds} seeds. The real server loop, headless; a rejected event is a bug.");
+if (Environment.GetEnvironmentVariable("BOTLOG") == "1") DungeonGen.Core.Net.RoundBot.DebugLog = Console.WriteLine;   // squad decisions: commits, drops, leaves
+                        var reports = new System.Collections.Generic.List<DungeonGen.Core.Net.RoundReport>();
+                        for (int sd = seed; sd < seed + seeds; sd++)
+                            reports.Add(DungeonGen.Core.Net.RoundLab.Play(sd, simTeams, simSize, tier, configure: Environment.GetEnvironmentVariable("BOTDUMP") == null ? (Action<DungeonGen.Core.Net.MatchServer>)null : sv =>
+                            {
+                                float at = float.Parse(Environment.GetEnvironmentVariable("BOTDUMP"), System.Globalization.CultureInfo.InvariantCulture); bool done = false;
+                                sv.Ticked += srv => { if (done || srv.Elapsed < at) return; done = true; foreach (var b in srv.BotBrains) if (b is DungeonGen.Core.Net.RoundBot rb) Console.WriteLine("DUMP " + rb.Describe(srv)); };
+                            }));
                         foreach (var r in reports) { Console.WriteLine(r); foreach (var rej in r.Rejections.Take(5)) Console.WriteLine("    " + rej); }
                         int players = reports.Sum(r => r.Players);
                         Console.WriteLine($"extracted {reports.Sum(r => r.Extracted)}/{players} ({100f * reports.Sum(r => r.Extracted) / Math.Max(1, players):0}%), died {reports.Sum(r => r.Died)}, still inside at the end {reports.Sum(r => r.StillInside)}, player kills {reports.Sum(r => r.PlayerKills)}, bosses {reports.Sum(r => r.BossKills)}, final bosses {reports.Count(r => r.FinalBossKilled)}, items out {reports.Sum(r => r.ItemsExtracted)}, souls {reports.Sum(r => r.Souls)}, rejected events {reports.Sum(r => r.Rejected)}, mean round {reports.Average(r => r.Seconds):0} s");
+                        {
+                            var deaths = reports.SelectMany(r => r.DeathCauses).ToList();
+                            int Kind(string prefix) => deaths.Count(d => d.Split('|')[1].Trim().StartsWith(prefix));
+                            int pvp = Kind("player"), boss = Kind("boss"), mob = Kind("mob"), other = deaths.Count - pvp - boss - mob;
+                            float Pct(int n) => 100f * n / Math.Max(1, deaths.Count);
+                            Console.WriteLine($"SUMMARY: extraction {100f * reports.Sum(r => r.Extracted) / Math.Max(1, players):0.0}%  deaths {deaths.Count} = pvp {pvp} ({Pct(pvp):0}%) / boss {boss} ({Pct(boss):0}%) / mobs {mob} ({Pct(mob):0}%) / hazard-clock-other {other} ({Pct(other):0}%)  room bosses killed {reports.Sum(r => r.BossKills)} ({reports.Average(r => r.BossKills):0.00} per round)  final boss killed {reports.Count(r => r.FinalBossKilled)}/{reports.Count}  mean round {reports.Average(r => r.Seconds):0} s ({reports.Average(r => r.Seconds) / 60f:0.0} min)  rejected {reports.Sum(r => r.Rejected)}");
+                        }
+                        {
+                            var byMinute = reports.SelectMany(r => r.DeathCauses.Select((d, i) => (d, t: r.DeathTimes[i]))).GroupBy(x => (int)(x.t / 60f)).OrderBy(g => g.Key);
+                            Console.WriteLine("DEATHS PER MINUTE OF THE ROUND (pvp / other): " + string.Join("  ", byMinute.Select(g => $"{g.Key}m {g.Count(x => x.d.Split('|')[1].Trim().StartsWith("player"))}/{g.Count(x => !x.d.Split('|')[1].Trim().StartsWith("player"))}")));
+                            var inRoom = reports.SelectMany(r => r.DeathCauses).GroupBy(d => d.Split('|')[2].Trim()).OrderByDescending(g => g.Count());
+                            Console.WriteLine("DEATHS BY ROOM TYPE: " + string.Join("  ", inRoom.Select(g => $"{g.Key} {g.Count()}")));
+                        }
+if (Environment.GetEnvironmentVariable("BOTLOG") == "1") foreach (var r in reports) for (int i = 0; i < r.DeathCauses.Count; i++) Console.WriteLine($"DEATH seed {r.Seed} {r.DeathTimes[i]:0}s {r.DeathCauses[i]}");
                         Console.WriteLine("DEATHS BY CAUSE:");
                         foreach (var g in reports.SelectMany(r => r.DeathCauses).GroupBy(d => d).OrderByDescending(g => g.Count()).Take(25)) Console.WriteLine($"  {g.Count(),4}  {g.Key}");
                         return reports.Sum(r => r.Rejected) == 0 ? 0 : 3;

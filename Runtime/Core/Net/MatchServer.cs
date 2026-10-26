@@ -347,13 +347,16 @@ namespace DungeonGen.Core.Net
         }
 
         /// <summary>Seat a bot with the given brain (the plain fight brain when none is given). Never seated by matchmaking.</summary>
-        public Combatant AddBot(int botId, int team, string spec, int tier, IServerBot brain = null)
-        {
-            var cls = FightLab.ClassOf(spec);
+        public Combatant AddBot(int botId, int team, string spec, int tier, IServerBot brain = null) => AddBot(botId, team, spec, tier, (IReadOnlyDictionary<string, int>)null, brain);
+
+        /// <summary>Seat a bot with pockets (consumable name → count, e.g. <see cref="BotRules.DefaultConsumables"/>); null seats it bare. The bot's own logic drinks them.</summary>
+        public Combatant AddBot(int botId, int team, string spec, int tier, IReadOnlyDictionary<string, int> consumables, IServerBot brain = null)
+        {            var cls = FightLab.ClassOf(spec);
             var c = AddPlayer(botId, team, cls, spec, PlayerStats.For(cls, tier, Descriptor.Settings.Combat));
             if (c == null) return null;
             _bots.Add(brain ?? new FightOnlyBot(botId));
             _botIds.Add(botId);
+            if (consumables != null) { _consumablesCarried[botId] = consumables.ToDictionary(kv => kv.Key, kv => kv.Value); RefreshCarry(botId); }
             return c;
         }
 
@@ -467,7 +470,7 @@ namespace DungeonGen.Core.Net
                 if (want != null)
                 {
                     int charges = State.UltimateCharges.TryGetValue(playerId, out int ch) ? ch : 0;
-                    if (want.Kind == AbilityKind.Ultimate) c.UltimateArmed = Sim.DevCasting || charges > 0;
+                    if (want.Kind == AbilityKind.Ultimate) c.UltimateArmed = Sim.IsDevCaster(playerId) || charges > 0;
                     var r = Sim.Cast(playerId, want.Id, want.Shape == AbilityShape.Self ? c.Position : aim);
                     if (r.Ok && want.Kind == AbilityKind.Ultimate && charges > 0) Raise(new MatchEvent(MatchEventKind.UltimateUsed, Sim.Time, playerId));   // a dev's free ultimate spends nothing
                     if (r.Ok && _channels.TryGetValue(playerId, out var open)) Interrupt(playerId, open);
@@ -550,7 +553,7 @@ namespace DungeonGen.Core.Net
                 if (!act || Raise(new MatchEvent(MatchEventKind.DoorClosed, Sim.Time, door.Key, playerId))) return "door-close";
             }
             // 2. A downed teammate.
-            var downed = Sim.Combatants.Values.FirstOrDefault(o => o.Downed && !o.Dead && o.Team == c.Team && o.Id != c.Id && Vec2.Distance(o.Position, c.Position) <= 1.5f);
+            var downed = Sim.Combatants.Values.FirstOrDefault(o => o.Downed && !o.Dead && o.Team == c.Team && o.Id != c.Id && State.Downed.ContainsKey(o.Id) && Vec2.Distance(o.Position, c.Position) <= 1.5f);   // the state must list them too: the simulator can down someone a moment before the bridge tells the state
             if (downed != null) { Start("revive", downed.Id, FightRules.ReviveChannelSeconds, new MatchEvent(MatchEventKind.ReviveStarted, Sim.Time, playerId, downed.Id)); return "revive"; }
             // 3. A corpse.
             var corpse = Sim.Combatants.Values.FirstOrDefault(o => o.Dead && !o.IsMob && State.Corpses.ContainsKey(o.Id) && Vec2.Distance(o.Position, c.Position) <= 1.5f);

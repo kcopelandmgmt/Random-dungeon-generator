@@ -14,6 +14,8 @@ namespace DungeonGen.Core.Net
         public List<RoundSummary> Summaries = new List<RoundSummary>();
         /// <summary>One line per death: how it happened, by whom, in what kind of room.</summary>
         public List<string> DeathCauses = new List<string>();
+        /// <summary>When each death in <see cref="DeathCauses"/> happened (round seconds), same order.</summary>
+        public List<float> DeathTimes = new List<float>();
         public int EventCount;
         public override string ToString() =>
             $"seed {Seed,5}: {Seconds,6:0}s  out {Extracted}/{Players}  dead {Died}  inside {StillInside}  pk {PlayerKills}  bosses {BossKills}{(FinalBossKilled ? "+final" : "")}  items {ItemsExtracted}  value {ValueExtracted}  looted {RoomsLooted}  souls {Souls}  events {EventCount}  rejected {Rejected}";
@@ -40,8 +42,8 @@ namespace DungeonGen.Core.Net
             int teamCount = server.Descriptor.TeamSpawnRooms.Count;
             for (int t = 0; t < teamCount; t++)
             {
-                var squad = new BotSquad { Team = t };
-                for (int b = 0; b < perTeam; b++) { server.AddBot(id, t, specs[(t * perTeam + b) % specs.Length], tier, new RoundBot(id, squad)); id++; }
+                var squad = new BotSquad { Team = t, LeaveWithSecondsLeft = new BotSquad().LeaveWithSecondsLeft - 10 * ((t * 3) % Math.Max(1, teamCount)) };   // staggered, so the squads that wait it out do not all reach the gates in one tick
+                for (int b = 0; b < perTeam; b++) { server.AddBot(id, t, specs[(t * perTeam + b) % specs.Length], tier, BotRules.DefaultConsumables(tier), new RoundBot(id, squad)); id++; }
             }
             configure?.Invoke(server);
             var report = new RoundReport { Seed = seed, Teams = teamCount, Players = server.State.PlayerTeam.Count };
@@ -68,7 +70,7 @@ namespace DungeonGen.Core.Net
                 string who = by < 0 ? "hazard or clock" : killer == null ? by.ToString() : killer.IsMob ? (IsBossId(by) ? "boss " + killer.Name : by >= (EncounterDirector.FirstBossId - EncounterDirector.MaxBosses + 1) * 100 ? "boss add " + killer.Name : "mob " + killer.Name) : "player " + killer.Spec;
                 string how = e.Kind == MatchEventKind.PlayerFinished ? "finished" : e.B >= 0 ? "killed" : downed.Kind == MatchEventKind.PlayerDowned ? "bled out" : e.Time >= rules.RoundSeconds ? "clock" : "died";
                 string room = e.C >= 0 && e.C < st.Layout.Rooms.Count ? st.Layout.Rooms[e.C].Type.ToString() : "?";
-                report.DeathCauses.Add($"{how} | {who} | {room}");
+                report.DeathCauses.Add($"{how} | {who} | {room}"); report.DeathTimes.Add(e.Time);
             }
             foreach (int p in st.PlayerTeam.Keys.OrderBy(p => p))
             {

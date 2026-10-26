@@ -28,22 +28,44 @@ namespace DungeonGen.Core.Combat
             }
         }
 
-        /// <summary>A point at melee range around the target, spread by caster id so a party surrounds instead of stacking.</summary>
+        /// <summary>
+        /// A point at melee range around the target. Each fighter takes its own slot among the standing fighters of its team that are near the same target
+        /// (ordered by id, spread evenly round the circle, a phase per target), so a party of melee bodies never stacks on one side and swings through itself.
+        /// </summary>
         public static Vec2 Flank(FightSim sim, Combatant c, Combatant target, float range)
         {
-            int slot = c.Id % 6;
-            double angle = slot * Math.PI / 3.0;
+            var crew = sim.Combatants.Values.Where(o => o.Team == c.Team && o.Alive && (o.Id == c.Id || Vec2.Distance(o.Position, target.Position) <= 14f)).Select(o => o.Id).OrderBy(i => i).ToList();
+            int slot = Math.Max(0, crew.IndexOf(c.Id)), slots = Math.Max(3, crew.Count);
+            double phase = (target.Id % 7) * 0.45;
             float r = Math.Max(0.8f, range * 0.85f);
-            var p = target.Position + new Vec2((float)Math.Cos(angle), (float)Math.Sin(angle)) * r;
-            return sim.Walkable(p) ? p : target.Position;
+            // The slot first, then its neighbours either side: a wall or a pillar on the slot's side moves the fighter along the circle, not onto a teammate.
+            for (int k = 0; k < 5; k++)
+            {
+                double angle = phase + slot * 2 * Math.PI / slots + (k % 2 == 0 ? 1 : -1) * ((k + 1) / 2) * 0.35;
+                var p = target.Position + new Vec2((float)Math.Cos(angle), (float)Math.Sin(angle)) * r;
+                if (sim.Walkable(p)) return p;
+            }
+            return target.Position;
+        }
+
+        private static int RoomAt(FightSim sim, Vec2 p)
+        {
+            var l = sim.Layout; if (l == null) return -1;
+            var cell = p.Cell;
+            return l.InBounds(cell) ? l.RoomIdAt[cell.X, cell.Y] : -1;
         }
 
         public static void Act(FightSim sim, Combatant c, float dt)
         {
             if (!c.CanAct) return;
             var enemies = sim.Combatants.Values.Where(o => o.Team != c.Team && !o.Dead).ToList();
-            var alive = enemies.Where(o => !o.Downed).ToList();
-            var target = (alive.Count > 0 ? alive : enemies).OrderBy(o => Vec2.Distance(o.Position, c.Position)).FirstOrDefault();
+            // Only enemies this fighter can see and that are in the fight's room (the room it stands in; a doorway or corridor counts as both sides) are targets.
+            // With none in sight it still walks toward the nearest one (movement only: every cast below needs sight), so a far boss or pack is approached, never shot through walls.
+            int myRoom = RoomAt(sim, c.Position);
+            var inFight = enemies.Where(o => sim.CanSee(c.Position, o.Position) && (myRoom < 0 || RoomAt(sim, o.Position) < 0 || RoomAt(sim, o.Position) == myRoom)).ToList();
+            var pool = inFight.Count > 0 ? inFight : enemies;
+            var alive = pool.Where(o => !o.Downed).ToList();
+            var target = (alive.Count > 0 ? alive : pool).OrderBy(o => Vec2.Distance(o.Position, c.Position)).FirstOrDefault();
             // Taunt overrides: a mob or boss under a Warden's Hold the Line turns on the Warden.
             var taunt = c.Buffs.FirstOrDefault(b => b.Kind == BuffKind.Taunt);
             if (c.IsMob && taunt != null && sim.Get(taunt.Source) is Combatant taunter && taunter.Alive) target = taunter;

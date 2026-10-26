@@ -13,17 +13,39 @@ namespace DungeonGen.Core.Net
         public HashSet<int> Visited = new HashSet<int>();
         public int GoalRoom = -1;
         public bool Leaving;
-        public int ItemsWanted = 8;
-        public float LeaveWithSecondsLeft = 300f;
+        /// <summary>Items carried (all three together) at which the squad has had enough and takes them out. Bags nearly full (<see cref="BagsFullFraction"/>) does the same.</summary>
+        public int ItemsWanted = 14;
+        public float BagsFullFraction = 0.85f;
+        /// <summary>A whole squad carrying fewer items than this does not leave just because there is nothing left to walk to; it waits for a chance until the clock runs low.</summary>
+        public int SatisfiedItems = 8;
+        /// <summary>Out of a fight, a member under this health fraction drinks a potion (in a fight, under half).</summary>
+        public float DrinkBelowHealth = 0.85f;
+        /// <summary>True while the squad has nothing worth walking to and waits, in its own spawn room, for the gates (or for health to come back).</summary>
+        public bool Resting;
+        /// <summary>Corpses already worked (or given up on) by this squad, and when it first set off for each.</summary>
+        public HashSet<int> CorpsesDone = new HashSet<int>();
+        public Dictionary<int, float> CorpseSince = new Dictionary<int, float>();
+        /// <summary>For each room, how many rooms the nearest OTHER team's spawn is from it (filled once). A room nearer to us than to every other team is ours to loot first; the rest are contested.</summary>
+        public Dictionary<int, int> OthersDistance;
+        public float LeaveWithSecondsLeft = 600f;
         public bool TakeOnBosses = true;
         /// <summary>Rooms whose occupants would not come out to fight: avoided until the time given.</summary>
         public Dictionary<int, float> Avoid = new Dictionary<int, float>();
         /// <summary>The boss room the squad has committed to (all three gathered and fit), or -1. A boss the squad has not committed to is walked away from, never fought.</summary>
         public int EngagedBoss = -1;
         /// <summary>Lowest health fraction every member needs before the squad walks into a room boss, and the team average it needs for the final boss.</summary>
-        public float BossReadyHealth = 0.7f, FinalReadyHealth = 0.8f;
+        public float BossReadyHealth = 0.9f, FinalReadyHealth = 0.95f;
+        /// <summary>The final boss is taken only by a squad that has already beaten a room boss together and walks in with this many potions each (the lab: a bot trio beats it 0–25% of the time).</summary>
+        public int FinalBossPotionsEach = 2;
+        public int BossesKilled;
         /// <summary>A squad this weak (standing members' average health) heads for the gate once it is open.</summary>
         public float LeaveBelowHealth = 0.45f;
+        /// <summary>A squad fights players it sees when its standing health is this many times theirs; closer than this many cells it cannot slip away and fights anyway.</summary>
+        /// <summary>With one of the three already down, the squad walks out of a boss fight while the boss is still above this fraction: the boss resets, the rest live.</summary>
+        public float CutLossesAboveBossHealth = 0.5f;
+        public float EngageRatio = 1.7f, BusyRatio = 1.3f, CorneredCells = 3f;
+        /// <summary>Potions each member must still hold to walk into a room boss (one for the fight itself).</summary>
+        public int BossPotionsEach = 1;
     }
 
     /// <summary>
@@ -86,7 +108,8 @@ namespace DungeonGen.Core.Net
             var inSight = sim.Combatants.Values.Where(o => o.Team != c.Team && !o.Dead && Vec2.Distance(o.Position, c.Position) <= range && sim.CanSee(c.Position, o.Position) && !Avoided(o) && !UncommittedBoss(o) && !(_ignore.TryGetValue(o.Id, out float ig) && sim.Time < ig && !o.Downed)).ToList();
             // A potion when it would matter (pockets come from the loadout or a shrine; bots seated bare have none).
             byte drink = 0;
-            if (c.Health < c.MaxHealth * 0.5f)
+            bool underThreat = inSight.Any(o => !o.Downed);
+            if (c.Health < c.MaxHealth * (underThreat ? 0.5f : Squad.DrinkBelowHealth))
             {
                 var potion = Consumable.ByName(Consumable.HealthPotionName);
                 if (server.PocketsOf(PlayerId).TryGetValue(potion.Name, out int n) && n > 0 && server.ConsumableCooldownRemaining(PlayerId, potion) <= 0f && !sim.HealsOverTime.Any(h => h.Target == PlayerId))
@@ -120,6 +143,32 @@ namespace DungeonGen.Core.Net
                 int friends = mates.Count(m => m.Alive && Vec2.Distance(m.Position, c.Position) <= 8f);
                 int enemyPlayers = foes.Count(o => !o.IsMob);
                 float bail = enemyPlayers > friends ? 0.35f : 0.2f;
+                // Not every fight is ours. Players seen at a distance are fought only when the squad is clearly the stronger side (EngageRatio times their
+                // standing health), when they are busy with someone else and it is no worse than even, or when they are on top of us and cannot be outrun.
+                // Otherwise the squad backs off and leaves that room alone for a while: a gate with another team on it, a brawl, a stronger squad.
+                if (Squad.EngagedBoss < 0 && enemyPlayers > 0 && _retreatRoom >= 0 && _retreatRoom != RoomAt(c.Position))
+                {
+                    var theirPlayers = foes.Where(o => !o.IsMob).ToList();
+                    var nearest = theirPlayers.OrderBy(o => Vec2.Distance(o.Position, c.Position)).First();
+                    var standingMates = mates.Where(m => m.Alive).ToList();
+                    float mine = standingMates.Sum(m => m.Health / m.MaxHealth);
+                    // Their strength is what we see of each team plus the rest of its roster, whom we cannot see, taken as nearly whole.
+                    int teamSize = server.Descriptor.Rules.TeamSize;
+                    float theirs = theirPlayers.GroupBy(o => o.Team).Sum(g => g.Sum(o => o.Health / o.MaxHealth) + Math.Max(0, teamSize - g.Count()) * 0.85f);
+                    bool busy = TheyAreBusyElsewhere(sim, foes, c.Team);
+                    bool commit = mine >= theirs * Squad.EngageRatio || (busy && mine >= theirs * Squad.BusyRatio);
+                    bool cornered = Vec2.Distance(nearest.Position, c.Position) <= Squad.CorneredCells || mates.Any(m => m.Downed && !m.Dead);
+                    // Two squads that each wait for the other to leave would stand off until the clock runs out: after 45 s of backing off, the squad fights.
+                    if (!commit && !cornered && _avoidFor < MaxAvoidSeconds)
+                    {
+                        _avoidFor += dt; _avoidIdle = 0f;
+                        int theirRoom = RoomAt(nearest.Position);
+                        if (theirRoom >= 0) Squad.Avoid[theirRoom] = sim.Time + 45f;
+                        if (Squad.GoalRoom >= 0 && Squad.Avoid.TryGetValue(Squad.GoalRoom, out float till) && sim.Time < till) Squad.GoalRoom = -1;
+                        _path = null; _did = "avoid";
+                        return WalkTo(server, c, layout.Rooms[_retreatRoom].Center, dt);
+                    }
+                }
                 if (Squad.EngagedBoss < 0 && c.Health < c.MaxHealth * bail && drink == 0 && !mates.Any(m => m.Downed && !m.Dead && Vec2.Distance(m.Position, c.Position) <= 6f) && _retreatRoom >= 0 && _retreatRoom != RoomAt(c.Position))
                 {
                     _path = null;
@@ -145,6 +194,7 @@ namespace DungeonGen.Core.Net
                 return drink == 0 ? (PlayerIntent?)null : new PlayerIntent { PlayerId = PlayerId, ConsumableSlot = drink, AimX = c.Position.X + c.Facing.X, AimY = c.Position.Y + c.Facing.Y };
             }
             _combatSince = -1f;
+            _avoidIdle += dt; if (_avoidIdle > 8f) { _avoidFor = 0f; _avoidIdle = 0f; }
             if (drink != 0) return new PlayerIntent { PlayerId = PlayerId, ConsumableSlot = drink, AimX = c.Position.X + c.Facing.X, AimY = c.Position.Y + c.Facing.Y };
             { int here0 = RoomAt(c.Position); if (here0 >= 0 && !layout.Rooms[here0].IsBossRoom && layout.Rooms[here0].Mobs == null || here0 >= 0 && Squad.Visited.Contains(here0)) _retreatRoom = here0; }
 
@@ -183,21 +233,33 @@ namespace DungeonGen.Core.Net
             // 4. Decide where to go.
             int room = server.RoomOf(PlayerId);
             DecideLeaving(server, c);
+            // 4a. A corpse worth working (items, silver, an unopened body with its soul) within reach of the squad: go and hold Space over it.
+            if (!(Squad.Leaving && server.State.ExtractsOpen) && !BagsFull(server, c))
+            {
+                var body = NextCorpse(server, c);
+                if (body != null)
+                {
+                    if (!Squad.CorpseSince.ContainsKey(body.Id)) Squad.CorpseSince[body.Id] = sim.Time;
+                    if (Vec2.Distance(body.Position, c.Position) <= 1.2f || sim.Time - Squad.CorpseSince[body.Id] > 45f) Squad.CorpsesDone.Add(body.Id);   // nothing left to do here (the interaction above would have held), or it will not be reached
+                    else { _did = "corpse"; return WalkTo(server, c, body.Position.Cell, dt); }
+                }
+            }
             if (Squad.GoalRoom >= 0 && room == Squad.GoalRoom && Vec2.Distance(Vec2.Of(layout.Rooms[room].Center), c.Position) <= 0.8f && here == null)
             {
                 // Arrived and nothing left to work here.
                 if (!IsExtract(server, room) || !Squad.Leaving) { Squad.Visited.Add(room); Squad.GoalRoom = -1; }
                 else return Idle(PlayerId);   // waiting at the gate for the extracts to open
             }
-            if (Squad.GoalRoom < 0 || !StillWorth(server, Squad.GoalRoom)) Squad.GoalRoom = PickGoal(server, room);
+            if (Squad.GoalRoom < 0 || !StillWorth(server, Squad.GoalRoom)) { int before = Squad.GoalRoom; Squad.GoalRoom = PickGoal(server, room); if (DebugLog != null && Squad.GoalRoom != before && !Squad.Resting) DebugLog($"   T{Squad.Team} {sim.Time:0}s goal {Squad.GoalRoom} {(Squad.GoalRoom >= 0 ? layout.Rooms[Squad.GoalRoom].Type.ToString() : "-")} (from room {room}, leaving {Squad.Leaving})"); }
             if (Squad.GoalRoom < 0) return Idle(PlayerId);
+            if (Squad.Resting && Squad.GoalRoom == RestRoom(server) && room == Squad.GoalRoom) { _did = "rest"; _path = null; return Idle(PlayerId); }
             var goalRoom = layout.Rooms[Squad.GoalRoom];
             if (goalRoom.IsBossRoom && Squad.EngagedBoss != goalRoom.Id && !state.DeadBosses.Contains(goalRoom.Id) && goalRoom.Bounds.Expand(MobRules.LeashCells + 3).Contains(c.Position.Cell))
             {
                 // At the boss's door and not committed: wait for the others outside its arena; give it up if they never come.
                 _did = "wait";
                 if (_waitSince < 0f) _waitSince = sim.Time;
-                if (sim.Time - _waitSince > (HasHealer(Mates(server)) ? 45f : 25f)) { Squad.Visited.Add(goalRoom.Id); Squad.GoalRoom = -1; _waitSince = -1f; }
+                if (sim.Time - _waitSince > (HasHealer(Mates(server)) ? 45f : Mates(server).Any(m => m.Alive && m.Health < m.MaxHealth * Squad.BossReadyHealth) ? 130f : 25f)) { Squad.Avoid[goalRoom.Id] = sim.Time + 120f; Squad.GoalRoom = -1; _waitSince = -1f; }   // not fit or not gathered: try again later, not never
                 var arena = server.Director.Bosses.FirstOrDefault(b => b.RoomId == goalRoom.Id);
                 if (arena != null && arena.InArena(c.Position) && _retreatRoom >= 0) return WalkTo(server, c, layout.Rooms[_retreatRoom].Center, dt);
                 return Idle(PlayerId);
@@ -206,7 +268,22 @@ namespace DungeonGen.Core.Net
             return WalkTo(server, c, layout.Rooms[Squad.GoalRoom].Center, dt);
         }
 
+        /// <summary>Did any of these foes land a blow on someone who is not on <paramref name="team"/> in the last few seconds?</summary>
+        private static bool TheyAreBusyElsewhere(FightSim sim, List<Combatant> foes, int team)
+        {
+            var ids = new HashSet<int>(foes.Select(f => f.Id));
+            for (int i = sim.Events.Count - 1; i >= 0; i--)
+            {
+                var e = sim.Events[i];
+                if (e.Time < sim.Time - 4f) break;
+                if (e.Kind == FightEventKind.Hit && ids.Contains(e.Source) && sim.Get(e.Target) is Combatant t && t.Team != team) return true;
+            }
+            return false;
+        }
+
         public static Action<string> DebugLog;
+        private float _avoidFor; private float _avoidIdle;
+        public const float MaxAvoidSeconds = 45f;
         private int _retreatRoom = -1; private float _waitSince = -1f; private bool _passing;
         private float _pvpSince = -1f, _foeHealthAtStart; private int _downsAtPvp; private readonly Dictionary<int, float> _ignore = new Dictionary<int, float>();
         private bool here0Free(MatchServer server) => server.ChannelOf(PlayerId) == null && server.InteractionAvailable(PlayerId) == null;
@@ -226,11 +303,14 @@ namespace DungeonGen.Core.Net
         private bool InHostileArena(MatchServer server, Vec2 p) => server.Director.Bosses.Any(b => !b.Boss.Dead && b.RoomId != Squad.EngagedBoss && b.InArena(p));
 
         /// <summary>Is the squad fit to take this boss on: all three standing, gathered, and healthy enough (the final boss asks more)?</summary>
-        private bool ReadyFor(MatchServer server, Room room, List<Combatant> mates, Combatant me, bool gathered)
+        private bool ReadyFor(MatchServer server, Room room, List<Combatant> mates, Combatant me, bool gathered, MatchServer counting = null)
         {
             var standing = mates.Where(m => m.Alive).ToList();
             if (standing.Count < 3 || mates.Count != standing.Count) return false;   // the 2.5-player line: a pair does not walk into a boss
-            if (room.Type == RoomType.FinalBoss ? standing.Average(m => m.Health / m.MaxHealth) < Squad.FinalReadyHealth : standing.Min(m => m.Health / m.MaxHealth) < Squad.BossReadyHealth) return false;
+            if (room.Type == RoomType.FinalBoss && (Squad.BossesKilled < 1 || standing.Any(m => (server.PocketsOf(m.Id).TryGetValue(Consumable.HealthPotionName, out int pots) ? pots : 0) < Squad.FinalBossPotionsEach))) return false;
+            // Planning (counting != null) counts the potions in the pockets as health the squad will have by the door; committing counts only what is there.
+            float Hp(Combatant m) => Math.Min(1f, m.Health / m.MaxHealth + (counting != null ? PotionHealth(counting, m) : 0f));
+            if (room.Type == RoomType.FinalBoss ? standing.Average(Hp) < Squad.FinalReadyHealth : standing.Min(Hp) < Squad.BossReadyHealth || standing.Any(m => (server.PocketsOf(m.Id).TryGetValue(Consumable.HealthPotionName, out int pk) ? pk : 0) < Squad.BossPotionsEach)) return false;
             return !gathered || standing.All(m => Vec2.Distance(m.Position, me.Position) <= 5f);
         }
 
@@ -244,16 +324,15 @@ namespace DungeonGen.Core.Net
             if (Squad.EngagedBoss >= 0)
             {
                 var boss = server.Director.Bosses.FirstOrDefault(b => b.RoomId == Squad.EngagedBoss);
-                if (boss == null || boss.Boss.Dead) { if (boss != null) DebugLog?.Invoke($"T{Squad.Team} kills {boss.Instance.DisplayName} at {server.Sim.Time:0}"); Squad.EngagedBoss = -1; return; }
+                if (boss == null || boss.Boss.Dead) { if (boss != null && boss.Boss.Dead && layout.Rooms[boss.RoomId].Type != RoomType.FinalBoss) Squad.BossesKilled++; if (boss != null) DebugLog?.Invoke($"T{Squad.Team} kills {boss.Instance.DisplayName} at {server.Sim.Time:0}"); Squad.EngagedBoss = -1; return; }
                 var standing = mates.Where(m => m.Alive).ToList();
                 float squadHealth = standing.Count == 0 ? 0f : standing.Sum(m => m.Health / m.MaxHealth) / 3f;
                 bool anyoneThere = mates.Any(m => boss.InArena(m.Position));
-                bool lost = standing.Count == 0 || (standing.Count == 1 && boss.HealthFraction > 0.25f) || (boss.HealthFraction > 0.5f && squadHealth < boss.HealthFraction * 0.35f) || (boss.Enraged && boss.HealthFraction > 0.4f);
+                bool lost = standing.Count == 0 || (standing.Count == 2 && boss.HealthFraction > Squad.CutLossesAboveBossHealth) || (standing.Count == 1 && boss.HealthFraction > 0.25f) || (boss.HealthFraction > 0.5f && squadHealth < boss.HealthFraction * 0.35f) || (boss.Enraged && boss.HealthFraction > 0.4f);
                 if ((lost || (!anyoneThere && !boss.Engaged && Squad.GoalRoom != Squad.EngagedBoss)) && DebugLog != null) DebugLog($"T{Squad.Team} drops {boss.Instance.DisplayName} at {server.Sim.Time:0}: lost {lost} standing {standing.Count} squadHp {squadHealth:0.00} boss {boss.HealthFraction:0.00} enraged {boss.Enraged} anyoneThere {anyoneThere} engaged {boss.Engaged}");
                 if (lost || (!anyoneThere && !boss.Engaged && Squad.GoalRoom != Squad.EngagedBoss))
                 {
                     Squad.Avoid[Squad.EngagedBoss] = server.Sim.Time + 240f;
-                    Squad.Visited.Add(Squad.EngagedBoss);
                     if (Squad.GoalRoom == Squad.EngagedBoss) Squad.GoalRoom = -1;
                     Squad.EngagedBoss = -1;
                 }
@@ -333,23 +412,63 @@ namespace DungeonGen.Core.Net
 
         private bool IsExtract(MatchServer s, int room) => s.Layout.Rooms[room].Type == RoomType.Extract || (s.Layout.Rooms[room].Type == RoomType.FinalBoss && s.State.BossExitOpen);
 
+        /// <summary>The squad's load against its capacity: true when the bags are nearly full (<see cref="BotSquad.BagsFullFraction"/>), so the next piece costs speed.</summary>
+        private bool BagsFull(MatchServer server, Combatant me)
+        {
+            var mates = Mates(server);
+            float load = 0f, cap = 0f;
+            foreach (var m in mates) { if (m.IsMob || m.Stats == null) continue; load += server.LoadKgOf(m.Id); cap += m.Stats.CarryKg; }
+            return cap > 0f && load >= cap * Squad.BagsFullFraction;
+        }
+
+        /// <summary>Potions a member can still drink, counted at most twice (a potion has a minute's cooldown), as health the squad can count on getting back.</summary>
+        private float PotionHealth(MatchServer server, Combatant m)
+        {
+            var potion = Consumable.ByName(Consumable.HealthPotionName);
+            server.PocketsOf(m.Id).TryGetValue(potion.Name, out int n);
+            return Math.Min(2, n) * 0.3f;
+        }
+
         private void DecideLeaving(MatchServer server, Combatant c)
         {
             if (Squad.Leaving) return;
             var state = server.State;
             var members = state.PlayerTeam.Where(kv => kv.Value == c.Team).Select(kv => kv.Key).ToList();
             int carried = state.ItemOwner.Count(kv => members.Contains(kv.Value));
-            if (carried >= Squad.ItemsWanted && server.Clock.SecondsUntilExtracts(server.Elapsed) <= 30f) { Squad.Leaving = true; DebugLog?.Invoke($"T{Squad.Team} leaves at {server.Sim.Time:0}: carrying {carried}"); }   // enough in the bags, and the gates are about to open
-            if (server.Clock.SecondsRemaining(server.Elapsed) <= Squad.LeaveWithSecondsLeft) Squad.Leaving = true;
-            // A squad that has lost someone, or is worn down, takes what it has out as soon as the gates open.
+            // Enough: the bags are nearly full or the squad holds as many pieces as it set out for. Time spent after that is risk.
+            if (carried > 0 && (carried >= Squad.ItemsWanted || BagsFull(server, c))) { Squad.Leaving = true; DebugLog?.Invoke($"T{Squad.Team} leaves at {server.Sim.Time:0}: full, carrying {carried}"); return; }
+            if (server.Clock.SecondsRemaining(server.Elapsed) <= Squad.LeaveWithSecondsLeft) { Squad.Leaving = true; DebugLog?.Invoke($"T{Squad.Team} leaves at {server.Sim.Time:0}: time"); return; }
+            // A squad that has lost someone, or is worn down beyond what its potions will mend, takes what it has out.
             var mates = Mates(server); var standing = mates.Where(m => m.Alive).ToList();
-            bool weak = mates.Count < members.Count(m => !state.ExtractedPlayers.Contains(m)) || standing.Count == 0 || standing.Average(m => m.Health / m.MaxHealth) < Squad.LeaveBelowHealth;
-            if (weak && carried > 0 && server.Clock.SecondsUntilExtracts(server.Elapsed) <= 30f) { Squad.Leaving = true; DebugLog?.Invoke($"T{Squad.Team} leaves at {server.Sim.Time:0}: weak, carrying {carried}"); }
+            bool weak = mates.Count < members.Count(m => !state.ExtractedPlayers.Contains(m)) || standing.Count == 0 || standing.Average(m => Math.Min(1f, m.Health / m.MaxHealth + PotionHealth(server, m))) < Squad.LeaveBelowHealth;
+            if (weak && carried > 0) { Squad.Leaving = true; DebugLog?.Invoke($"T{Squad.Team} leaves at {server.Sim.Time:0}: weak, carrying {carried}"); }
+        }
+
+        /// <summary>The nearest corpse worth working: items left, silver, or not opened yet; not in a boss arena, not one the squad has finished with.</summary>
+        private Combatant NextCorpse(MatchServer server, Combatant me)
+        {
+            var state = server.State;
+            Combatant best = null; float bestD = 0f;
+            foreach (var kv in state.Corpses)
+            {
+                if (Squad.CorpsesDone.Contains(kv.Key)) continue;
+                bool worth = !state.OpenedCorpses.Contains(kv.Key) || kv.Value.Count > 0 || state.CorpseSilver.ContainsKey(kv.Key);
+                if (!worth) { Squad.CorpsesDone.Add(kv.Key); continue; }
+                var body = server.Sim.Get(kv.Key);
+                if (body == null || !body.Dead || InHostileArena(server, body.Position)) continue;
+                int r = body.Position.Cell.X >= 0 && server.Layout.InBounds(body.Position.Cell) ? server.Layout.RoomIdAt[body.Position.Cell.X, body.Position.Cell.Y] : -1;
+                if (r >= 0 && Squad.Avoid.TryGetValue(r, out float until) && server.Sim.Time < until) continue;
+                float d = Vec2.Distance(body.Position, me.Position);
+                if (d > 45f) continue;
+                if (best == null || d < bestD) { best = body; bestD = d; }
+            }
+            return best;
         }
 
         /// <summary>Is the chosen room still worth walking to? Loot taken by someone else, or a boss killed by another team, changes the answer.</summary>
         private bool StillWorth(MatchServer server, int room)
         {
+            if (Squad.Resting) return false;   // re-decide every tick: a boss may have become fit, the gates may be near
             if (Squad.Leaving) return IsExtract(server, room) || room == Squad.GoalRoom;
             return Worth(server, room);
         }
@@ -366,13 +485,53 @@ namespace DungeonGen.Core.Net
                 int standing = state.PlayerTeam.Count(kv => kv.Value == Squad.Team && !state.DeadPlayers.Contains(kv.Key) && !state.ExtractedPlayers.Contains(kv.Key));
                 if (standing < 3) return false;   // the design's 2.5-player line: a bot pair does not walk into a boss
                 var mates = Mates(server);
-                if (Squad.EngagedBoss != room && mates.Count > 0 && !ReadyFor(server, r, mates, mates[0], gathered: false) && !(HasHealer(mates) && mates.All(m => m.Alive) && mates.Count >= 3)) return false;   // too hurt for this one (a squad with a Mender heals up at the door)
+                if (Squad.EngagedBoss != room && mates.Count > 0 && !ReadyFor(server, r, mates, mates[0], gathered: false, server) && !(HasHealer(mates) && mates.All(m => m.Alive) && mates.Count >= 3)) return false;   // too hurt for this one (a squad with a Mender heals up at the door)
             }
             if (r.Type == RoomType.Vault && !state.OpenVaults.Contains(room) && !layout.Keys.Any(k => k.VaultRoomId == room && state.KeyHolder.TryGetValue(k.KeyId, out int h) && state.PlayerTeam.TryGetValue(h, out int ht) && ht == Squad.Team)) return false;
             bool chest = (r.Loot.Count > 0 || r.Silver > 0) && (!state.OpenedContainers.Contains(room) || state.VisibleItemsIn(room).Any() || (!state.SilverTakenRooms.Contains(room) && r.Silver > 0));
             bool key = layout.Keys.Any(k => k.HolderRoomId == room && !state.KeyHolder.ContainsKey(k.KeyId) && !state.DestroyedKeys.Contains(k.KeyId));
             bool boss = r.IsBossRoom && !state.DeadBosses.Contains(room);
             return chest || key || boss;
+        }
+
+        /// <summary>Seconds a bot allows per room of walking when it times its departure for the gates, and the margin it keeps on top.</summary>
+        public const float StageSecondsPerRoom = 9f, StageMarginSeconds = 12f;
+
+        /// <summary>Is this room nearer to our spawn than to every other team's?</summary>
+        private bool Ours(MatchServer server, int room, int myDistance)
+        {
+            if (Squad.OthersDistance == null)
+            {
+                var layout = server.Layout; var homes = server.Descriptor.TeamSpawnRooms;
+                var best = new Dictionary<int, int>();
+                for (int t = 0; t < homes.Count; t++)
+                {
+                    if (t == Squad.Team) continue;
+                    var d = new Dictionary<int, int> { [homes[t]] = 0 }; var q = new Queue<int>(); q.Enqueue(homes[t]);
+                    while (q.Count > 0) { int r = q.Dequeue(); foreach (int n in layout.Rooms[r].Neighbours) if (!d.ContainsKey(n)) { d[n] = d[r] + 1; q.Enqueue(n); } }
+                    foreach (var kv in d) if (!best.TryGetValue(kv.Key, out int b) || kv.Value < b) best[kv.Key] = kv.Value;
+                }
+                Squad.OthersDistance = best;
+            }
+            // Distances are from where we stand now, which is near enough to home early in the round, when the contested rooms matter.
+            return !Squad.OthersDistance.TryGetValue(room, out int other) || myDistance < other;
+        }
+
+        /// <summary>Whole, healthy enough and carrying less than <see cref="BotSquad.SatisfiedItems"/>: worth waiting for what the round may still offer.</summary>
+        private bool WantsToStay(MatchServer server)
+        {
+            var state = server.State;
+            var members = state.PlayerTeam.Where(kv => kv.Value == Squad.Team).Select(kv => kv.Key).ToList();
+            var mates = Mates(server);
+            if (mates.Count < members.Count || mates.Any(m => !m.Alive) || members.Any(m => state.ExtractedPlayers.Contains(m))) return false;
+            if (state.ItemOwner.Count(kv => members.Contains(kv.Value)) >= Squad.SatisfiedItems) return false;
+            return server.Clock.SecondsRemaining(server.Elapsed) > Squad.LeaveWithSecondsLeft;
+        }
+
+        private int RestRoom(MatchServer server)
+        {
+            var homes = server.Descriptor.TeamSpawnRooms;
+            return Squad.Team >= 0 && Squad.Team < homes.Count ? homes[Squad.Team] : -1;
         }
 
         private int PickGoal(MatchServer server, int from)
@@ -387,15 +546,28 @@ namespace DungeonGen.Core.Net
                 int r = queue.Dequeue();
                 foreach (int n in layout.Rooms[r].Neighbours) if (!dist.ContainsKey(n)) { dist[n] = dist[r] + 1; queue.Enqueue(n); }
             }
+            var restRoom = RestRoom(server);
             if (Squad.Leaving)
             {
-                var gates = layout.Rooms.Where(r => r.Type == RoomType.Extract || (r.Type == RoomType.FinalBoss && server.State.BossExitOpen)).Where(r => dist.ContainsKey(r.Id)).OrderBy(r => dist[r.Id]).FirstOrDefault();
+                var exits = layout.Rooms.Where(r => r.Type == RoomType.Extract || (r.Type == RoomType.FinalBoss && server.State.BossExitOpen)).Where(r => dist.ContainsKey(r.Id)).ToList();
+                // Another team is on the nearest gate (we saw them and backed off): the next nearest, unless every gate is taken.
+                var open = exits.Where(r => !(Squad.Avoid.TryGetValue(r.Id, out float until) && server.Sim.Time < until)).ToList();
+                var gates = (open.Count > 0 ? open : exits).OrderBy(r => dist[r.Id]).FirstOrDefault();
+                // The gates are not open yet: wait at home and set off with the walk (and a margin) to spare, rather than camping the gate where every team arrives.
+                if (gates != null && !server.State.ExtractsOpen && restRoom >= 0 && server.Clock.SecondsUntilExtracts(server.Elapsed) > dist[gates.Id] * StageSecondsPerRoom + StageMarginSeconds) { Squad.Resting = true; return restRoom; }
+                Squad.Resting = false;
                 return gates?.Id ?? -1;
             }
             var pick = layout.Rooms.Where(r => dist.ContainsKey(r.Id) && Worth(server, r.Id))
                 .OrderBy(r => r.Type == RoomType.FinalBoss ? 2 : r.IsBossRoom && !server.State.DeadBosses.Contains(r.Id) ? 1 : 0)      // ordinary rooms, then bosses, the final boss last
+                .ThenBy(r => !Ours(server, r.Id, dist[r.Id]) ? 1 : 0)                                                          // our own side first: the rooms between two spawns are where squads collide
                 .ThenBy(r => dist[r.Id]).ThenBy(r => r.Id).FirstOrDefault();
-            if (pick == null) { Squad.Leaving = true; DebugLog?.Invoke($"T{Squad.Team} leaves at {server.Sim.Time:0}: nothing left, visited {Squad.Visited.Count} of {layout.Rooms.Count}"); return PickGoal(server, from); }
+            if (pick == null && !server.State.ExtractsOpen && restRoom >= 0) { Squad.Resting = true; return restRoom; }   // nothing to do until the gates open: wait at home (potions work, a boss may become fit to take)
+            Squad.Resting = false;
+            // The gates are open and nothing is worth a walk. A whole squad that has little to show for its round waits at home for a chance (a corpse, a boss it is fit for
+            // once the potions are back, the clock running low) instead of leaving with empty bags.
+            if (pick == null && WantsToStay(server)) { Squad.Resting = true; return restRoom; }
+            if (pick == null) { Squad.Leaving = true; DebugLog?.Invoke($"T{Squad.Team} leaves at {server.Sim.Time:0}: nothing left, visited {Squad.Visited.Count} of {layout.Rooms.Count}"); if (DebugLog != null) foreach (var rr in layout.Rooms) DebugLog($"   room {rr.Id} {rr.Type} loot {rr.Loot.Count} silver {rr.Silver} mobs {(rr.Mobs != null ? rr.Mobs.Count : 0)} opened {server.State.OpenedContainers.Contains(rr.Id)} visited {Squad.Visited.Contains(rr.Id)} avoid {Squad.Avoid.ContainsKey(rr.Id)} dist {(dist.TryGetValue(rr.Id, out int dd) ? dd : -1)}"); return PickGoal(server, from); }
             return pick.Id;
         }
 
