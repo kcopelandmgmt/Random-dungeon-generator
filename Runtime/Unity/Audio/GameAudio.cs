@@ -34,6 +34,16 @@ namespace DungeonGen.Unity
         [Tooltip("Metres the local avatar walks between footsteps.")]
         public float StrideMetres = 1.8f;
         public int RecentCapacity = 256;
+        [Header("World loops and others' steps")]
+        public int MaxHazardLoops = 6;
+        public int MaxTorchLoops = 4;
+        public float HazardLoopVolume = 0.35f, TorchLoopVolume = 0.18f;
+        [Tooltip("Spatial range of the hazard and torch loops (metres from the loop source to the listener).")]
+        public float LoopMinDistance = 10f, LoopMaxDistance = 40f;
+        [Tooltip("Other avatars' footsteps are heard within this many metres of the listener.")]
+        public float OtherStepRange = 15f;
+        public float OtherStepVolume = 0.25f;
+        public int MaxOtherStepsPerFrame = 2;
 
         /// <summary>Every sound key requested, newest last (capped). For tests and debugging; recorded even when muted.</summary>
         public IReadOnlyList<string> RecentKeys => _recent;
@@ -65,6 +75,15 @@ namespace DungeonGen.Unity
         private DungeonMatchBootstrap _hookedBootstrap; private MatchServer _hookedServer;
         private ClientWorldView _hookedWorld; private AbilityEffects _hookedEffects;
         private bool _loopsStarted, _awake;
+        private readonly Dictionary<string, AudioSource> _worldLoops = new Dictionary<string, AudioSource>();
+        private readonly List<AudioSource> _loopSpare = new List<AudioSource>();
+        private readonly List<(string id, string key, Vector3 pos, float dist, float vol)> _loopWant = new List<(string, string, Vector3, float, float)>();
+        private readonly List<GameObject> _torches = new List<GameObject>();
+        private int _torchCountFor = -1;
+        private float _nextLoopScan;
+        private readonly Dictionary<int, Vector3> _otherLast = new Dictionary<int, Vector3>();
+        private readonly Dictionary<int, float> _otherStride = new Dictionary<int, float>();
+        private readonly List<int> _otherGone = new List<int>();
 
         // ---------------------------------------------------------------- setup
 
@@ -351,7 +370,32 @@ namespace DungeonGen.Unity
                 else if (!a.IsMob && a.ClassIndex < ClassArchetype.DefaultRoster.Count) armoured = ClassArchetype.DefaultRoster[a.ClassIndex].Armour == ArmourWeight.Heavy;
             }
             if (!Throttled("hit" + e.Target, 0.08f)) PlayAtSim(armoured ? "hit_armour" : "hit_flesh", e.X, e.Y);
+            if (!Throttled("imp" + e.Target, 0.12f)) PlayAtSim(ImpactKey(e.Ability), e.X, e.Y, 0.8f);
             if (e.Target == LocalId && !Throttled("hurt", 0.45f)) PlayAtSim("player_hurt", e.X, e.Y);
+        }
+
+        /// <summary>Resolve a hit label (usually an ability's display name, maybe with a suffix, or an id) to its definition, or null.</summary>
+        public static AbilityDefinition ResolveAbility(string label)
+        {
+            if (string.IsNullOrEmpty(label)) return null;
+            if (AbilityBook.TryGet(label, out var byId)) return byId;
+            AbilityDefinition prefix = null;
+            foreach (var d in AbilityBook.All)
+            {
+                if (d.Name == label) return d;
+                if (prefix == null && label.StartsWith(d.Name + " ", StringComparison.Ordinal)) prefix = d;
+            }
+            return prefix;
+        }
+
+        /// <summary>The per-element impact sound for a hit label: physical when it has no element, an arrow strike for bow abilities.</summary>
+        public static string ImpactKey(string label)
+        {
+            var def = ResolveAbility(label);
+            if (def == null) return "impact_physical";
+            if (def.Element.HasValue && def.Element.Value != DamageType.Physical) return "impact_" + def.Element.Value.ToString().ToLowerInvariant();
+            if (WeaponKey(def.Spec) == "bow_release") return "arrow_impact";
+            return "impact_physical";
         }
 
         private void OnTelegraph(EffectSnapshot e)
@@ -483,11 +527,142 @@ namespace DungeonGen.Unity
         {
             Hook();
             Track();                                    // music choice is tracked (and recorded) even when muted
+            WorldLoops();
             if (Muted || World == null || World.Latest == null) return;
             StartLoops();
             Mix(Time.unscaledDeltaTime);
             Voice();
             Footsteps();
+            OtherFootsteps();
+        }
+
+        // ---------------------------------------------------------------- hazard and torch loops, others' footsteps
+
+        private Vector3 ListenerPosition()
+        {
+            var av = World != null ? World.LocalAvatar : null;
+            if (av != null) return av.transform.position;
+            var cam = Camera.main;
+            return cam != null ? cam.transform.position : Vector3.zero;
+        }
+
+        private void WorldLoops()
+        {
+            if (!_awake || World == null || World.Latest == null || Library == null) return;
+            if (Time.unscaledTime < _nextLoopScan) return;
+            _nextLoopScan = Time.unscaledTime + 0.25f;
+            var me = ListenerPosition();
+            _loopWant.Clear();
+            var st = Bootstrap != null ? Bootstrap.State : null;
+            if (st != null && Builder != null && st.Index != null)
+            {
+                foreach (var hz in st.HazardsVisibleTo(LocalTeam))
+                {
+                    if (hz.Kind != HazardKind.GasVent && hz.Kind != HazardKind.Lava) continue;
+                    if (st.DisarmedHazards.Contains(hz.Id)) continue;
+                    Vector3 pos;
+                    if (Builder.HazardObjects.TryGetValue(hz.Id, out var go) && go != null) pos = go.transform.position;
+                    else pos = Builder.GridToWorld(hz.Bounds.Center);
+                    _loopWant.Add(("hz" + hz.Id, hz.Kind == HazardKind.GasVent ? "gas_vent_loop" : "lava_loop", pos, Vector3.Distance(me, pos), HazardLoopVolume));
+                }
+                KeepNearest("hz", MaxHazardLoops);
+            }
+            if (Builder != null)
+            {
+                if (_torchCountFor != Builder.RoomLightCount || (_torches.Count == 0 && Builder.RoomLightCount > 0)) RescanTorches();
+                foreach (var t in _torches)
+                {
+                    if (t == null || !t.activeInHierarchy) continue;
+                    var pos = t.transform.position;
+                    _loopWant.Add(("torch" + t.GetInstanceID(), "torch_loop", pos, Vector3.Distance(me, pos), TorchLoopVolume));
+                }
+                KeepNearest("torch", MaxTorchLoops);
+            }
+            ApplyWorldLoops();
+        }
+
+        private void RescanTorches()
+        {
+            _torches.Clear();
+            _torchCountFor = Builder.RoomLightCount;
+            foreach (var list in Builder.CellObjects.Values)
+                foreach (var go in list)
+                    if (go != null && go.name.StartsWith("RoomLight_", StringComparison.Ordinal)) _torches.Add(go);
+        }
+
+        /// <summary>Of the wanted loops whose id starts with the prefix, keep only the nearest <paramref name="max"/>.</summary>
+        private void KeepNearest(string prefix, int max)
+        {
+            var mine = _loopWant.Where(w => w.id.StartsWith(prefix, StringComparison.Ordinal)).OrderBy(w => w.dist).ToList();
+            _loopWant.RemoveAll(w => w.id.StartsWith(prefix, StringComparison.Ordinal));
+            for (int i = 0; i < mine.Count && i < max; i++) _loopWant.Add(mine[i]);
+        }
+
+        private void ApplyWorldLoops()
+        {
+            var keep = new HashSet<string>();
+            foreach (var w in _loopWant)
+            {
+                keep.Add(w.id);
+                if (!_worldLoops.TryGetValue(w.id, out var src))
+                {
+                    Request(w.key);
+                    var clip = Muted ? null : Library.Pick(w.key, out _);
+                    if (clip == null) { _worldLoops[w.id] = null; continue; }
+                    if (_loopSpare.Count > 0) { src = _loopSpare[_loopSpare.Count - 1]; _loopSpare.RemoveAt(_loopSpare.Count - 1); }
+                    else src = MakeSource("WorldLoop", true, true);
+                    src.minDistance = LoopMinDistance; src.maxDistance = LoopMaxDistance;
+                    src.clip = clip; src.pitch = 1f; src.time = UnityEngine.Random.value * clip.length * 0.99f;
+                    _worldLoops[w.id] = src;
+                    src.Play();
+                }
+                if (src != null)
+                {
+                    Library.Pick(w.key, out float v);
+                    src.transform.position = w.pos; src.volume = Mathf.Clamp01(v * w.vol * SfxScale);
+                }
+            }
+            List<string> drop = null;
+            foreach (var kv in _worldLoops) if (!keep.Contains(kv.Key)) (drop ??= new List<string>()).Add(kv.Key);
+            if (drop == null) return;
+            foreach (var id in drop)
+            {
+                var src = _worldLoops[id]; _worldLoops.Remove(id);
+                if (src != null) { src.Stop(); _loopSpare.Add(src); }
+            }
+        }
+
+        /// <summary>Footsteps for every other visible avatar that is moving near the listener, quieter than the local player's, capped per frame.</summary>
+        private void OtherFootsteps()
+        {
+            if (World == null || Library == null) return;
+            var me = ListenerPosition(); me.y = 0f;
+            int played = 0;
+            foreach (var kv in World.Avatars)
+            {
+                int id = kv.Key; var go = kv.Value;
+                if (id == LocalId || go == null || !go.activeInHierarchy) continue;
+                var p = go.transform.position; p.y = 0f;
+                if (!_otherLast.TryGetValue(id, out var last)) { _otherLast[id] = p; continue; }
+                _otherLast[id] = p;
+                float d = Vector3.Distance(p, last);
+                if (d <= 0.001f || d > 3f) continue;                       // standing, or teleported
+                if (TryAvatar(id, out var a) && (a.Dead || a.Downed || a.Invisible)) continue;
+                _otherStride.TryGetValue(id, out float acc);
+                acc += d;
+                if (acc < StrideMetres * 1.2f) { _otherStride[id] = acc; continue; }
+                _otherStride[id] = 0f;
+                float dist = Vector3.Distance(p, me);
+                if (dist > OtherStepRange || played >= MaxOtherStepsPerFrame || Throttled("ofs" + id, 0.25f) || Throttled("ofsAll", 0.04f)) continue;
+                played++;
+                PlayAt("footstep_stone", go.transform.position, OtherStepVolume * (1f - 0.6f * dist / OtherStepRange));
+            }
+            if (_otherLast.Count > World.Avatars.Count + 8)
+            {
+                _otherGone.Clear();
+                foreach (var id in _otherLast.Keys) if (!World.Avatars.ContainsKey(id)) _otherGone.Add(id);
+                foreach (var id in _otherGone) { _otherLast.Remove(id); _otherStride.Remove(id); }
+            }
         }
 
         private void Track()
