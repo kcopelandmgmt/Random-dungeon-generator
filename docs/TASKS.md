@@ -29,6 +29,8 @@ could not be verified headless (say why).
 | 4.2 | Level look: corridors 4 cells wide; tall walls that fade when they hide a character | agent | done | core 300; in a sandbox copy: playmode 37/37 (3 new `WallFadeTests`), build-win + smoke-release; then confirmed on the real project: playmode 37/37, build-win + smoke-release exit 0. Sims (fixed seeds): extraction 49.6% → 53.1%, round 9.9 → 11.0 min, PvP share 63% → 69%, rejected 0. |
 | 4.3 | Painted ability icons generated with Meshy text-to-image for all abilities | agent | done | 69 icons reviewed by eye; model pilot (nano-banana, nano-banana-2-lite, gpt-image-2): gpt-image-2 chosen (only one that obeyed no frame/no text), 9 credits each, 621 total + 27 pilot + 9 regenerated; ledger 1,760 / 4,500. `AbilityIconBaker.FromImages` frames them for the HUD; `Bake` stays the fallback. |
 
+**Wave 4 verification (2026-10-26, real project):** icons imported (`FromImages`), SampleScene rebuilt, compile clean, PlayMode 37/37, EditMode 1/1, build-win + smoke-release, build-win-dev + smoke, smoke-net host and client: all exit 0. Screenshots of the painted HUD icons, the shrine prayer panel and the 8 m corridor with a faded wall checked by eye.
+
 ## Wave 3 (started 2026-10-26)
 
 | # | Task | Owner | Status | Verified |
