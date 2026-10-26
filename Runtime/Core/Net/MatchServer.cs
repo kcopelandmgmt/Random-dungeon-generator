@@ -547,7 +547,11 @@ namespace DungeonGen.Core.Net
                 switch (ch.Kind)
                 {
                     case "chest": if (!State.OpenedContainers.Contains(ch.Target)) Raise(new MatchEvent(MatchEventKind.ContainerOpened, Sim.Time, ch.Target, playerId)); break;
-                    case "corpse": if (!State.OpenedCorpses.Contains(ch.Target)) Raise(new MatchEvent(MatchEventKind.CorpseOpened, Sim.Time, ch.Target, playerId)); break;
+                    case "corpse":
+                        // The owner may have been resurrected mid-loot: the body stays where it lay, re-keyed RemainsOf(owner).
+                        int body = State.Corpses.ContainsKey(ch.Target) ? ch.Target : MatchState.RemainsOf(ch.Target);
+                        if (State.Corpses.ContainsKey(body) && !State.OpenedCorpses.Contains(body)) Raise(new MatchEvent(MatchEventKind.CorpseOpened, Sim.Time, body, playerId));
+                        break;
                     case "key": if (!State.KeyHolder.ContainsKey(ch.Target)) Raise(new MatchEvent(MatchEventKind.KeyPickedUp, Sim.Time, ch.Target, playerId)); break;
                     case "door":
                         if (State.Index.Doors.TryGetValue(ch.Target, out var d) && State.ClosedDoors.Contains(d.cell) && Raise(new MatchEvent(MatchEventKind.DoorOpened, Sim.Time, ch.Target, playerId)))

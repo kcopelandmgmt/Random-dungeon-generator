@@ -531,6 +531,9 @@ namespace DungeonGen.Core.Net
                             if (CorpseSilver.TryGetValue(e.A, out int bodySilver)) CorpseSilver[remains] = bodySilver;
                             if (CorpseSouls.Contains(e.A)) CorpseSouls.Add(remains);
                             if (PlayerRoom.TryGetValue(e.A, out int lay)) PlayerRoom[remains] = lay;   // where the body lies (what a team view reads for a corpse)
+                            // Anyone mid-way through looting the body keeps looting it under its new key.
+                            foreach (var looter in Loots.Where(l => l.Value.kind == 1 && l.Value.target == e.A).Select(l => l.Key).ToList())
+                                Loots[looter] = (remains, 1, Loots[looter].started);
                         }
                         OpenedCorpses.Remove(e.A); CorpseSilver.Remove(e.A); CorpseSouls.Remove(e.A);
                         DeadPlayers.Remove(e.A); PlayerRoom[e.A] = e.C;
