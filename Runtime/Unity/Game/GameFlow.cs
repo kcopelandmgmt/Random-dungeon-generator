@@ -31,7 +31,8 @@ namespace DungeonGen.Unity
         public const int MaxNameLength = 20;
         /// <summary>The consumables on the quick slots, in key order (1, 2), brought into every round.</summary>
         public static readonly string[] PocketConsumables = { "Health Potion", "Antidote" };
-        private const string SelectedKey = "dg.character.selected", BotTeamsKey = "dg.practice.botteams";
+        /// <summary>PlayerPrefs keys: the selected character index and the bot teams choice.</summary>
+        public const string SelectedKey = "dg.character.selected", BotTeamsKey = "dg.practice.botteams";
 
         public static GameFlow Instance { get; private set; }
 
@@ -209,9 +210,41 @@ namespace DungeonGen.Unity
             LastReport = null; LastRecap = null; Message = null; _settled = false; _sim = null;
             Phase = FlowPhase.LoadingRound;
             Changed?.Invoke();
-            StartCoroutine(LoadThen(RoundScenePath, () => { Phase = FlowPhase.InRound; Changed?.Invoke(); }));
+            Time.timeScale = 1f;
+            StartCoroutine(LoadThen(RoundScenePath, null, HostRound));
             return null;
         }
+
+        /// <summary>The round scene is up: host the offline round in it (the release host; a dev scene's PracticeMode may have hosted already).</summary>
+        private IEnumerator HostRound()
+        {
+            yield return null;   // let the scene's Start methods run first
+            var match = OfflineMatch.HostInScene();
+            if (match == null) Debug.LogError("GameFlow: the round scene has no match bootstrap to host on.");
+            else if (!match.Hosting) match.Host();
+            Phase = FlowPhase.InRound;
+            Changed?.Invoke();
+        }
+
+        // ---------------- pause ----------------
+
+        /// <summary>Is the running round paused (offline only)?</summary>
+        public static bool RoundPaused => OfflineMatch.Current != null && OfflineMatch.Current.Paused;
+
+        /// <summary>
+        /// The pause menu opened or closed. Offline (the round hosted here by <see cref="OfflineMatch"/>, alone) the simulation
+        /// stops and time freezes; a networked round goes on. Returns whether the round is now paused.
+        /// </summary>
+        public static bool SetRoundPaused(bool paused)
+        {
+            var match = OfflineMatch.Current;
+            if (match == null || !match.IsOffline) { if (!paused) Time.timeScale = 1f; return false; }
+            match.SetPaused(paused);
+            return match.Paused;
+        }
+
+        /// <summary>Can the running round pause (it is offline)?</summary>
+        public static bool RoundCanPause => OfflineMatch.Current != null && OfflineMatch.Current.IsOffline;
 
         /// <summary>The host's server for the running round, or null.</summary>
         public MatchServer Server
@@ -302,17 +335,20 @@ namespace DungeonGen.Unity
             if (Phase == FlowPhase.LoadingMenu) return;
             PracticeLaunch.Current = null;
             _sim = null;
+            SetRoundPaused(false);
+            Time.timeScale = 1f;
             Phase = FlowPhase.LoadingMenu;
             Changed?.Invoke();
             StartCoroutine(LoadThen(MenuScenePath, () => { Phase = FlowPhase.Menu; Changed?.Invoke(); }));
         }
 
-        private IEnumerator LoadThen(string path, Action done)
+        private IEnumerator LoadThen(string path, Action done, Func<IEnumerator> then = null)
         {
             var op = LoadScene(path);
             if (op == null) { Debug.LogError("GameFlow: cannot load " + path); Phase = FlowPhase.Menu; yield break; }
             while (!op.isDone) yield return null;
             done?.Invoke();
+            if (then != null) yield return then();
         }
 
         /// <summary>Load a scene by asset path: from the editor's AssetDatabase in play mode (no build list needed), else from the build.</summary>

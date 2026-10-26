@@ -8,9 +8,11 @@ using UnityEngine;
 namespace DungeonGen.Unity.Editor
 {
     /// <summary>
-    /// Headless Windows player build for the orchestrator: <c>Tools/Build/unity-batch.sh build-win</c> calls
-    /// <see cref="Windows"/>. A development build, because the practice assembly only exists in the editor and in
-    /// development builds. Player settings the smoke test needs are set here, in code, never by hand.
+    /// Headless Windows player builds for the orchestrator. <c>Tools/Build/unity-batch.sh build-win</c> calls
+    /// <see cref="WindowsRelease"/> (non-development, into <c>Builds/Win</c>: the game a person plays, without the practice
+    /// assembly); <c>build-win-dev</c> calls <see cref="WindowsDev"/> (development, into <c>Builds/WinDev</c>: with the practice
+    /// assembly, so <c>-autotest</c> works). <see cref="Windows"/> is the old name for the dev build. Player settings the smoke
+    /// tests need are set here, in code, never by hand.
     /// </summary>
     public static class PlayerBuild
     {
@@ -18,14 +20,24 @@ namespace DungeonGen.Unity.Editor
         public const string MenuScenePath = "Assets/Scenes/MainMenu.unity";
         /// <summary>The build list: the main menu boots first, the round scene second (-autotest skips the menu).</summary>
         public static readonly string[] Scenes = { MenuScenePath, ScenePath };
+        /// <summary>The release player.</summary>
         public const string OutputRelative = "Builds/Win/DungeonGame.exe";
+        /// <summary>The development player (practice assembly, -autotest).</summary>
+        public const string DevOutputRelative = "Builds/WinDev/DungeonGame.exe";
 
-        public static void Windows()
+        /// <summary>Alias for <see cref="WindowsDev"/>, kept so older calls still build the development player.</summary>
+        public static void Windows() => WindowsDev();
+
+        public static void WindowsDev() => Build(DevOutputRelative, BuildOptions.Development);
+
+        public static void WindowsRelease() => Build(OutputRelative, BuildOptions.None);
+
+        private static void Build(string outputRelative, BuildOptions buildOptions)
         {
             try
             {
                 var projectRoot = Directory.GetParent(Application.dataPath).FullName;
-                var output = Path.Combine(projectRoot, OutputRelative.Replace('/', Path.DirectorySeparatorChar));
+                var output = Path.Combine(projectRoot, outputRelative.Replace('/', Path.DirectorySeparatorChar));
                 Directory.CreateDirectory(Path.GetDirectoryName(output));
 
                 ApplySettings();
@@ -36,11 +48,11 @@ namespace DungeonGen.Unity.Editor
                     locationPathName = output,
                     target = BuildTarget.StandaloneWindows64,
                     targetGroup = BuildTargetGroup.Standalone,
-                    options = BuildOptions.Development,
+                    options = buildOptions,
                 };
                 var report = BuildPipeline.BuildPlayer(options);
                 var summary = report.summary;
-                Debug.Log($"Dungeon Gen: player build {summary.result}, {summary.totalSize / (1024.0 * 1024.0):0.0} MB, {summary.totalTime.TotalSeconds:0.0} s, {summary.totalErrors} errors, {summary.totalWarnings} warnings -> {summary.outputPath}");
+                Debug.Log($"Dungeon Gen: {(buildOptions.HasFlag(BuildOptions.Development) ? "development" : "release")} player build {summary.result}, {summary.totalSize / (1024.0 * 1024.0):0.0} MB, {summary.totalTime.TotalSeconds:0.0} s, {summary.totalErrors} errors, {summary.totalWarnings} warnings -> {summary.outputPath}");
                 if (summary.result != BuildResult.Succeeded)
                 {
                     foreach (var step in report.steps)

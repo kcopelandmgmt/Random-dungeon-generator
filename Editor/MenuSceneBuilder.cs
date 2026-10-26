@@ -7,7 +7,7 @@ using UnityEngine;
 namespace DungeonGen.Unity.Editor
 {
     /// <summary>
-    /// Generates <c>Assets/Scenes/MainMenu.unity</c>: a dark camera, the menu canvas (<c>MainMenuUi</c>, which builds its screens
+    /// Generates <c>Assets/Scenes/MainMenu.unity</c>: a dark camera, the menu audio (GameAudio for interface sounds, MenuAudio for music), the menu canvas (<c>MainMenuUi</c>, which builds its screens
     /// at runtime) and an EventSystem; then puts MainMenu first and SampleScene second in the editor's build list.
     /// Headless: <c>bash Tools/Build/unity-batch.sh method DungeonGen.Unity.Editor.MenuSceneBuilder.Build</c>.
     /// </summary>
@@ -29,6 +29,15 @@ namespace DungeonGen.Unity.Editor
                 var urpData = Type.GetType("UnityEngine.Rendering.Universal.UniversalAdditionalCameraData, Unity.RenderPipelines.Universal.Runtime");
                 if (urpData != null) camGo.AddComponent(urpData);
                 camGo.AddComponent<AudioListener>();
+
+                // Menu sound: interface one-shots through GameAudio (UiSound finds it) and the music bed through MenuAudio.
+                var audioGo = new GameObject("MenuAudio");
+                var library = AssetDatabase.LoadAssetAtPath<AudioLibrary>(AudioLibraryBuilder.LibraryPath);
+                if (library == null) Debug.LogWarning($"Dungeon Gen: no audio library at {AudioLibraryBuilder.LibraryPath}; the menu will be silent.");
+                var ui = audioGo.AddComponent<GameAudio>();
+                ui.Library = library;
+                var menuAudio = audioGo.AddComponent<MenuAudio>();
+                menuAudio.Library = library;
 
                 var t = Type.GetType(UiSetup.InstallerType);
                 if (t == null) throw new InvalidOperationException("the UI assembly (DungeonGen.Unity.UI) is missing");

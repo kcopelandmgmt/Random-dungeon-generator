@@ -1,15 +1,12 @@
-using System.Linq;
-using DungeonGen.Core;
-using DungeonGen.Core.Combat;
-using DungeonGen.Core.Net;
 using UnityEngine;
 
 namespace DungeonGen.Unity
 {
     /// <summary>
-    /// One developer, one machine: host a round in-process over the loopback transport, seat the local
-    /// player, and seat one or two bot teams that fight with the lab's brain. Editor and development
-    /// builds only (the assembly is excluded from release). Bots never enter the real queue.
+    /// The dev wrapper around the release <see cref="OfflineMatch"/>: hosts the round the moment Play starts (greybox, -autotest,
+    /// the PlayMode suite), turns dev casting on, seats an ally bot, offers an OnGUI host button, and hides the effects
+    /// audition for a menu-launched round. Editor and development builds only (the assembly is excluded from release).
+    /// The hosting itself lives in OfflineMatch, which this keeps in step with its inspector settings.
     /// </summary>
     public sealed class PracticeMode : MonoBehaviour
     {
@@ -37,8 +34,28 @@ namespace DungeonGen.Unity
         [Tooltip("Bots seated on your own team, standing at the spawn. One gives heals and ally buffs something to land on.")]
         [Range(0, 2)] public int AllyBots = 1;
 
-        public LoopbackTransport Transport { get; private set; }
-        public bool Hosting { get; private set; }
+        /// <summary>The release host this wraps (on the same object; added when the scene has none).</summary>
+        public OfflineMatch Match { get; private set; }
+        public LoopbackTransport Transport => Match != null ? Match.Transport : null;
+        public bool Hosting => Match != null && Match.Hosting;
+
+        private void Awake() => EnsureMatch();
+
+        private OfflineMatch EnsureMatch()
+        {
+            if (Match != null) return Match;
+            Match = GetComponent<OfflineMatch>();
+            if (Match == null) Match = gameObject.AddComponent<OfflineMatch>();
+            Match.Preparing += OnPreparing;
+            CopyReferences(Match);
+            return Match;
+        }
+
+        private void OnDestroy()
+        {
+            if (Match == null) return;
+            Match.Preparing -= OnPreparing;
+        }
 
         private void OnGUI()
         {
@@ -60,54 +77,30 @@ namespace DungeonGen.Unity
         public void Host()
         {
             if (Hosting) return;
-            var launch = PracticeLaunch.Current;   // the menu's choice; null keeps the inspector defaults (greybox, -autotest, the test suite)
-            if (launch != null)
-            {
-                Seed = launch.Seed; BotTeams = Mathf.Clamp(launch.BotTeams, 0, 3); BotsPerTeam = Mathf.Max(1, launch.BotsPerTeam);
-                DevCasting = launch.DevCasting; AllyBots = Mathf.Clamp(launch.AllyBots, 0, 2);
-                if (launch.Loadout != null) LocalSpec = launch.Loadout.Spec;
-                if (launch.HideDevPanels) foreach (var a in FindObjectsByType<VfxAudition>(FindObjectsSortMode.None)) a.Open = false;
-            }
-            Transport = new LoopbackTransport { IsServer = true, LocalTeam = 0, LocalPlayerId = 1 };
-            Bootstrap.Attach(Transport);
-            Server.Bootstrap = Bootstrap; Server.Builder = Builder; Server.Attach(Transport);
-            World.Bootstrap = Bootstrap; World.Builder = Builder; World.LocalPlayerId = 1; World.Attach(Transport);
-            if (Hud != null) { Hud.World = World; Hud.Bootstrap = Bootstrap; Hud.Attach(Transport); }
-            var source = IntentSource as IIntentSource;
-            if (IntentSource != null) IntentSource.SendMessage("Attach", Transport, SendMessageOptions.DontRequireReceiver);
-            if (Bootstrap.Config == null) Bootstrap.Config = Builder.Config;
-            Bootstrap.TeamSize = 3;
-            Bootstrap.HostMatch(Seed);
-            Transport.Pump();
-            Server.StartRound();
-            Server.Server.Sim.DevCasting = DevCasting;
-            var cls = launch?.Loadout != null ? launch.Loadout.Character.Class : FightLab.ClassOf(LocalSpec);
-            if (launch?.Loadout != null)
-            {
-                // The character's own gear: the sheet it gives, and every worn item registered so a death loses it and an extraction keeps it.
-                try { Server.Server.AddPlayerWithLoadout(1, 0, launch.Loadout, launch.AccountLevel); }
-                catch (System.InvalidOperationException e)
-                {
-                    Debug.LogWarning("PracticeMode: the loadout was refused (" + e.Message + "); seating the class at tier " + GearTier + " instead.");
-                    Server.AddPlayer(1, 0, cls, LocalSpec, PlayerStats.For(cls, GearTier, Bootstrap.Descriptor.Settings.Combat));
-                }
-            }
-            else Server.AddPlayer(1, 0, cls, LocalSpec, PlayerStats.For(cls, GearTier, Bootstrap.Descriptor.Settings.Combat));
-            int id = BotRules.BotIdBase;
-            for (int b = 0; b < AllyBots; b++) Server.AddBot(id++, 0, BotSpecs[b % BotSpecs.Length], GearTier, null);   // stands and fights only
-            for (int t = 1; t <= Mathf.Min(BotTeams, Bootstrap.Descriptor.TeamSpawnRooms.Count - 1); t++)
-            {
-                var squad = BotsRoam ? new BotSquad { Team = t } : null;
-                for (int b = 0; b < BotsPerTeam; b++) Server.AddBot(id++, t, BotSpecs[(t * BotsPerTeam + b) % BotSpecs.Length], GearTier, squad);
-            }
-            Transport.Join();
-            foreach (var mb in FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None)) if (mb is IRoundUi ui) ui.Attach(Transport);
-            Hosting = true;
+            var m = EnsureMatch();
+            CopyReferences(m);
+            m.Seed = Seed; m.BotTeams = BotTeams; m.BotsPerTeam = BotsPerTeam; m.GearTier = GearTier; m.LocalSpec = LocalSpec;
+            m.BotSpecs = BotSpecs; m.BotsRoam = BotsRoam; m.DevCasting = DevCasting; m.AllyBots = AllyBots;
+            m.Host();
         }
 
-        private void LateUpdate()
+        /// <summary>Whoever hosts (this, or GameFlow for a menu round), the launch's settings land here too, so the inspector shows the round.</summary>
+        private void OnPreparing(OfflineMatch m)
         {
-            if (Hosting) Transport.Pump();
+            Seed = m.Seed; BotTeams = m.BotTeams; BotsPerTeam = m.BotsPerTeam; LocalSpec = m.LocalSpec; DevCasting = m.DevCasting; AllyBots = m.AllyBots;
+            if (m.Launch != null && m.Launch.HideDevPanels)
+                foreach (var a in FindObjectsByType<VfxAudition>(FindObjectsSortMode.None)) a.Open = false;
+        }
+
+        private void CopyReferences(OfflineMatch m)
+        {
+            if (Bootstrap != null) m.Bootstrap = Bootstrap;
+            if (Builder != null) m.Builder = Builder;
+            if (Server != null) m.Server = Server;
+            if (World != null) m.World = World;
+            if (Hud != null) m.Hud = Hud;
+            if (Camera != null) m.Camera = Camera;
+            if (IntentSource != null) m.IntentSource = IntentSource;
         }
     }
 }

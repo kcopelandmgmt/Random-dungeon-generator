@@ -74,6 +74,11 @@ namespace DungeonGen.Unity.UI
             Build();
         }
 
+        private void OnDestroy()
+        {
+            if (Paused) GameFlow.SetRoundPaused(false);   // never leave the game frozen behind a closed HUD
+        }
+
         public void Attach(IMatchTransport transport)
         {
             transport.EventReceived += bytes =>
@@ -418,13 +423,14 @@ namespace DungeonGen.Unity.UI
         {
             if (SummaryVisible) return;
             Paused = !Paused;
+            bool frozen = GameFlow.SetRoundPaused(Paused);   // offline the round stops; online it goes on
             if (Paused)
             {
                 _pause = UiStyle.Panel(_root, "PausePanel");
                 _pause.Place(new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(560f, 520f));
                 var t = UiStyle.Label(_pause, "Title", "PAUSED", 48, UiStyle.Gold, TextAnchor.MiddleCenter, FontStyle.Bold);
                 t.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -30f), new Vector2(500f, 60f));
-                var sub = UiStyle.Label(_pause, "Sub", "The dungeon does not wait: the round goes on.", 20, UiStyle.TextDim, TextAnchor.MiddleCenter, FontStyle.Italic);
+                var sub = UiStyle.Label(_pause, "Sub", frozen ? "The dungeon waits for you." : "The dungeon does not wait: the round goes on.", 20, UiStyle.TextDim, TextAnchor.MiddleCenter, FontStyle.Italic);
                 sub.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -94f), new Vector2(500f, 30f));
                 UiStyle.Rule(_pause, "Rule", 420f, -126f);
                 PauseButton("ResumeButton", "Resume", -170f, TogglePause);

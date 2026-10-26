@@ -3,7 +3,7 @@ using DungeonGen.Core.Profile;
 namespace DungeonGen.Unity
 {
     /// <summary>
-    /// What the menu chose for the next practice round. <c>PracticeMode.Host</c> reads <see cref="Current"/>: when set it
+    /// What the menu chose for the next offline round. <see cref="OfflineMatch.Host"/> reads <see cref="Current"/>: when set it
     /// takes the seed, the bot teams, dev casting off and seats the local player with the character's <see cref="Loadout"/>;
     /// when null (greybox Play, <c>-autotest</c>, the PlayMode suite) it keeps its inspector defaults.
     /// </summary>
@@ -26,7 +26,7 @@ namespace DungeonGen.Unity
         public bool HideDevPanels = true;
     }
 
-    /// <summary>Round UI that wants the round's transport once the practice host has made it (events for announcements).</summary>
+    /// <summary>Round UI that wants the round's transport once the offline host has made it (events for announcements).</summary>
     public interface IRoundUi
     {
         void Attach(IMatchTransport transport);

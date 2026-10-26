@@ -18,7 +18,17 @@ namespace DungeonGen.Unity
         /// <summary>Tests and tools: use this file instead of the one under persistentDataPath. Null for the real one.</summary>
         public static string PathOverride;
 
-        public static string FilePath => !string.IsNullOrEmpty(PathOverride) ? PathOverride : Path.Combine(Application.persistentDataPath, FileName);
+        /// <summary>The save file: <see cref="PathOverride"/>, else the <c>-profile &lt;path&gt;</c> launch flag (smoke runs), else persistentDataPath.</summary>
+        public static string FilePath
+        {
+            get
+            {
+                if (!string.IsNullOrEmpty(PathOverride)) return PathOverride;
+                var flag = LaunchFlags.Value("-profile");
+                if (!string.IsNullOrEmpty(flag)) return Path.GetFullPath(flag);
+                return Path.Combine(Application.persistentDataPath, FileName);
+            }
+        }
         public static string BackupPath => FilePath + ".bak";
         public static string TempPath => FilePath + ".tmp";
 

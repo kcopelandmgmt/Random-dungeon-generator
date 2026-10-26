@@ -5,8 +5,10 @@
 #   bash Tools/Build/unity-batch.sh method <Namespace.Type.StaticMethod>
 #   bash Tools/Build/unity-batch.sh import "<path to .unitypackage>"
 #   bash Tools/Build/unity-batch.sh tests <EditMode|PlayMode>
-#   bash Tools/Build/unity-batch.sh build-win            # a Windows player into Builds/Win
-#   bash Tools/Build/unity-batch.sh smoke                # run that player muted and minimised for its 30 s scripted test; prints smoke-result.json
+#   bash Tools/Build/unity-batch.sh build-win            # the release (non-development) Windows player into Builds/Win
+#   bash Tools/Build/unity-batch.sh build-win-dev        # the development Windows player (practice assembly) into Builds/WinDev
+#   bash Tools/Build/unity-batch.sh smoke                # run the dev player muted and minimised for its 30 s scripted test; prints smoke-result.json
+#   bash Tools/Build/unity-batch.sh smoke-release        # run the release player muted and minimised: menu, a round, leave, summary; prints smoke-release-result.json
 # Exit code 0 means Unity finished without compiler errors (and, for tests, without failures).
 set -u
 UNITY="/c/Program Files/Unity/Hub/Editor/6000.3.0f1/Editor/Unity.exe"
@@ -19,13 +21,24 @@ cmd="${1:-compile}"; shift || true
 
 # The player smoke test needs no editor and no lane: run it before the lock.
 if [ "$cmd" = "smoke" ]; then
-    exe="$PROJECT_POSIX/Builds/Win/DungeonGame.exe"; rm -f "$PROJECT_POSIX/Builds/Win/smoke-result.json"
-    [ -f "$exe" ] || { echo "unity-batch: no player at $exe; run build-win first" >&2; exit 2; }
+    exe="$PROJECT_POSIX/Builds/WinDev/DungeonGame.exe"; rm -f "$PROJECT_POSIX/Builds/WinDev/smoke-result.json"
+    [ -f "$exe" ] || { echo "unity-batch: no player at $exe; run build-win-dev first" >&2; exit 2; }
     "$exe" -mute -minimized -autotest -shots "$PROJECT/Logs/player-shots" -logFile "$PROJECT/Logs/player.log" & pid=$!
     for _ in $(seq 1 120); do kill -0 $pid 2>/dev/null || break; sleep 1; done
     if kill -0 $pid 2>/dev/null; then echo "unity-batch: smoke test hung; killing the player" >&2; kill -9 $pid 2>/dev/null; taskkill //F //PID $pid >/dev/null 2>&1; code=1; else wait $pid; code=$?; fi
-    cat "$PROJECT_POSIX/Builds/Win/smoke-result.json" 2>/dev/null || { echo "unity-batch: no smoke-result.json written (log: $PROJECT/Logs/player.log)"; code=1; }
+    cat "$PROJECT_POSIX/Builds/WinDev/smoke-result.json" 2>/dev/null || { echo "unity-batch: no smoke-result.json written (log: $PROJECT/Logs/player.log)"; code=1; }
     echo "unity-batch: smoke finished with exit $code"; exit $code
+fi
+# The release player's smoke test: a throwaway profile under Logs/, never the real save.
+if [ "$cmd" = "smoke-release" ]; then
+    exe="$PROJECT_POSIX/Builds/Win/DungeonGame.exe"; rm -f "$PROJECT_POSIX/Builds/Win/smoke-release-result.json"
+    [ -f "$exe" ] || { echo "unity-batch: no player at $exe; run build-win first" >&2; exit 2; }
+    rm -rf "$LOGS/release-profile"; mkdir -p "$LOGS/release-profile"
+    "$exe" -mute -minimized -releasesmoke -profile "$PROJECT/Logs/release-profile/profile.dgpf" -shots "$PROJECT/Logs/release-shots" -logFile "$PROJECT/Logs/player-release.log" & pid=$!
+    for _ in $(seq 1 240); do kill -0 $pid 2>/dev/null || break; sleep 1; done
+    if kill -0 $pid 2>/dev/null; then echo "unity-batch: release smoke test hung; killing the player" >&2; kill -9 $pid 2>/dev/null; taskkill //F //PID $pid >/dev/null 2>&1; code=1; else wait $pid; code=$?; fi
+    cat "$PROJECT_POSIX/Builds/Win/smoke-release-result.json" 2>/dev/null || { echo "unity-batch: no smoke-release-result.json written (log: $PROJECT/Logs/player-release.log)"; code=1; }
+    echo "unity-batch: smoke-release finished with exit $code"; exit $code
 fi
 
 # Wait for the lane. The editor's own lock file means a GUI editor or another batch run is open.
@@ -72,7 +85,9 @@ case "$cmd" in
     grep -E "error CS" "$log" | sort -u | head -20
     exit $code ;;
   build-win)
-    "$UNITY" -batchmode -nographics -quit -projectPath "$PROJECT" -executeMethod DungeonGen.Unity.Editor.PlayerBuild.Windows -logFile "$log" ;;
+    "$UNITY" -batchmode -nographics -quit -projectPath "$PROJECT" -executeMethod DungeonGen.Unity.Editor.PlayerBuild.WindowsRelease -logFile "$log" ;;
+  build-win-dev)
+    "$UNITY" -batchmode -nographics -quit -projectPath "$PROJECT" -executeMethod DungeonGen.Unity.Editor.PlayerBuild.WindowsDev -logFile "$log" ;;
   *) echo "unknown command $cmd" >&2; exit 2 ;;
 esac
 code=$?

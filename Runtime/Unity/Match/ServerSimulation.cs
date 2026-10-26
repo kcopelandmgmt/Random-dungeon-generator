@@ -25,6 +25,8 @@ namespace DungeonGen.Unity
         public RoundClock Clock => Server?.Clock;
         public uint Tick => Server?.Tick ?? 0;
         public bool Running => Server != null && Server.Running;
+        /// <summary>Offline pause (<see cref="OfflineMatch.SetPaused"/>): the server does not step. A networked host never sets it.</summary>
+        public bool Paused { get; set; }
 
         private float _accum;
 
@@ -44,7 +46,7 @@ namespace DungeonGen.Unity
 
         private void Update()
         {
-            if (!Running) return;
+            if (!Running || Paused) return;
             float dt = 1f / Mathf.Max(1, TickRate);
             _accum += Time.deltaTime * Mathf.Max(0f, GameSpeed);
             int steps = 0;
