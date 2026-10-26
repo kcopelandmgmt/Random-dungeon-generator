@@ -3,6 +3,16 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## Tutorial (2026-10-26, wave 5)
+
+1. The tutorial is an offline round of its own: the smallest dungeon, the player plus two follower bots, no enemy teams, one
+   weakened Iron Juggernaut, no Gravewalker packs, the extract opening 60 s after the boss dies. A seed is chosen whose route
+   avoids the final boss room.
+2. **Tutorial-only soul rule**: a cleared mob pack pays one soul to each standing player in or next to its room
+   (`TutorialScript.PackSoulRecipients`), so two packs arm the ultimate. Real rounds are unchanged: souls come from kills and boss chests.
+3. Tutorial gear comes from a throwaway profile and is never settled. The first finished tutorial pays 100 silver once, behind a
+   flag in `PlayerProfile.Unlocks` (no codec version bump). A brand-new account is offered the tutorial once on its first Play.
+
 ## 2026-10-26 · Answers from the owner: shrines, death, rounds, look, online — LOCKED
 
 Asked after the autonomous build; these override anything built before them.

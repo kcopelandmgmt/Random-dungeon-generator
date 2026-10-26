@@ -32,6 +32,9 @@ Rebuild either one from the package repository with `bash Tools/Build/unity-batc
 8. **Settlement.** Extract and you keep everything you carried out. Die and you lose everything you
    brought and found (full loot); account XP is paid either way. The summary shows what changed.
 
+New to the game? Choose **Tutorial** on the main menu: a five-minute guided round with two friendly bots. Nothing you own
+is at risk, and finishing it the first time pays 100 silver.
+
 ## Keys
 
 | Action | Keyboard and mouse | Gamepad |
