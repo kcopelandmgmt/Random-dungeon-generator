@@ -15,6 +15,9 @@ namespace DungeonGen.Unity.Editor
     public static class PlayerBuild
     {
         public const string ScenePath = "Assets/Scenes/SampleScene.unity";
+        public const string MenuScenePath = "Assets/Scenes/MainMenu.unity";
+        /// <summary>The build list: the main menu boots first, the round scene second (-autotest skips the menu).</summary>
+        public static readonly string[] Scenes = { MenuScenePath, ScenePath };
         public const string OutputRelative = "Builds/Win/DungeonGame.exe";
 
         public static void Windows()
@@ -29,7 +32,7 @@ namespace DungeonGen.Unity.Editor
 
                 var options = new BuildPlayerOptions
                 {
-                    scenes = new[] { ScenePath },
+                    scenes = Scenes,
                     locationPathName = output,
                     target = BuildTarget.StandaloneWindows64,
                     targetGroup = BuildTargetGroup.Standalone,

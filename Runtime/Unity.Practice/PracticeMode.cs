@@ -60,6 +60,14 @@ namespace DungeonGen.Unity
         public void Host()
         {
             if (Hosting) return;
+            var launch = PracticeLaunch.Current;   // the menu's choice; null keeps the inspector defaults (greybox, -autotest, the test suite)
+            if (launch != null)
+            {
+                Seed = launch.Seed; BotTeams = Mathf.Clamp(launch.BotTeams, 0, 3); BotsPerTeam = Mathf.Max(1, launch.BotsPerTeam);
+                DevCasting = launch.DevCasting; AllyBots = Mathf.Clamp(launch.AllyBots, 0, 2);
+                if (launch.Loadout != null) LocalSpec = launch.Loadout.Spec;
+                if (launch.HideDevPanels) foreach (var a in FindObjectsByType<VfxAudition>(FindObjectsSortMode.None)) a.Open = false;
+            }
             Transport = new LoopbackTransport { IsServer = true, LocalTeam = 0, LocalPlayerId = 1 };
             Bootstrap.Attach(Transport);
             Server.Bootstrap = Bootstrap; Server.Builder = Builder; Server.Attach(Transport);
@@ -73,8 +81,18 @@ namespace DungeonGen.Unity
             Transport.Pump();
             Server.StartRound();
             Server.Server.Sim.DevCasting = DevCasting;
-            var cls = FightLab.ClassOf(LocalSpec);
-            Server.AddPlayer(1, 0, cls, LocalSpec, PlayerStats.For(cls, GearTier, Bootstrap.Descriptor.Settings.Combat));
+            var cls = launch?.Loadout != null ? launch.Loadout.Character.Class : FightLab.ClassOf(LocalSpec);
+            if (launch?.Loadout != null)
+            {
+                // The character's own gear: the sheet it gives, and every worn item registered so a death loses it and an extraction keeps it.
+                try { Server.Server.AddPlayerWithLoadout(1, 0, launch.Loadout, launch.AccountLevel); }
+                catch (System.InvalidOperationException e)
+                {
+                    Debug.LogWarning("PracticeMode: the loadout was refused (" + e.Message + "); seating the class at tier " + GearTier + " instead.");
+                    Server.AddPlayer(1, 0, cls, LocalSpec, PlayerStats.For(cls, GearTier, Bootstrap.Descriptor.Settings.Combat));
+                }
+            }
+            else Server.AddPlayer(1, 0, cls, LocalSpec, PlayerStats.For(cls, GearTier, Bootstrap.Descriptor.Settings.Combat));
             int id = BotRules.BotIdBase;
             for (int b = 0; b < AllyBots; b++) Server.AddBot(id++, 0, BotSpecs[b % BotSpecs.Length], GearTier, null);   // stands and fights only
             for (int t = 1; t <= Mathf.Min(BotTeams, Bootstrap.Descriptor.TeamSpawnRooms.Count - 1); t++)
@@ -83,6 +101,7 @@ namespace DungeonGen.Unity
                 for (int b = 0; b < BotsPerTeam; b++) Server.AddBot(id++, t, BotSpecs[(t * BotsPerTeam + b) % BotSpecs.Length], GearTier, squad);
             }
             Transport.Join();
+            foreach (var mb in FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None)) if (mb is IRoundUi ui) ui.Attach(Transport);
             Hosting = true;
         }
 
