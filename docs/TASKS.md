@@ -35,7 +35,7 @@ could not be verified headless (say why).
 | 3.4 | Audio leftovers (2.2b): hazard and torch loops, per-element impacts, footsteps for others | agent | done | compile; AudioTests 10/10 (3 new). 4 screenshot brightness tests failing from the darker atmosphere work, handed to 3.3 |
 | 3.7 | Item rule leftovers (3.2b core part): overload slow-down, worn-piece loss changes stats, Space takes floor items, Salvage Kit in the dungeon | agent | done | core 261 + 15 new (2 director/fight-lab failures attributed to the balance agent's in-progress Brains.cs, recheck when it lands); round sim 0 rejected; compile clean |
 | 3.7b | UI hookups: a Salvage button in the inventory panel (needs `PlayerIntent.SalvageItemId` via `PendingItemActions`); `PlayerItems.Interaction` comment to list `floor-item` | 3.7 | done (orchestrator; compile clean): Salvage button on carried items when `SalvageRefusal` allows; `PendingItemActions.Salvage` → `SalvageItemId` |
-| 3.8 | Dev player exits 139 at shutdown after a passing smoke (release exits 0): bisect and fix | agent | doing | |
+| 3.8 | Dev player exits 139 at shutdown after a passing smoke (release exits 0): bisect and fix | agent | done | smoke 3/3 exit 0, smoke-release 0, playmode 30/30. Cause: access violation in `D3D12Core.dll` tearing down after thousands of particle systems; fix: `PlayerBuild` pins Windows to Direct3D 11. The flood came from dev casting applying to bots (sent to 3.6b: per-caster `DevCasters`); `AbilityEffects.MaxLiveEffects` 64 added as a defence (orchestrator). |
 | 3.5 | Fishnet multiplayer (2.6) | — | queued (after atmosphere: adding the package and the define recompiles everything) | |
 
 ## Wave 2 (queued; starts as wave 1 lands)

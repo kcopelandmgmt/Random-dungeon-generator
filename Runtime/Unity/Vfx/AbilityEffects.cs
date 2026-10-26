@@ -25,6 +25,9 @@ namespace DungeonGen.Unity
         public float DefaultLifetimeSeconds = 3f;
         [Tooltip("Upper bound for the lifetime worked out from particle settings; packs sometimes author an infinite start lifetime.")]
         public float MaxLifetimeSeconds = 8f;
+        [Tooltip("Most one-shot effects alive at once; past it the oldest is removed first. A defence against floods (thousands of particle systems also crashed D3D12 at quit).")]
+        public int MaxLiveEffects = 64;
+        private readonly Queue<GameObject> _live = new Queue<GameObject>();
         public float AvatarHeight = 1f;
         public bool FloatingNumbers = true;
 
@@ -194,7 +197,13 @@ namespace DungeonGen.Unity
         /// <summary>Instantiate a library prefab and let it die by itself: looping particle systems are stopped after their duration, the object removed once every system is quiet.</summary>
         public GameObject Spawn(GameObject prefab, Vector3 at, Quaternion rot, float scale)
         {
+            while (_live.Count > 0 && (_live.Peek() == null || _live.Count >= Mathf.Max(1, MaxLiveEffects)))
+            {
+                var old = _live.Dequeue();
+                if (old != null) Destroy(old);
+            }
             var go = Neutralise(Instantiate(prefab, at, rot));
+            _live.Enqueue(go);
             if (Math.Abs(scale - 1f) > 0.001f) go.transform.localScale = prefab.transform.localScale * scale;
             var systems = go.GetComponentsInChildren<ParticleSystem>(true);
             float life = DefaultLifetimeSeconds;

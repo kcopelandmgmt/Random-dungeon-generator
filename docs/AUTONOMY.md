@@ -39,7 +39,9 @@ bash Tools/Build/unity-batch.sh smoke                        # dev player muted+
 ```
 
 The player's settings and its always-included shaders are set by `Editor/PlayerBuild.cs`, never by
-hand. Anything that calls `Shader.Find` at runtime must have that shader in
+hand. Windows is pinned to Direct3D 11 (D3D12 crashed the player at shutdown, exit 139, a fault in
+`D3D12Core.dll`). A native crash leaves no Unity crash folder: read the Windows Event Log
+(Application Error) to diagnose one. Anything that calls `Shader.Find` at runtime must have that shader in
 `PlayerBuild.IncludeShaders`, or the player strips it and renders magenta or crashes. The smoke run
 writes screenshots to `dungeongame\Logs\player-shots` and its log to `dungeongame\Logs\player.log`;
 look at the screenshots with the Read tool.
