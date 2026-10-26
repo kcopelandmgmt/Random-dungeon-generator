@@ -1,7 +1,7 @@
 {
     "name": "DungeonGen.Unity.Input",
     "rootNamespace": "DungeonGen.Unity",
-    "references": [ "DungeonGen.Core", "DungeonGen.Unity", "Unity.InputSystem" ],
+    "references": [ "DungeonGen.Core", "DungeonGen.Unity", "Unity.InputSystem", "UnityEngine.UI" ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

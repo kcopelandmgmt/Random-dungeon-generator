@@ -238,8 +238,10 @@ namespace DungeonGen.Unity
         public static bool SetRoundPaused(bool paused)
         {
             var match = OfflineMatch.Current;
-            if (match == null || !match.IsOffline) { if (!paused) Time.timeScale = 1f; return false; }
+            if (match == null || !match.IsOffline) { if (!paused) { Time.timeScale = 1f; if (!LaunchFlags.Has("-mute")) AudioListener.pause = false; } return false; }
             match.SetPaused(paused);
+            // Sound stops with the dungeon. A -mute session keeps the listener paused regardless.
+            if (!LaunchFlags.Has("-mute")) AudioListener.pause = match.Paused;
             return match.Paused;
         }
 

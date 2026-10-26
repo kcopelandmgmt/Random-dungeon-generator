@@ -27,7 +27,8 @@ could not be verified headless (say why).
 |---|------|-------|--------|----------|
 | 3.1 | Release-ready offline mode: round host out of the dev-only practice assembly (`OfflineMatch`), pause pauses offline, menu audio, release and dev builds, `smoke-release` end-to-end run of the release build | agent | done | compile, playmode, build-win (release 448 MB) + smoke-release exit 0 (menu → round 40 s → pause → leave → summary → menu, profile changed), build-win-dev + smoke exit 0 |
 | 3.1b | Leftovers: menu footer says "Development build" in release; audio keeps playing while paused; release scene logs missing-script warnings for the dev-only PracticeMode/VfxAudition components (strip them in release builds); Leave from pause skips the summary screen | 3.1 | todo |
-| 3.2 | Loot, inventory and vendor: choose items (intent fields), loot/inventory/roll panels in round, stash and equipment and vendor in the menu | agent | doing | |
+| 3.2 | Loot, inventory and vendor: choose items (intent fields), loot/inventory/roll panels in round, stash and equipment and vendor in the menu | agent | done | core 248 (15 new), compile, playmode 24/24 (3 new), 5 screenshots checked |
+| 3.2b | Item leftovers: overload slow-down not applied to movement; dropping a worn piece does not change stats; a network client's view lacks item details (base, affixes, weight, carried items); Space cannot pick up floor items; Salvage Kit in the dungeon not wired. Fixed by orchestrator: UI clicks no longer fire LMB/RMB attacks. | 3.2 | todo |
 | 3.3 | Atmosphere: dark ambient, black background, fog, URP post-processing, torch/brazier lights, fog of war for unexplored rooms, ability icons, plus 2.1b visual leftovers | agent | doing | |
 | 3.6 | Round balance: survivable, fun rounds measured in RoundLab (extraction 35–60%, mixed death causes, bosses stay home, team beats a room boss) with a regression test | agent | doing | |
 | 3.4 | Audio leftovers (2.2b) | — | queued | |

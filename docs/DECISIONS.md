@@ -3,6 +3,15 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-26 · Item choices as built — BUILT
+
+1. **Salvaging at the vendor is free** (`Vendor.Salvage`); the Salvage Kit is for salvaging inside
+   the dungeon only.
+2. **One of each unique applies to what you wear**: swapping a copy for the copy already in that
+   slot is allowed.
+3. **No item action while any channel runs** (looting is a channel), and none while downed.
+4. **Starter gear sells and salvages for nothing.**
+
 ## 2026-10-26 · Death trash, disconnects and consumables as built — BUILT
 
 1. **A disconnect past the 60 s window raises `PlayerDied` (killer -1)**, so corpse, souls and loot

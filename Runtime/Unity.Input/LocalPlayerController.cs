@@ -71,7 +71,7 @@ namespace DungeonGen.Unity
                 _zoomHold = new InputAction("ZoomHold", InputActionType.Value, "<Gamepad>/dpad/y");
                 foreach (var a in new[] { _move, _aim, _basic, _bolt, _zone, _mobility, _ultimate, _interact, _ping, _map, _zoom, _zoomHold }) a.Enable();
             }
-            _basic.performed += _ => _basicQueued = true; _bolt.performed += _ => _boltQueued = true; _zone.performed += _ => _zoneQueued = true;
+            _basic.performed += _ => { if (!PointerOverUi()) _basicQueued = true; }; _bolt.performed += _ => { if (!PointerOverUi()) _boltQueued = true; }; _zone.performed += _ => _zoneQueued = true;
             _mobility.performed += _ => _mobilityQueued = true; _ultimate.performed += _ => _ultQueued = true; _ping.performed += _ => _pingQueued = true;
             if (_potion != null) _potion.performed += _ => _consumableQueued = 1;
             if (_antidote != null) _antidote.performed += _ => _consumableQueued = 2;
@@ -107,6 +107,13 @@ namespace DungeonGen.Unity
             if (Mathf.Abs(held) > 0.2f) Camera.Zoom(held * HeldZoomNotchesPerSecond * Time.deltaTime);
         }
 
+        /// <summary>Mouse buttons over a UI panel (loot, inventory, menus) click the UI, not the dungeon.</summary>
+        private static bool PointerOverUi()
+        {
+            var es = UnityEngine.EventSystems.EventSystem.current;
+            return es != null && es.IsPointerOverGameObject();
+        }
+
         public bool TryGetIntent(out PlayerIntent intent)
         {
             intent = new PlayerIntent { PlayerId = LocalPlayerId, Tick = ++_tick };
@@ -119,7 +126,7 @@ namespace DungeonGen.Unity
             if (Camera != null && Camera.Camera != null && Camera.ScreenToGround(_aim.ReadValue<Vector2>(), out var hit)) ground = hit;
             var aim = Builder.WorldToSim(ground);
             intent.AimX = aim.X; intent.AimY = aim.Y;
-            intent.Basic = _basicQueued || _basic.IsPressed(); intent.Bolt = _boltQueued; intent.Zone = _zoneQueued; intent.Mobility = _mobilityQueued; intent.Ultimate = _ultQueued;
+            intent.Basic = _basicQueued || (_basic.IsPressed() && !PointerOverUi()); intent.Bolt = _boltQueued; intent.Zone = _zoneQueued; intent.Mobility = _mobilityQueued; intent.Ultimate = _ultQueued;
             intent.Interact = _interact.IsPressed(); intent.Ping = _pingQueued; intent.PingKind = (byte)PingKind.Look;
             intent.ConsumableSlot = _consumableQueued;
             PendingItemActions.ApplyTo(ref intent);   // item choices clicked in the UI ride this intent
