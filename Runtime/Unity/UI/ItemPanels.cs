@@ -17,7 +17,8 @@ namespace DungeonGen.Unity.UI
     /// inventory on I (worn and carried, the load against capacity, Drop), the group-roll prompt (Need / Greed / Pass with a
     /// countdown) and a hover tooltip with every affix and the gear-score change if worn. Choices go into
     /// <see cref="PendingItemActions"/>, which the input controller copies into the next intent; the server decides.
-    /// Reads the host's <see cref="MatchServer.ItemsFor"/>: on a remote client (no host) it stays hidden until the view carries item details.
+    /// Reads the host's <see cref="MatchServer.ItemsFor"/>; on a remote client (no host) the same model rebuilt from the player's own snapshot
+    /// (<see cref="SelfItems"/>) and the item details its team's views carried (<see cref="ClientMirror"/>).
     /// Tests drive it with SendMessage: ToggleInventory, RefreshNow, ShowTooltipFor(itemId), HideTooltip.
     /// </summary>
     public sealed class ItemPanels : MonoBehaviour
@@ -26,6 +27,9 @@ namespace DungeonGen.Unity.UI
         public DungeonMatchBootstrap Bootstrap;
         public ServerSimulation Server;
         public int LocalPlayerId = GameFlow.LocalPlayerId;
+
+        /// <summary>Online: this process's player id (the server gave it).</summary>
+        public void SetLocalPlayerId(int id) => LocalPlayerId = id;
         [Tooltip("Seconds between refreshes of the item view.")]
         public float RefreshSeconds = 0.1f;
 
@@ -56,6 +60,13 @@ namespace DungeonGen.Unity.UI
         }
 
         private MatchServer Host => Server != null ? Server.Server : null;
+        /// <summary>A remote client's mirror (null offline and when hosting).</summary>
+        private ClientMirror Mirror => Host == null ? ClientMirror.Current : null;
+
+        private Dictionary<string, int> PocketsNow(MatchServer host) => host != null ? host.PocketsOf(LocalPlayerId) : Mirror?.Pockets ?? new Dictionary<string, int>();
+        private Equipment WornNow(MatchServer host) => host != null ? host.WornBy(LocalPlayerId) : Mirror?.Worn ?? new Equipment();
+        private bool CanSalvage(MatchServer host, int itemId) => host != null ? host.SalvageRefusal(LocalPlayerId, itemId) == null : Mirror != null && Mirror.CanSalvage(itemId);
+        private Item ItemNow(MatchServer host, int itemId) => host != null ? host.ItemById(itemId) : Mirror?.ItemById(itemId);
 
         private void Awake()
         {
@@ -91,8 +102,11 @@ namespace DungeonGen.Unity.UI
             if (IKeyPressed()) ToggleInventory();
             if (_hud == null) _hud = GetComponent<GameHud>();
             var host = Host;
+            var mirror = Mirror;
+            if (mirror != null) LocalPlayerId = mirror.PlayerId;
             bool blocked = _hud != null && (_hud.Paused || _hud.SummaryVisible || _hud.RecapVisible);
-            if (host == null || host.Sim == null || blocked || !host.State.PlayerTeam.ContainsKey(LocalPlayerId))
+            bool source = host != null ? host.Sim != null && host.State.PlayerTeam.ContainsKey(LocalPlayerId) : mirror != null;
+            if (!source || blocked)
             {
                 _root.gameObject.SetActive(false);
                 return;
@@ -113,15 +127,25 @@ namespace DungeonGen.Unity.UI
         public void RefreshNow()
         {
             var host = Host;
-            if (host == null || host.Sim == null) return;
+            var mirror = Mirror;
+            if ((host == null || host.Sim == null) && mirror == null) return;
             _nextRefresh = Time.unscaledTime + RefreshSeconds; _refreshedAt = Time.unscaledTime;
-            Items = host.ItemsFor(LocalPlayerId);
-            var me = host.Sim.Get(LocalPlayerId);
-            bool alive = me != null && !me.Dead;
+            bool alive;
+            if (host != null)
+            {
+                Items = host.ItemsFor(LocalPlayerId);
+                var me = host.Sim.Get(LocalPlayerId);
+                alive = me != null && !me.Dead;
+            }
+            else
+            {
+                Items = mirror.Items;                  // from the snapshot: null once the player is out
+                alive = Items != null && mirror.Self.HasValue;
+            }
             DrawLoot(alive ? Items : null, host);
             DrawInventory(alive ? Items : null, host);
             DrawRolls(alive ? Items : null);
-            if (_tipItem != 0 && host.ItemById(_tipItem) == null) HideTooltip();
+            if (_tipItem != 0 && ItemNow(host, _tipItem) == null) HideTooltip();
         }
 
         public void ToggleInventory() { InventoryOpen = !InventoryOpen; _invSig = null; if (!InventoryOpen) HideTooltip(); RefreshNow(); }
@@ -171,7 +195,7 @@ namespace DungeonGen.Unity.UI
             bool show = InventoryOpen && v != null;
             if (!show) { if (_inv.gameObject.activeSelf) { _inv.gameObject.SetActive(false); _invSig = null; } return; }
             _inv.gameObject.SetActive(true);
-            var pockets = host.PocketsOf(LocalPlayerId);
+            var pockets = PocketsNow(host);
             string sig = string.Join("|", v.Carried.Select(c => $"{c.ItemId}:{c.Worn}")) + $"#{v.LoadKg:0.0}/{v.CapacityKg:0.0}#" + string.Join(",", pockets.Select(kv => kv.Key + kv.Value));
             if (sig == _invSig) return;
             _invSig = sig;
@@ -190,13 +214,13 @@ namespace DungeonGen.Unity.UI
             wl.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(26f, -90f), new Vector2(568f, 28f));
             float y = -124f;
             int shown = 0;
-            var worn = host.WornBy(LocalPlayerId);
+            var worn = WornNow(host);
             foreach (var c in v.Carried)
             {
                 if (shown == MaxInventoryRows) break;
                 var cc = c;
                 ItemRow(_inv, "Inv-" + cc.ItemId, cc.Item, y, 568f, "Drop-" + cc.ItemId, "Drop", true, () => { PendingItemActions.Drop(cc.ItemId); UiSound.Play(UiSound.Click); }, null, cc.Worn ? "worn" : null, host, worn, compact: true);
-                if (host.SalvageRefusal(LocalPlayerId, cc.ItemId) == null)
+                if (CanSalvage(host, cc.ItemId))
                 {
                     // A Salvage Kit in the pockets: break the item down here; the materials come home only if you do.
                     var row = _inv.Find("Inv-" + cc.ItemId);
@@ -319,10 +343,10 @@ namespace DungeonGen.Unity.UI
         private void ShowTooltipNear(int itemId, RectTransform near)
         {
             var host = Host;
-            var item = host?.ItemById(itemId);
+            var item = ItemNow(host, itemId);
             if (item == null) { HideTooltip(); return; }
             _tipItem = itemId;
-            var worn = host.WornBy(LocalPlayerId);
+            var worn = WornNow(host);
             _tipText.text = ItemText.Tooltip(item, worn);
             _tip.gameObject.SetActive(true);
             _tip.SetAsLastSibling();

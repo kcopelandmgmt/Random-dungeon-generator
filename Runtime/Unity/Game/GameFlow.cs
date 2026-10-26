@@ -11,7 +11,8 @@ using UnityEngine.SceneManagement;
 
 namespace DungeonGen.Unity
 {
-    public enum FlowPhase { Menu, LoadingRound, InRound, RoundOver, LoadingMenu }
+    /// <summary>Appended only (Lobby came with online play).</summary>
+    public enum FlowPhase { Menu, LoadingRound, InRound, RoundOver, LoadingMenu, Lobby }
 
     /// <summary>
     /// The game around a round, one per process (DontDestroyOnLoad): the local profile, the chosen character and spec, the
@@ -20,12 +21,19 @@ namespace DungeonGen.Unity
     /// <see cref="RoundSettlement.Settle(PlayerProfile, Character, MatchServer, int, string)"/>, saves it, and keeps the report
     /// for the summary screen. It reads the host's <see cref="MatchServer"/> because settlement is a host job; the screens read
     /// only what it exposes. No uGUI here: the screens live in the UI assembly.
+    /// Online (2026-10-26): <see cref="HostOnline"/>, <see cref="JoinOnline"/> and <see cref="StartDedicated"/> start a networked session
+    /// (<see cref="NetSessions"/>) and wait in the lobby (<see cref="FlowPhase.Lobby"/>); when the server starts the round every process loads
+    /// the round scene and <see cref="OnlineMatch"/> hosts or joins it. A host settles like the offline round; a client settles its own
+    /// profile from the server's <see cref="RoundResult"/> (<see cref="ClientMirror.Result"/>). Leaving online is a forfeit the server records.
     /// </summary>
     public sealed class GameFlow : MonoBehaviour
     {
         public const string MenuScenePath = "Assets/Scenes/MainMenu.unity";
         public const string RoundScenePath = "Assets/Scenes/SampleScene.unity";
+        /// <summary>The player id offline and of a host's own player. A client's id comes from the server: read <see cref="LocalId"/>.</summary>
         public const int LocalPlayerId = 1;
+        /// <summary>This process's player in the running round: <see cref="LocalPlayerId"/> offline and when hosting, the server's id on a client.</summary>
+        public static int LocalId { get; set; } = LocalPlayerId;
         /// <summary>The practice dungeon's tier (the greybox config is Tier I); the tier wall is checked before Play.</summary>
         public const int PracticeTier = 1;
         public const int MaxNameLength = 20;
@@ -77,7 +85,12 @@ namespace DungeonGen.Unity
             LoadProfile();
         }
 
-        private void OnDestroy() { if (Instance == this) Instance = null; }
+        private void OnDestroy()
+        {
+            if (Instance != this) return;
+            Instance = null;
+            if (OnlineLaunch.Current != null) EndSession();
+        }
 
         // ---------------- profile and characters ----------------
 
@@ -184,12 +197,11 @@ namespace DungeonGen.Unity
 
         // ---------------- the round ----------------
 
-        /// <summary>Start a practice round with the selected character. Returns why not, or null (the round scene is loading).</summary>
-        public string Play(int? seed = null)
+        /// <summary>The selected character's loadout for a round: worn gear and every Health Potion and Antidote in the bank (keys 1 and 2). Null with why not.</summary>
+        private Loadout RoundLoadout(out string refusal)
         {
-            if (Phase != FlowPhase.Menu) return "A round is already starting.";
-            if (Profile == null || Character == null) return "Create a character first.";
-            // Pockets: every Health Potion and Antidote in the bank comes in (keys 1 and 2); a death loses them.
+            refusal = null;
+            if (Profile == null || Character == null) { refusal = "Create a character first."; return null; }
             var pockets = new Dictionary<string, int>();
             foreach (var name in PocketConsumables)
             {
@@ -198,8 +210,20 @@ namespace DungeonGen.Unity
                 if (n > 0) pockets[name] = n;
             }
             var loadout = Loadout.For(Profile, Character, null, pockets);
-            var refusal = loadout.TierRefusal(PracticeTier);
-            if (refusal != null) return refusal + ".";
+            var why = loadout.TierRefusal(PracticeTier);
+            if (why != null) { refusal = why + "."; return null; }
+            return loadout;
+        }
+
+        /// <summary>Start a practice round with the selected character. Returns why not, or null (the round scene is loading).</summary>
+        public string Play(int? seed = null)
+        {
+            if (Phase != FlowPhase.Menu) return "A round is already starting.";
+            if (Profile == null || Character == null) return "Create a character first.";
+            // Pockets: every Health Potion and Antidote in the bank comes in (keys 1 and 2); a death loses them.
+            var loadout = RoundLoadout(out var refusal);
+            if (refusal != null) return refusal;
+            OnlineLaunch.Current = null; LocalId = LocalPlayerId;
             PracticeLaunch.Current = new PracticeLaunch
             {
                 Seed = seed ?? UnityEngine.Random.Range(1, 1000000),
@@ -219,12 +243,152 @@ namespace DungeonGen.Unity
         private IEnumerator HostRound()
         {
             yield return null;   // let the scene's Start methods run first
-            var match = OfflineMatch.HostInScene();
-            if (match == null) Debug.LogError("GameFlow: the round scene has no match bootstrap to host on.");
-            else if (!match.Hosting) match.Host();
+            var session = NetSessions.Current;
+            if (OnlineLaunch.Current != null && session != null)
+            {
+                var online = OnlineMatch.InScene();
+                if (online == null) Debug.LogError("GameFlow: the round scene has no match bootstrap to host on.");
+                else if (session.IsServer) online.HostOnline(session);
+                else online.JoinOnline(session);
+            }
+            else
+            {
+                var match = OfflineMatch.HostInScene();
+                if (match == null) Debug.LogError("GameFlow: the round scene has no match bootstrap to host on.");
+                else if (!match.Hosting) match.Host();
+            }
             Phase = FlowPhase.InRound;
             Changed?.Invoke();
         }
+
+        // ---------------- online ----------------
+
+        /// <summary>The networked session behind the lobby or the round, or null offline.</summary>
+        public INetSession Session => OnlineLaunch.Current != null ? NetSessions.Current : null;
+        public bool Online => Session != null;
+        /// <summary>A line about the session for the lobby screen.</summary>
+        public string NetStatus => Session?.Status ?? "";
+
+        /// <summary>Host a round from this machine: listen on <paramref name="port"/> (every interface, or <paramref name="bindAddress"/>) and wait in the lobby. Returns why not, or null.</summary>
+        public string HostOnline(ushort port = NetSessions.DefaultPort, string bindAddress = null)
+        {
+            if (Phase != FlowPhase.Menu) return "A round is already starting.";
+            if (!NetSessions.Available) return "Online play is not in this build.";
+            var loadout = RoundLoadout(out var refusal);
+            if (refusal != null) return refusal;
+            return StartSession(new NetSessionOptions { Role = NetRole.Host, Address = bindAddress ?? "", Port = port, Join = JoinRequest.From(loadout, Profile.AccountLevel), BotTeams = BotTeams }, loadout);
+        }
+
+        /// <summary>Join a host or a dedicated server at <paramref name="address"/>:<paramref name="port"/> and wait in its lobby. Returns why not, or null.</summary>
+        public string JoinOnline(string address, ushort port = NetSessions.DefaultPort)
+        {
+            if (Phase != FlowPhase.Menu) return "A round is already starting.";
+            if (!NetSessions.Available) return "Online play is not in this build.";
+            var loadout = RoundLoadout(out var refusal);
+            if (refusal != null) return refusal;
+            PlayerPrefs.SetString(NetSessions.LastAddressKey, address ?? NetSessions.DefaultAddress); PlayerPrefs.SetInt(NetSessions.LastPortKey, port); PlayerPrefs.Save();
+            return StartSession(new NetSessionOptions { Role = NetRole.Client, Address = string.IsNullOrWhiteSpace(address) ? NetSessions.DefaultAddress : address.Trim(), Port = port, Join = JoinRequest.From(loadout, Profile.AccountLevel) }, loadout);
+        }
+
+        /// <summary>A dedicated server (<c>-server</c>): no player, no profile; listen and run rounds for whoever joins.</summary>
+        public string StartDedicated(ushort port = NetSessions.DefaultPort, string bindAddress = null, int botTeams = 1)
+        {
+            if (!NetSessions.Available) return "Online play is not in this build.";
+            return StartSession(new NetSessionOptions { Role = NetRole.Dedicated, Address = bindAddress ?? "", Port = port, BotTeams = Mathf.Clamp(botTeams, 0, 7) }, null);
+        }
+
+        private string StartSession(NetSessionOptions options, Loadout loadout)
+        {
+            INetSession session;
+            try { session = NetSessions.Start(options); }
+            catch (Exception e) { return e.Message; }
+            OnlineLaunch.Current = new OnlineLaunch { Role = options.Role, Loadout = loadout, AccountLevel = Profile?.AccountLevel ?? 1 };
+            PracticeLaunch.Current = null;
+            session.RoundStarting += OnSessionRoundStarting;
+            session.LobbyChanged += OnSessionChanged;
+            session.Closed += OnSessionClosed;
+            LastReport = null; LastRecap = null; Message = null;
+            Phase = FlowPhase.Lobby;
+            Changed?.Invoke();
+            return null;
+        }
+
+        private void OnSessionChanged() { if (this != null) Changed?.Invoke(); }
+
+        /// <summary>The host's Start button (or a dedicated server's timer): everyone loads the round. Returns why not, or null.</summary>
+        public string StartOnlineRound(int? seed = null)
+        {
+            var s = Session;
+            if (s == null || !s.IsServer) return "Only the host starts the round.";
+            if (Phase != FlowPhase.Lobby) return "Not in the lobby.";
+            return s.StartRound(seed ?? UnityEngine.Random.Range(1, 1000000));
+        }
+
+        /// <summary>The lobby's Leave: stop the session and go back to the main menu screen.</summary>
+        public void LeaveLobby()
+        {
+            if (Phase != FlowPhase.Lobby) return;
+            EndSession();
+            Phase = FlowPhase.Menu;
+            Changed?.Invoke();
+        }
+
+        private void OnSessionRoundStarting()
+        {
+            if (this == null) return;
+            if (Phase != FlowPhase.Lobby) return;   // a reconnect while the round scene is still up
+            LastReport = null; LastRecap = null; Message = null; _settled = false; _sim = null; _forfeitAt = -1f;
+            LocalId = Session != null && Session.LocalPlayerId > 0 ? Session.LocalPlayerId : LocalPlayerId;
+            Phase = FlowPhase.LoadingRound;
+            Changed?.Invoke();
+            Time.timeScale = 1f;
+            SceneManager.sceneLoaded += SilenceOnRoundLoad;
+            StartCoroutine(LoadThen(RoundScenePath, null, HostRound));
+        }
+
+        /// <summary>Runs after the round scene's Awake and before its Start: the dev scene's practice wrapper must not host an offline round under an online one.</summary>
+        private static void SilenceOnRoundLoad(Scene scene, LoadSceneMode mode)
+        {
+            SceneManager.sceneLoaded -= SilenceOnRoundLoad;
+            OnlineMatch.SilenceOfflineHosts();
+        }
+
+        private void OnSessionClosed(string reason)
+        {
+            if (this == null) return;
+            Debug.Log("GameFlow: the online session closed: " + reason);
+            if (Phase == FlowPhase.Lobby) { Message = reason; EndSession(); Phase = FlowPhase.Menu; Changed?.Invoke(); return; }
+            if (Phase == FlowPhase.InRound && !_settled && OnlineLaunch.Current?.Role == NetRole.Client)
+            {
+                // The round goes on without us; the server settles our character as a death after the window. Nothing here can settle it
+                // without the server's result, so the profile is left as it was (the gear is still in it) and the menu says so.
+                Message = reason + " Your round could not be settled: the server records it as a death if you do not come back within 60 s.";
+                ReturnToMenu();
+            }
+        }
+
+        private void EndSession()
+        {
+            var s = NetSessions.Current;
+            if (s != null) { s.RoundStarting -= OnSessionRoundStarting; s.LobbyChanged -= OnSessionChanged; s.Closed -= OnSessionClosed; }
+            NetSessions.StopCurrent();
+            OnlineLaunch.Current = null;
+            ClientMirror.Current = null;
+            LocalId = LocalPlayerId;
+        }
+
+        /// <summary>A dedicated server's round is over: back to the lobby (and the menu scene) for the next one, with everyone still connected.</summary>
+        public void DedicatedRoundOver()
+        {
+            var s = Session;
+            if (s == null || s.Role != NetRole.Dedicated) return;
+            s.EndRound();
+            Phase = FlowPhase.LoadingMenu;
+            StartCoroutine(LoadThen(MenuScenePath, () => { Phase = FlowPhase.Lobby; Changed?.Invoke(); }));
+        }
+
+        private bool IsOnlineClient => OnlineLaunch.Current != null && OnlineLaunch.Current.Role == NetRole.Client;
+        private float _forfeitAt = -1f;
 
         // ---------------- pause ----------------
 
@@ -261,10 +425,28 @@ namespace DungeonGen.Unity
         private void Update()
         {
             if (Phase != FlowPhase.InRound || _settled) return;
+            if (IsOnlineClient)
+            {
+                // A client settles from the server's word on its round.
+                if (ClientMirror.Current?.Result != null) SettleNow();
+                return;
+            }
             var server = Server;
             if (server == null || server.Sim == null || !server.State.PlayerTeam.ContainsKey(LocalPlayerId)) return;
             if (RoundSettlement.OutcomeOf(server.State, LocalPlayerId) == null) return;
             SettleNow();
+        }
+
+        /// <summary>A client's settlement: the server's <see cref="RoundResult"/> applied to this profile, the brought ids resolved to the loadout objects it sent.</summary>
+        private SettlementReport SettleFromResult()
+        {
+            var result = ClientMirror.Current?.Result;
+            var bootstrap = FindFirstObjectByType<DungeonMatchBootstrap>();
+            var launch = OnlineLaunch.Current;
+            if (result == null || bootstrap == null || bootstrap.Descriptor == null || bootstrap.State == null || Profile == null || Character == null || launch?.Loadout == null) return null;
+            var report = result.Settle(Profile, Character, launch.Loadout.Brought.ToList(), bootstrap.Descriptor, bootstrap.State.Layout);
+            if (report.Outcome == RoundOutcome.Died) LastRecap = result.Recap;
+            return report;
         }
 
         /// <summary>Settle the local player's finished round into the profile and save it. Called by the watcher; public for tests.</summary>
@@ -272,11 +454,16 @@ namespace DungeonGen.Unity
         {
             if (_settled) return LastReport;
             var server = Server;
-            if (server == null || Profile == null || Character == null) return null;
+            if (!IsOnlineClient && (server == null || Profile == null || Character == null)) return null;
             try
             {
-                var report = RoundSettlement.Settle(Profile, Character, server, LocalPlayerId);
-                if (report.Outcome == RoundOutcome.Died) LastRecap = DeathRecap.For(server.State, LocalPlayerId, server.Sim?.Hits);
+                SettlementReport report;
+                if (IsOnlineClient) { report = SettleFromResult(); if (report == null) return null; }
+                else
+                {
+                    report = RoundSettlement.Settle(Profile, Character, server, LocalPlayerId);
+                    if (report.Outcome == RoundOutcome.Died) LastRecap = DeathRecap.For(server.State, LocalPlayerId, server.Sim?.Hits);
+                }
                 LastReport = report;
                 _settled = true;
                 RoundsPlayed++;
@@ -301,6 +488,11 @@ namespace DungeonGen.Unity
         {
             get
             {
+                if (IsOnlineClient)
+                {
+                    var st = FindFirstObjectByType<DungeonMatchBootstrap>()?.State;
+                    return st != null && ClientMirror.Current?.Result == null && st.PlayerTeam.ContainsKey(LocalId) && RoundSettlement.OutcomeOf(st, LocalId) == null;
+                }
                 var s = Server;
                 return s != null && s.State.PlayersInside.Contains(LocalPlayerId);
             }
@@ -308,10 +500,16 @@ namespace DungeonGen.Unity
 
         /// <summary>
         /// End the local player's round as a death (the pause menu's Leave, and a downed player giving up). The killer is
-        /// whoever downed them, if anyone, so an enemy still earns the soul. Settles at once.
+        /// whoever downed them, if anyone, so an enemy still earns the soul. Settles at once. On a client the server records it
+        /// and sends the result, which settles it a moment later.
         /// </summary>
         public void ForfeitRound()
         {
+            if (IsOnlineClient)
+            {
+                if (_forfeitAt < 0f) { _forfeitAt = Time.unscaledTime; Session?.SendControl(NetControl.Forfeit, Array.Empty<byte>()); }
+                return;
+            }
             var s = Server;
             if (s == null || !s.State.PlayersInside.Contains(LocalPlayerId)) return;
             int killer = -1;
@@ -324,6 +522,7 @@ namespace DungeonGen.Unity
         /// <summary>Pause menu: leave the round. It counts as a death: settle, save, back to the menu.</summary>
         public void LeaveRound()
         {
+            if (IsOnlineClient && Phase == FlowPhase.InRound && !_settled) { StartCoroutine(LeaveOnline()); return; }
             if (Phase == FlowPhase.InRound) ForfeitRound();
             var r = LastReport;
             if (r != null && !r.AlreadySettled)
@@ -331,10 +530,24 @@ namespace DungeonGen.Unity
             ReturnToMenu();
         }
 
-        /// <summary>Back to the main menu (from the summary, or from a greybox round with no flow behind it).</summary>
+        /// <summary>A client leaving: the server records the forfeit and sends the result; settle from it (up to 10 s), then go.</summary>
+        private IEnumerator LeaveOnline()
+        {
+            ForfeitRound();
+            float t = Time.unscaledTime;
+            while (!_settled && Time.unscaledTime - t < 10f) yield return null;
+            var r = LastReport;
+            if (r != null && !r.AlreadySettled)
+                Message = $"You left the round. It counts as a death: {r.ItemsLost.Count} item{(r.ItemsLost.Count == 1 ? "" : "s")} lost, +{r.XpDelta} XP.";
+            else if (!_settled) Message = "You left the round; the server did not answer, so it will count as a death there.";
+            ReturnToMenu();
+        }
+
+        /// <summary>Back to the main menu (from the summary, or from a greybox round with no flow behind it). Online, this ends the session (a host's round ends for everyone).</summary>
         public void ReturnToMenu()
         {
             if (Phase == FlowPhase.LoadingMenu) return;
+            if (OnlineLaunch.Current != null && OnlineLaunch.Current.Role != NetRole.Dedicated) EndSession();
             PracticeLaunch.Current = null;
             _sim = null;
             SetRoundPaused(false);

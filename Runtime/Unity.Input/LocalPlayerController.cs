@@ -37,7 +37,11 @@ namespace DungeonGen.Unity
         private InputAction _potion, _antidote;
         private byte _consumableQueued;   // PlayerIntent.ConsumableSlot: 1 Health Potion, 2 Antidote
 
+        /// <summary>The transport intents go out on: the loopback offline, the round's network transport online (a host's goes in-process, a client's to the server).</summary>
         public void Attach(IMatchTransport transport) => _transport = transport;
+
+        /// <summary>Online: the player id the server gave this process; every intent carries it (the server drops an intent for anyone else).</summary>
+        public void SetLocalPlayerId(int id) => LocalPlayerId = id;
 
         private void OnEnable()
         {

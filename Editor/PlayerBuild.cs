@@ -32,7 +32,39 @@ namespace DungeonGen.Unity.Editor
 
         public static void WindowsRelease() => Build(OutputRelative, BuildOptions.None);
 
-        private static void Build(string outputRelative, BuildOptions buildOptions)
+        /// <summary>The dedicated server build (Windows, Server subtarget: headless, no rendering).</summary>
+        public const string ServerOutputRelative = "Builds/WinServer/DungeonGameServer.exe";
+
+        /// <summary>
+        /// Is Unity's Windows Dedicated Server module installed? The build target must be supported and the server player variation present
+        /// (the module installs <c>win64_server_*</c> beside the normal players).
+        /// </summary>
+        public static bool ServerSubtargetInstalled
+        {
+            get
+            {
+                if (!BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Standalone, BuildTarget.StandaloneWindows64)) return false;
+                var variations = Path.Combine(EditorApplication.applicationContentsPath, "PlaybackEngines", "WindowsStandaloneSupport", "Variations");
+                return Directory.Exists(variations) && Directory.GetDirectories(variations).Any(d => Path.GetFileName(d).StartsWith("win64_server", StringComparison.OrdinalIgnoreCase));
+            }
+        }
+
+        /// <summary>
+        /// A dedicated server build into <c>Builds/WinServer</c> when the Dedicated Server module is installed (run it with <c>-server -port 7770</c>).
+        /// Without the module this logs how to run one instead (the release player with <c>-batchmode -nographics -server -port 7770</c>) and exits 0.
+        /// <c>bash Tools/Build/unity-batch.sh method DungeonGen.Unity.Editor.PlayerBuild.WindowsServer</c>.
+        /// </summary>
+        public static void WindowsServer()
+        {
+            if (!ServerSubtargetInstalled)
+            {
+                Debug.Log("Dungeon Gen: the Windows Dedicated Server module is not installed in this editor; no server build. A dedicated server is the release player run as: DungeonGame.exe -batchmode -nographics -server -port 7770");
+                return;
+            }
+            Build(ServerOutputRelative, BuildOptions.None, (int)StandaloneBuildSubtarget.Server);
+        }
+
+        private static void Build(string outputRelative, BuildOptions buildOptions, int subtarget = 0)
         {
             try
             {
@@ -49,6 +81,7 @@ namespace DungeonGen.Unity.Editor
                     target = BuildTarget.StandaloneWindows64,
                     targetGroup = BuildTargetGroup.Standalone,
                     options = buildOptions,
+                    subtarget = subtarget,
                 };
                 var report = BuildPipeline.BuildPlayer(options);
                 var summary = report.summary;

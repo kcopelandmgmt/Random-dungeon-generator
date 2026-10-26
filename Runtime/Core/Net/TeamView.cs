@@ -49,6 +49,34 @@ namespace DungeonGen.Core.Net
         public List<GridPoint> ClosedDoors = new List<GridPoint>();
         public List<int> KnownHazards = new List<int>();
         public List<int> DisarmedHazards = new List<int>();
+        /// <summary>
+        /// The full item behind every id the team's screens can name (2026-10-26 online play): the items listed in <see cref="Items"/>, everything a
+        /// member holds, the items in opened corpses the team sees, and the items in its rolls. Each is <see cref="Profile.ProfileCodec.WriteItem"/>'s
+        /// form (base, item level, rarity, name, affixes, wear), so a remote client shows base, affixes and weight like the host does. Filled only when
+        /// the view is built with the host's item lookup; appended last on the wire, so an older view reads with none.
+        /// </summary>
+        public List<(int id, byte[] item)> ItemDetails = new List<(int, byte[])>();
+
+        /// <summary>The item behind an id from <see cref="ItemDetails"/>, or null.</summary>
+        public Items.Item DetailOf(int id)
+        {
+            foreach (var d in ItemDetails) if (d.id == id) return ReadItem(d.item);
+            return null;
+        }
+
+        public static byte[] WriteItem(Items.Item item)
+        {
+            using var ms = new MemoryStream();
+            using (var w = new BinaryWriter(ms)) Profile.ProfileCodec.WriteItem(w, item);
+            return ms.ToArray();
+        }
+
+        public static Items.Item ReadItem(byte[] bytes)
+        {
+            using var ms = new MemoryStream(bytes);
+            using var r = new BinaryReader(ms);
+            return Profile.ProfileCodec.ReadItem(r);
+        }
 
         /// <summary>
         /// The view for one team. <paramref name="itemLookup"/> (the host's <see cref="MatchServer.ItemById"/>) lets brought-in gear that was
@@ -117,6 +145,18 @@ namespace DungeonGen.Core.Net
             }
             v.KnownHazards = st.HazardsVisibleTo(team).Select(h => h.Id).OrderBy(i => i).ToList();
             v.DisarmedHazards = st.DisarmedHazards.Where(id => seen.Contains(st.Index.Hazards[id].RoomId)).OrderBy(i => i).ToList();
+            if (itemLookup != null)
+            {
+                var ids = new SortedSet<int>(v.Items.Select(i => i.Id));
+                foreach (var kv in st.ItemOwner) if (members.Contains(kv.Value)) ids.Add(kv.Key);
+                foreach (var c in v.Corpses) foreach (int i in c.Items) ids.Add(i);
+                foreach (var r in v.Rolls) ids.Add(r.Item);
+                foreach (int id in ids)
+                {
+                    var it = itemLookup(id);
+                    if (it != null) v.ItemDetails.Add((id, WriteItem(it)));
+                }
+            }
             return v;
         }
 
@@ -140,6 +180,7 @@ namespace DungeonGen.Core.Net
                 foreach (var c in Corpses) { w.Write(c.Player); w.Write(c.Room); w.Write(c.Silver); w.Write(c.Opened); w.Write(c.HasSoul); WriteInts(w, c.Items); }
                 w.Write(ClosedDoors.Count); foreach (var d in ClosedDoors) { w.Write(d.X); w.Write(d.Y); }
                 WriteInts(w, KnownHazards); WriteInts(w, DisarmedHazards);
+                w.Write(ItemDetails.Count); foreach (var d in ItemDetails) { w.Write(d.id); w.Write(d.item.Length); w.Write(d.item); }
             }
             return ms.ToArray();
         }
@@ -168,6 +209,11 @@ namespace DungeonGen.Core.Net
             for (int i = 0; i < n; i++) v.Corpses.Add(new Corpse { Player = r.ReadInt32(), Room = r.ReadInt32(), Silver = r.ReadInt32(), Opened = r.ReadBoolean(), HasSoul = r.ReadBoolean(), Items = ReadInts(r) });
             n = r.ReadInt32(); for (int i = 0; i < n; i++) v.ClosedDoors.Add(new GridPoint(r.ReadInt32(), r.ReadInt32()));
             v.KnownHazards = ReadInts(r); v.DisarmedHazards = ReadInts(r);
+            if (ms.Position < ms.Length)   // item details: appended 2026-10-26, absent from older views
+            {
+                n = r.ReadInt32();
+                for (int i = 0; i < n; i++) { int id = r.ReadInt32(); int len = r.ReadInt32(); v.ItemDetails.Add((id, r.ReadBytes(len))); }
+            }
             return v;
         }
 

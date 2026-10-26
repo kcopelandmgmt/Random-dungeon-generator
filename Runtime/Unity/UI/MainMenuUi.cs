@@ -19,6 +19,8 @@ namespace DungeonGen.Unity.UI
     {
         public const string Main = "Main", Characters = "Characters", Create = "Create", Prepare = "Prepare", Settings = "Settings", Loading = "Loading";
         public const string StashScreenName = "Stash", VendorScreenName = "Vendor";
+        /// <summary>Online play: host or join, then the lobby.</summary>
+        public const string Online = "Online", Lobby = "Lobby";
 
         public string Current { get; private set; }
 
@@ -33,6 +35,7 @@ namespace DungeonGen.Unity.UI
 
         private void Awake()
         {
+            if (LaunchFlags.Has(DedicatedServer.Flag)) { enabled = false; return; }   // a dedicated server has no menu
             if (LaunchFlags.AutoTest)
             {
                 // The smoke test plays a greybox round with the practice defaults: no menu, no profile.
@@ -47,11 +50,11 @@ namespace DungeonGen.Unity.UI
 
         private void Start()
         {
-            if (LaunchFlags.AutoTest) return;
+            if (LaunchFlags.AutoTest || LaunchFlags.Has(DedicatedServer.Flag)) return;
             _flow = GameFlow.Ensure();
             _flow.Changed += OnFlowChanged;
             BuildBackdrop();
-            ShowScreen(Main);
+            ShowScreen(_flow.Phase == FlowPhase.Lobby ? Lobby : Main);
         }
 
         private void OnDestroy() { if (_flow != null) _flow.Changed -= OnFlowChanged; }
@@ -60,7 +63,10 @@ namespace DungeonGen.Unity.UI
         {
             if (this == null || Current == null) return;
             if (_flow.Phase == FlowPhase.LoadingRound) { ShowScreen(Loading); return; }
-            if (Current != Create) ShowScreen(Current);   // refresh in place; the create screen keeps its typing
+            if (_flow.Phase == FlowPhase.Lobby) { ShowScreen(Lobby); return; }
+            if (Current == Lobby && _flow.Phase == FlowPhase.Menu) { ShowScreen(Online); return; }   // left, refused, or the connection failed: the message says which
+            if (Current != Create && Current != Online) ShowScreen(Current);   // refresh in place; the create and online screens keep their typing
+            else if (_message != null) _message.text = _flow.Message ?? "";
         }
 
         // ---------------- frame ----------------
@@ -84,7 +90,7 @@ namespace DungeonGen.Unity.UI
 
             _message = UiStyle.Label(_root, "Message", "", 24, UiStyle.Gold, TextAnchor.MiddleCenter);
             _message.rectTransform.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 12f), new Vector2(1300f, 36f));
-            var ver = UiStyle.Label(_root, "Version", (Debug.isDebugBuild ? "Development build · " : "") + "Offline rounds against bot teams · v" + Application.version, 18, UiStyle.TextFaint, TextAnchor.LowerRight);
+            var ver = UiStyle.Label(_root, "Version", (Debug.isDebugBuild ? "Development build · " : "") + (NetSessions.Available ? "Offline or online · v" : "Offline rounds against bot teams · v") + Application.version, 18, UiStyle.TextFaint, TextAnchor.LowerRight);
             ver.rectTransform.Place(new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-24f, 14f), new Vector2(700f, 30f));
         }
 
@@ -106,6 +112,8 @@ namespace DungeonGen.Unity.UI
                 case Loading: BuildLoading(); break;
                 case StashScreenName: StashScreen.Build(_screen, _flow, () => ShowScreen(Main), () => ShowScreen(StashScreenName), () => ShowScreen(VendorScreenName)); break;
                 case VendorScreenName: VendorScreen.Build(_screen, _flow, () => ShowScreen(Main), () => ShowScreen(VendorScreenName), () => ShowScreen(StashScreenName)); break;
+                case Online: OnlinePanels.BuildOnline(_screen, _flow, () => ShowScreen(Prepare), m => { _flow.Message = m; if (_message != null) _message.text = m; }); break;
+                case Lobby: OnlinePanels.BuildLobby(_screen, _flow); break;
                 default: Current = Main; BuildMain(); break;
             }
             _message.text = _flow?.Message ?? "";
@@ -340,7 +348,10 @@ namespace DungeonGen.Unity.UI
 
             Btn(panel, "BackButton", "Back", () => ShowScreen(_flow.Profile.Characters.Count > 1 ? Characters : Main), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(40f, 36f), new Vector2(260f, 64f));
             if (_flow.CharacterNaked || ch.Equipment.Items.Count() < 6)
-                Btn(panel, "StarterKitButton", "Claim free starter kit", () => { _flow.ClaimStarterKit(); UiSound.Play(UiSound.Confirm); }, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-40f, 36f), new Vector2(380f, 64f), 24);
+                Btn(panel, "StarterKitButton", "Claim free starter kit", () => { _flow.ClaimStarterKit(); UiSound.Play(UiSound.Confirm); }, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(320f, 36f), new Vector2(330f, 64f), 22);
+            // Online: host a round or join one (the offline round stays the big button).
+            var online = Btn(panel, "PlayOnlineButton", "Play online…", () => ShowScreen(Online), new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-440f, 36f), new Vector2(300f, 64f), 26);
+            online.interactable = admitted && NetSessions.Available;
             var enter = Btn(panel, "EnterButton", "Enter the dungeon", () =>
             {
                 var why = _flow.Play();

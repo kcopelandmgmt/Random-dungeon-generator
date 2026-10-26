@@ -93,21 +93,128 @@ namespace DungeonGen.Core.Net
         public static AvatarSnapshot Read(BinaryReader r) => new AvatarSnapshot { Id = r.ReadInt32(), Team = r.ReadInt32(), X = r.ReadSingle(), Y = r.ReadSingle(), FacingX = r.ReadSingle(), FacingY = r.ReadSingle(), HealthFraction = r.ReadSingle(), ClassIndex = r.ReadByte(), Downed = r.ReadBoolean(), Dead = r.ReadBoolean(), IsMob = r.ReadBoolean(), ArmedUltimate = r.ReadBoolean(), Invisible = r.ReadBoolean(), Label = r.ReadString() };
     }
 
-    /// <summary>The local player's own numbers, sent only to them: resource, cooldowns, channel progress.</summary>
+    /// <summary>
+    /// A team member's own numbers, sent to their team (teammates already see each other's bars on the avatars): resource, cooldowns,
+    /// channel progress, and, for remote clients (2026-10-26 online play), what the host's screens used to read off the server: the spec
+    /// the server seats now (<see cref="Spec"/>), the pockets (<see cref="Pockets"/>) with every consumable's cooldown
+    /// (<see cref="ConsumableCooldowns"/>, indexed like <see cref="DungeonGen.Core.Items.Consumable.All"/>), and the item screens' data
+    /// (<see cref="Items"/>: in reach, carried, rolling, by id). Item details (base, affixes, weight) travel once per change in
+    /// <see cref="TeamView.ItemDetails"/>, not every tick.
+    /// </summary>
     public struct SelfSnapshot
     {
         public int PlayerId; public float Health, MaxHealth, Resource, MaxResource; public float[] CooldownRemaining; public string ChannelName; public float ChannelFraction; public bool UltimateArmed; public float DownedRemaining;
+        /// <summary>The spec the server seats this player with now (a lost weapon changes it). Empty when unknown.</summary>
+        public string Spec;
+        /// <summary>What is in the pockets now: consumable name and count.</summary>
+        public List<(string name, int count)> Pockets;
+        /// <summary>Seconds until each consumable may be used again, indexed like <see cref="DungeonGen.Core.Items.Consumable.All"/>.</summary>
+        public float[] ConsumableCooldowns;
+        /// <summary>The item screens' data for this player, or null when the server sent none.</summary>
+        public SelfItems Items;
+
+        public int PocketCount(string consumable) { if (Pockets != null) foreach (var p in Pockets) if (p.name == consumable) return p.count; return 0; }
+        public float ConsumableCooldown(string consumable)
+        {
+            if (ConsumableCooldowns == null) return 0f;
+            var all = DungeonGen.Core.Items.Consumable.All;
+            for (int i = 0; i < all.Count && i < ConsumableCooldowns.Length; i++) if (all[i].Name == consumable) return ConsumableCooldowns[i];
+            return 0f;
+        }
+
         public void Write(BinaryWriter w)
         {
             w.Write(PlayerId); w.Write(Health); w.Write(MaxHealth); w.Write(Resource); w.Write(MaxResource);
             w.Write(CooldownRemaining?.Length ?? 0); if (CooldownRemaining != null) foreach (var c in CooldownRemaining) w.Write(c);
             w.Write(ChannelName ?? ""); w.Write(ChannelFraction); w.Write(UltimateArmed); w.Write(DownedRemaining);
+            w.Write(Spec ?? "");
+            w.Write(Pockets?.Count ?? 0); if (Pockets != null) foreach (var p in Pockets) { w.Write(p.name ?? ""); w.Write(p.count); }
+            w.Write(ConsumableCooldowns?.Length ?? 0); if (ConsumableCooldowns != null) foreach (var c in ConsumableCooldowns) w.Write(c);
+            w.Write(Items != null); Items?.Write(w);
         }
         public static SelfSnapshot Read(BinaryReader r)
         {
             var s = new SelfSnapshot { PlayerId = r.ReadInt32(), Health = r.ReadSingle(), MaxHealth = r.ReadSingle(), Resource = r.ReadSingle(), MaxResource = r.ReadSingle() };
             int n = r.ReadInt32(); s.CooldownRemaining = new float[n]; for (int i = 0; i < n; i++) s.CooldownRemaining[i] = r.ReadSingle();
             s.ChannelName = r.ReadString(); s.ChannelFraction = r.ReadSingle(); s.UltimateArmed = r.ReadBoolean(); s.DownedRemaining = r.ReadSingle();
+            s.Spec = r.ReadString();
+            n = r.ReadInt32(); s.Pockets = new List<(string, int)>(n); for (int i = 0; i < n; i++) s.Pockets.Add((r.ReadString(), r.ReadInt32()));
+            n = r.ReadInt32(); s.ConsumableCooldowns = new float[n]; for (int i = 0; i < n; i++) s.ConsumableCooldowns[i] = r.ReadSingle();
+            if (r.ReadBoolean()) s.Items = SelfItems.Read(r);
+            return s;
+        }
+    }
+
+    /// <summary>
+    /// <see cref="PlayerItems"/> by id, for the wire: what Space would do, the room and corpse in reach, the load, every item in reach with the
+    /// server's refusal, what is carried (worn marked, salvage allowed), and the rolls this player is in. A remote client resolves the ids to
+    /// items through the details its team's <see cref="TeamView"/> carries (<see cref="ToPlayerItems"/>).
+    /// </summary>
+    public sealed class SelfItems
+    {
+        public struct Loot { public int ItemId; public LootSourceKind Source; public bool InRoll; public int Winner; public string Refusal; }
+        public struct Carry { public int ItemId; public bool Worn; public bool CanSalvage; }
+        /// <summary>A roll this player is in; <see cref="Answered"/> is the <see cref="DungeonGen.Core.Items.LootRollChoice"/> as a number, -1 before they answer.</summary>
+        public struct Ask { public int ItemId; public float SecondsLeft; public sbyte Answered; public int Eligible, Answers; public bool OnClass; }
+
+        public string Interaction; public int Room = -1, Corpse = -1; public float LoadKg, CapacityKg;
+        public List<Loot> Here = new List<Loot>();
+        public List<Carry> Carried = new List<Carry>();
+        public List<Ask> Rolls = new List<Ask>();
+
+        /// <summary>Every item id this message names (in reach, carried, rolling).</summary>
+        public IEnumerable<int> ItemIds { get { foreach (var h in Here) yield return h.ItemId; foreach (var c in Carried) yield return c.ItemId; foreach (var a in Rolls) yield return a.ItemId; } }
+
+        /// <summary>The host's view, by id. <paramref name="canSalvage"/> answers whether the Salvage button may show for a carried id.</summary>
+        public static SelfItems From(PlayerItems v, Func<int, bool> canSalvage = null)
+        {
+            var s = new SelfItems { Interaction = v.Interaction, Room = v.Room, Corpse = v.Corpse, LoadKg = v.LoadKg, CapacityKg = v.CapacityKg };
+            foreach (var h in v.Here) s.Here.Add(new Loot { ItemId = h.ItemId, Source = h.Source, InRoll = h.InRoll, Winner = h.Winner, Refusal = h.Refusal });
+            foreach (var c in v.Carried) s.Carried.Add(new Carry { ItemId = c.ItemId, Worn = c.Worn, CanSalvage = canSalvage != null && canSalvage(c.ItemId) });
+            foreach (var r in v.Rolls) s.Rolls.Add(new Ask { ItemId = r.ItemId, SecondsLeft = r.SecondsLeft, Answered = r.Answered.HasValue ? (sbyte)r.Answered.Value : (sbyte)-1, Eligible = r.Eligible, Answers = r.Answers, OnClass = r.OnClass });
+            return s;
+        }
+
+        /// <summary>Back to the screens' model, items resolved by <paramref name="lookup"/> (null for an id with no details yet).</summary>
+        public PlayerItems ToPlayerItems(int playerId, Func<int, DungeonGen.Core.Items.Item> lookup)
+        {
+            var v = new PlayerItems { PlayerId = playerId, Interaction = Interaction, Room = Room, Corpse = Corpse, LoadKg = LoadKg, CapacityKg = CapacityKg };
+            foreach (var h in Here) v.Here.Add(new LootChoice { ItemId = h.ItemId, Item = lookup?.Invoke(h.ItemId), Source = h.Source, InRoll = h.InRoll, Winner = h.Winner, Refusal = h.Refusal });
+            foreach (var c in Carried) v.Carried.Add(new CarriedItem { ItemId = c.ItemId, Item = lookup?.Invoke(c.ItemId), Worn = c.Worn });
+            foreach (var a in Rolls)
+                v.Rolls.Add(new RollPrompt
+                {
+                    ItemId = a.ItemId, Item = lookup?.Invoke(a.ItemId), SecondsLeft = a.SecondsLeft, Eligible = a.Eligible, Answers = a.Answers, OnClass = a.OnClass,
+                    Answered = a.Answered < 0 ? (DungeonGen.Core.Items.LootRollChoice?)null : (DungeonGen.Core.Items.LootRollChoice)a.Answered,
+                });
+            return v;
+        }
+
+        public bool CanSalvage(int itemId) { foreach (var c in Carried) if (c.ItemId == itemId) return c.CanSalvage; return false; }
+
+        public void Write(BinaryWriter w)
+        {
+            w.Write(Interaction ?? ""); w.Write(Room); w.Write(Corpse); w.Write(LoadKg); w.Write(CapacityKg);
+            w.Write(Here.Count);
+            foreach (var h in Here) { w.Write(h.ItemId); w.Write((byte)h.Source); w.Write(h.InRoll); w.Write(h.Winner); w.Write(h.Refusal != null); if (h.Refusal != null) w.Write(h.Refusal); }
+            w.Write(Carried.Count); foreach (var c in Carried) { w.Write(c.ItemId); w.Write(c.Worn); w.Write(c.CanSalvage); }
+            w.Write(Rolls.Count); foreach (var a in Rolls) { w.Write(a.ItemId); w.Write(a.SecondsLeft); w.Write(a.Answered); w.Write(a.Eligible); w.Write(a.Answers); w.Write(a.OnClass); }
+        }
+
+        public static SelfItems Read(BinaryReader r)
+        {
+            var s = new SelfItems();
+            var inter = r.ReadString(); s.Interaction = inter.Length == 0 ? null : inter;
+            s.Room = r.ReadInt32(); s.Corpse = r.ReadInt32(); s.LoadKg = r.ReadSingle(); s.CapacityKg = r.ReadSingle();
+            int n = r.ReadInt32();
+            for (int i = 0; i < n; i++)
+            {
+                var h = new Loot { ItemId = r.ReadInt32(), Source = (LootSourceKind)r.ReadByte(), InRoll = r.ReadBoolean(), Winner = r.ReadInt32() };
+                if (r.ReadBoolean()) h.Refusal = r.ReadString();
+                s.Here.Add(h);
+            }
+            n = r.ReadInt32(); for (int i = 0; i < n; i++) s.Carried.Add(new Carry { ItemId = r.ReadInt32(), Worn = r.ReadBoolean(), CanSalvage = r.ReadBoolean() });
+            n = r.ReadInt32(); for (int i = 0; i < n; i++) s.Rolls.Add(new Ask { ItemId = r.ReadInt32(), SecondsLeft = r.ReadSingle(), Answered = r.ReadSByte(), Eligible = r.ReadInt32(), Answers = r.ReadInt32(), OnClass = r.ReadBoolean() });
             return s;
         }
     }

@@ -846,6 +846,11 @@ namespace DungeonGen.Core.Net
                     PlayerId = m.Id, Health = m.Health, MaxHealth = m.MaxHealth, Resource = m.ResourceNow, MaxResource = m.ResourceMax, CooldownRemaining = cds,
                     ChannelName = ch?.Kind, ChannelFraction = ch == null ? 0f : Math.Max(0f, Math.Min(1f, (Sim.Time - ch.Started) / ch.Seconds)),
                     UltimateArmed = State.UltimateCharges.TryGetValue(m.Id, out int uu) && uu > 0, DownedRemaining = m.Downed ? Math.Max(0f, FightRules.DownedSeconds - (Sim.Time - m.DownedAt)) : 0f,
+                    // For a remote client's screens (2026-10-26 online play): the spec, the pockets with cooldowns, and the item panels' data by id.
+                    Spec = SpecOf(m.Id) ?? m.Spec ?? "",
+                    Pockets = PocketsOf(m.Id).OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => (kv.Key, kv.Value)).ToList(),
+                    ConsumableCooldowns = Consumable.All.Select(cc => ConsumableCooldownRemaining(m.Id, cc)).ToArray(),
+                    Items = _botIds.Contains(m.Id) ? null : SelfItems.From(ItemsFor(m.Id), id => SalvageRefusal(m.Id, id) == null),
                 });
             }
             // Effects since this team's last snapshot: the casts and hits it may see, and the zones in its sight (those come every tick they live).

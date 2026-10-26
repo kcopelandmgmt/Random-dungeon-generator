@@ -12,7 +12,7 @@ namespace DungeonGen.Unity.UI
     /// <summary>
     /// The round-end card: extracted or died, what the round was (<see cref="RoundSummary"/>), and what it did to the profile
     /// (<see cref="SettlementReport"/>: items gained and lost, silver, XP, level). Without a report (a greybox round with no
-    /// flow) it shows the round half only.
+    /// flow) it shows the round half only. On a remote client both halves come from its own settlement of the server's <see cref="RoundResult"/>.
     /// </summary>
     public static class SummaryPanel
     {
@@ -27,7 +27,10 @@ namespace DungeonGen.Unity.UI
             p.Place(new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 10f), new Vector2(1180f, 780f));
 
             bool extracted = report != null ? report.Outcome == RoundOutcome.Extracted : s.Extracted;
-            bool clock = !extracted && st != null && st.Ended && !st.Log.Any(e => (e.Kind == MatchEventKind.PlayerDied || e.Kind == MatchEventKind.PlayerFinished) && e.A == s.Player);
+            // A remote client's mirror has no log: the server's result says whether the clock did it.
+            var result = ClientMirror.Current?.Result;
+            bool clock = !extracted && (result != null && result.PlayerId == s.Player ? result.DiedToClock
+                : st != null && st.Ended && !st.Log.Any(e => (e.Kind == MatchEventKind.PlayerDied || e.Kind == MatchEventKind.PlayerFinished) && e.A == s.Player));
             var title = UiStyle.Label(p, "Title", extracted ? "EXTRACTED" : clock ? "LOST TO THE CLOCK" : "YOU DIED", 64, extracted ? UiStyle.Gold : UiStyle.Bad, TextAnchor.MiddleCenter, FontStyle.Bold);
             title.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -26f), new Vector2(1000f, 80f));
             float t = st?.Time ?? 0f;

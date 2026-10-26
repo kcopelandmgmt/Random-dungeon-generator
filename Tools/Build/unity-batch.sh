@@ -9,6 +9,7 @@
 #   bash Tools/Build/unity-batch.sh build-win-dev        # the development Windows player (practice assembly) into Builds/WinDev
 #   bash Tools/Build/unity-batch.sh smoke                # run the dev player muted and minimised for its 30 s scripted test; prints smoke-result.json
 #   bash Tools/Build/unity-batch.sh smoke-release        # run the release player muted and minimised: menu, a round, leave, summary; prints smoke-release-result.json
+#   bash Tools/Build/unity-batch.sh smoke-net [port]     # two dev players muted and minimised over 127.0.0.1 (default port 7770): -autohost and -autojoin; prints net-host-result.json and net-client-result.json
 # Exit code 0 means Unity finished without compiler errors (and, for tests, without failures).
 set -u
 UNITY="/c/Program Files/Unity/Hub/Editor/6000.3.0f1/Editor/Unity.exe"
@@ -39,6 +40,27 @@ if [ "$cmd" = "smoke-release" ]; then
     if kill -0 $pid 2>/dev/null; then echo "unity-batch: release smoke test hung; killing the player" >&2; kill -9 $pid 2>/dev/null; taskkill //F //PID $pid >/dev/null 2>&1; code=1; else wait $pid; code=$?; fi
     cat "$PROJECT_POSIX/Builds/Win/smoke-release-result.json" 2>/dev/null || { echo "unity-batch: no smoke-release-result.json written (log: $PROJECT/Logs/player-release.log)"; code=1; }
     echo "unity-batch: smoke-release finished with exit $code"; exit $code
+fi
+# The network smoke test: two development players on this machine, a host (-autohost) and a client (-autojoin), over 127.0.0.1 only
+# (no firewall prompt), each with a throwaway profile under Logs/; both must exit 0. No lane needed.
+if [ "$cmd" = "smoke-net" ]; then
+    dir="$PROJECT_POSIX/Builds/WinDev"; exe="$dir/DungeonGame.exe"; port="${1:-7770}"
+    rm -f "$dir/net-host-result.json" "$dir/net-client-result.json"
+    [ -f "$exe" ] || { echo "unity-batch: no player at $exe; run build-win-dev first" >&2; exit 2; }
+    rm -rf "$LOGS/net-host-profile" "$LOGS/net-client-profile" "$LOGS/net-shots"; mkdir -p "$LOGS/net-host-profile" "$LOGS/net-client-profile" "$LOGS/net-shots"
+    "$exe" -mute -minimized -autohost -port "$port" -profile "$PROJECT/Logs/net-host-profile/profile.dgpf" -shots "$PROJECT/Logs/net-shots" -logFile "$PROJECT/Logs/player-net-host.log" & hpid=$!
+    sleep 4
+    "$exe" -mute -minimized -autojoin 127.0.0.1 -port "$port" -profile "$PROJECT/Logs/net-client-profile/profile.dgpf" -shots "$PROJECT/Logs/net-shots" -logFile "$PROJECT/Logs/player-net-client.log" & cpid=$!
+    for _ in $(seq 1 260); do if kill -0 $hpid 2>/dev/null || kill -0 $cpid 2>/dev/null; then sleep 1; else break; fi; done
+    hung=0
+    for p in $hpid $cpid; do if kill -0 $p 2>/dev/null; then hung=1; kill -9 $p 2>/dev/null; taskkill //F //PID $p >/dev/null 2>&1; fi; done
+    wait $hpid; hcode=$?; wait $cpid; ccode=$?
+    [ $hung = 1 ] && echo "unity-batch: smoke-net hung; killed the players" >&2
+    code=0
+    cat "$dir/net-host-result.json" 2>/dev/null || { echo "unity-batch: no net-host-result.json (log: $PROJECT/Logs/player-net-host.log)"; code=1; }
+    cat "$dir/net-client-result.json" 2>/dev/null || { echo "unity-batch: no net-client-result.json (log: $PROJECT/Logs/player-net-client.log)"; code=1; }
+    [ $hung = 0 ] && [ $hcode = 0 ] && [ $ccode = 0 ] || code=1
+    echo "unity-batch: smoke-net finished: host exit $hcode, client exit $ccode, overall $code"; exit $code
 fi
 
 # Wait for the lane. The editor's own lock file means a GUI editor or another batch run is open.

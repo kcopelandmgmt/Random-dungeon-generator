@@ -18,8 +18,9 @@ namespace DungeonGen.Unity.UI
     /// cooldown sweep and the locked ultimate, two consumable slots (1, 2), the channel bar, the downed timer, the round
     /// clock and extracts timer, souls and silver, the spawn countdown, the announcement banner, the death recap, the round
     /// summary, and the pause menu on Esc. It draws from the local player's snapshot (<see cref="ClientWorldView.Self"/>) and
-    /// the mirrored state; the host-only pieces (last hits, pockets, the settlement report) come from the host's server and
-    /// <see cref="GameFlow"/>. The greybox OnGUI <see cref="PlayerHud"/> stands down while this exists; the compass and
+    /// the mirrored state; the pieces the host reads off its server (last hits, pockets, the settlement report) come from the host's server and
+    /// <see cref="GameFlow"/>, and on a remote client from its own snapshot and the <see cref="ClientMirror"/> (pockets and cooldowns in the
+    /// <see cref="SelfSnapshot"/>, the recap in the server's <see cref="RoundResult"/>). The greybox OnGUI <see cref="PlayerHud"/> stands down while this exists; the compass and
     /// minimap (OnGUI) stay.
     /// Tests drive it with SendMessage: TogglePause, ContinueToSummary, ReturnToMenu, ShowSummaryNow.
     /// </summary>
@@ -79,8 +80,17 @@ namespace DungeonGen.Unity.UI
             if (Paused) GameFlow.SetRoundPaused(false);   // never leave the game frozen behind a closed HUD
         }
 
+        private IMatchTransport _transport;
+
+        /// <summary>Online: this process's player id (the server gave it). Sent by <see cref="OnlineMatch"/>.</summary>
+        public void SetLocalPlayerId(int id) => LocalPlayerId = id;
+
+        /// <summary>A remote client's mirror of what the host reads off its server (null offline and when hosting).</summary>
+        private static ClientMirror Mirror => ClientMirror.Current;
+
         public void Attach(IMatchTransport transport)
         {
+            _transport = transport;
             transport.EventReceived += bytes =>
             {
                 if (this == null) return;
@@ -212,6 +222,7 @@ namespace DungeonGen.Unity.UI
         private void Update()
         {
             if (EscPressed()) TogglePause();
+            if (Mirror != null && Host == null) LocalPlayerId = Mirror.PlayerId;
             var self = World != null ? World.Self : null;
             var st = Bootstrap != null ? Bootstrap.State : null;
             bool haveSelf = self.HasValue;
@@ -232,7 +243,7 @@ namespace DungeonGen.Unity.UI
             _healthText.text = $"{Mathf.CeilToInt(s.Health)} / {Mathf.CeilToInt(s.MaxHealth)}";
             _resource.Set(s.MaxResource > 0f ? s.Resource / s.MaxResource : 0f, null);
 
-            var spec = Host?.SpecOf(LocalPlayerId) ?? PracticeLaunch.Current?.Loadout?.Spec;
+            var spec = Host?.SpecOf(LocalPlayerId) ?? (!string.IsNullOrEmpty(s.Spec) ? s.Spec : null) ?? PracticeLaunch.Current?.Loadout?.Spec ?? OnlineLaunch.Current?.Loadout?.Spec;
             if (spec != _spec) { _spec = spec; _book = spec == null ? new List<AbilityDefinition>() : AbilityBook.For(spec).OrderBy(a => a.Kind).ToList(); }
             for (int i = 0; i < 5; i++)
             {
@@ -259,6 +270,12 @@ namespace DungeonGen.Unity.UI
                 {
                     n = host.PocketsOf(LocalPlayerId).TryGetValue(c.Name, out int k) ? k : 0;
                     cd = host.ConsumableCooldownRemaining(LocalPlayerId, c);
+                }
+                else if (c != null && s.Pockets != null)
+                {
+                    // A remote client: the pockets and cooldowns come in its own snapshot.
+                    n = s.PocketCount(c.Name);
+                    cd = s.ConsumableCooldown(c.Name);
                 }
                 slot.Count.text = n.ToString();
                 slot.Count.color = n > 0 ? UiStyle.TextMain : UiStyle.Bad;
@@ -291,12 +308,13 @@ namespace DungeonGen.Unity.UI
         {
             if (st == null) { _clock.text = ""; _extracts.text = ""; _purse.text = ""; _countdown.text = ""; return; }
             var rules = st.Descriptor.Rules;
-            float remaining = Mathf.Max(0f, rules.RoundSeconds - st.Time);
+            float now = Host == null && World != null && World.Latest != null ? Mathf.Max(st.Time, World.Latest.Time) : st.Time;   // a client's view only moves on events; its snapshots tick
+            float remaining = Mathf.Max(0f, rules.RoundSeconds - now);
             _clock.text = UiStyle.Clock(remaining);
             _clock.color = remaining < 60f ? UiStyle.Bad : UiStyle.TextMain;
             _extracts.text = st.BossExitOpen ? UiStyle.Colour("Extracts open  ·  boss exit open", UiStyle.Good)
                 : st.ExtractsOpen ? UiStyle.Colour("Extracts open", UiStyle.Good)
-                : "Extracts open in " + UiStyle.Clock(rules.ExtractsOpenAfterSeconds - st.Time);
+                : "Extracts open in " + UiStyle.Clock(rules.ExtractsOpenAfterSeconds - now);
             int souls = st.SoulsOf(LocalPlayerId);
             int silver = st.PlayerSilver.TryGetValue(LocalPlayerId, out int sv) ? sv : 0;
             _purse.text = $"Souls {UiStyle.Colour(souls.ToString(), new Color(0.62f, 0.78f, 1f))}     Silver {UiStyle.Colour(silver.ToString(), UiStyle.Gold)}";
@@ -304,7 +322,7 @@ namespace DungeonGen.Unity.UI
             // Spawn countdown: the doors open at 10 s; a tick each second.
             if (!st.DoorsOpen && st.Started)
             {
-                int left = Mathf.CeilToInt(FightRules.StartCountdownSeconds - st.Time);
+                int left = Mathf.CeilToInt(FightRules.StartCountdownSeconds - now);
                 _countdown.text = left > 0 ? $"The doors open in {left}" : "";
                 if (left != _lastCountdown && left > 0 && left <= 5) UiSound.Play(UiSound.CountdownTick);
                 _lastCountdown = left;
@@ -341,9 +359,10 @@ namespace DungeonGen.Unity.UI
             var host = Host;
             var st = Bootstrap.State;
             DeathRecap recap = null;
-            if (dead) recap = GameFlow.Instance?.LastRecap ?? (host != null ? DeathRecap.For(st, LocalPlayerId, host.Sim?.Hits) : null);
+            var result = host == null ? Mirror?.Result : null;
+            if (dead) recap = GameFlow.Instance?.LastRecap ?? (host != null ? DeathRecap.For(st, LocalPlayerId, host.Sim?.Hits) : result?.Recap);
             var hits = recap?.LastHits ?? (host?.Sim != null ? host.Sim.Hits.LastHits(LocalPlayerId) : (IReadOnlyList<Hit>)System.Array.Empty<Hit>());
-            bool clock = dead && st.Ended && !st.Log.Any(e => (e.Kind == MatchEventKind.PlayerDied || e.Kind == MatchEventKind.PlayerFinished) && e.A == LocalPlayerId);
+            bool clock = dead && (result != null ? result.DiedToClock : st.Ended && !st.Log.Any(e => (e.Kind == MatchEventKind.PlayerDied || e.Kind == MatchEventKind.PlayerFinished) && e.A == LocalPlayerId));
             _recapTitle.text = !dead ? "DOWNED" : clock ? "THE CLOCK RAN OUT" : "YOU DIED";
             _recapTitle.color = UiStyle.Bad;
             var sb = new System.Text.StringBuilder();
@@ -358,10 +377,12 @@ namespace DungeonGen.Unity.UI
             if (hits.Count > 0)
             {
                 sb.Append(UiStyle.Colour("LAST HITS", UiStyle.GoldDim)).Append('\n');
-                float now = st.Time;
-                foreach (var h in hits.Reverse())
+                float now = host == null && World != null && World.Latest != null ? Mathf.Max(st.Time, World.Latest.Time) : st.Time;
+                var list = hits.ToList();
+                for (int i = list.Count - 1; i >= 0; i--)
                 {
-                    string who = h.Attacker == LocalPlayerId ? "yourself" : h.AttackerSpec ?? AttackerName(h.Attacker);
+                    var h = list[i];
+                    string who = h.Attacker == LocalPlayerId ? "yourself" : h.AttackerSpec ?? (host == null && result != null && i < result.HitAttackers.Count ? result.HitAttackers[i] : AttackerName(h.Attacker));
                     sb.Append($"{UiStyle.Colour(h.Amount.ToString("0"), UiStyle.Bad)} {h.Type}  ·  {Pretty(h.Ability)}  ·  {who}  {UiStyle.Colour($"{Mathf.Max(0f, now - h.Time):0.0} s ago", UiStyle.TextFaint)}\n");
                 }
             }
@@ -491,6 +512,7 @@ namespace DungeonGen.Unity.UI
                     if (mb is IIntentSource && mb.enabled) { mb.enabled = false; _silenced.Add(mb); }
                 var host = Host;
                 if (host != null && host.State.PlayersInside.Contains(LocalPlayerId)) host.SetIntent(LocalPlayerId, new PlayerIntent { PlayerId = LocalPlayerId });
+                else if (host == null && _transport != null && !_transport.IsServer) _transport.SendIntent(new PlayerIntent { PlayerId = LocalPlayerId }.ToBytes());   // a client stops its character too
             }
             else
             {
