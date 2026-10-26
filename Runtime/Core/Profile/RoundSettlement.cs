@@ -73,7 +73,11 @@ namespace DungeonGen.Core.Profile
     /// never time (2026-10-23 "Tiers, hand-offs…" #6; <see cref="RoundSummary.AccountXp"/>).</item>
     /// <item>Wear: kept worn gear takes the trip's wear, no repairs (2026-10-22 "No repairs"; <see cref="DurabilityRules.WearForRound"/>).</item>
     /// <item>Souls and keys never reach the profile (2026-10-23 "Souls are personal"; 2026-10-22 "Round, progression…" #4).</item>
-    /// <item>Consumables used are removed; shrine purchases walked out with are added; a death loses what was in the pockets.</item>
+    /// <item>Consumables used are removed; a death loses what was in the pockets. (Shrines sold consumables until 2026-10-26 owner #3; an old log's
+    /// <see cref="MatchEventKind.ShrinePurchase"/> still counts, walked out with, so old rounds settle as they did.)</item>
+    /// <item>A resurrected player (2026-10-26 owner #1) settles on how they finally left: they came back naked and their first corpse kept everything, so
+    /// what counts is what they own at extraction (new pickups, and anything taken back off that corpse, brought gear included, comes home; what
+    /// was left on it is lost), or nothing at a second death. Their pockets were emptied by the first death.</item>
     /// </list>
     /// The profile is untouched between the loadout and this call. Settling the same round twice changes nothing
     /// the second time (<see cref="PlayerProfile.SettledRounds"/>, saved with the profile).
@@ -221,7 +225,7 @@ namespace DungeonGen.Core.Profile
         }
 
         /// <summary>
-        /// What is in a player's pockets at a moment: carried in, plus shrine purchases (<see cref="MatchEventKind.ShrinePurchase"/>),
+        /// What is in a player's pockets at a moment: carried in, plus shrine purchases in an old log (<see cref="MatchEventKind.ShrinePurchase"/>, retired; new rounds have none),
         /// minus uses, emptied by every death (a resurrected player returns naked, 2026-10-22 "Round, progression…" #3).
         /// </summary>
         public static Dictionary<string, int> PocketsAt(MatchState state, int playerId, IReadOnlyDictionary<string, int> carried, IReadOnlyList<(float time, string name)> uses, float until)

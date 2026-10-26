@@ -19,20 +19,20 @@ namespace DungeonGen.Core.Net
         BossExitOpened,    // -
         PlayerDied,        // playerId, killerPlayerId (or -1), roomId
         PlayerExtracted,   // playerId, roomId
-        PlayerResurrected, // playerId, byPlayerId, shrineRoomId  (costs the team SoulsPerResurrection; the player returns naked)
+        PlayerResurrected, // playerId, byPlayerId, shrineRoomId  (costs the reviver's souls; the player returns naked; their corpse stays where it lay, re-keyed RemainsOf(playerId))
         ItemRegistered,    // itemId (>= BroughtItemIdBase, server-assigned), ownerPlayer, value: gear a player brought in from their stash
         ItemDestroyed,     // itemId: trashed on death (the server rolls which half)
         CorpseOpened,      // playerId (the dead one), byPlayer: anyone may loot a corpse
         ExtractStarted,    // playerId, roomId: the channel begins
         ExtractInterrupted,// playerId: took damage, channel resets
         RoomSeen,          // team, roomId: the team's minimap gains the room (server derives from LineOfSight)
-        ShrinePurchase,    // playerId, consumableIndex, shrineRoomId: one soul from the team for a consumable
+        ShrinePurchase,    // playerId, consumableIndex, shrineRoomId: RETIRED (2026-10-26 owner #3: no shop at shrines). Still applied so old logs replay; new rounds never raise it
         PlayerDowned,      // playerId, byPlayerId (-1 mob), roomId: zero health; 60 s to be revived or finished, else dies
         ReviveStarted,     // reviverId, downedId: 8 s channel, broken by damage to the reviver
         ReviveInterrupted, // reviverId
         PlayerRevived,     // downedId, reviverId: channel complete, stands up at 30% health
         PlayerFinished,    // downedId, byPlayerId: took 50% of max health while downed → dead (then PlayerDied semantics apply)
-        LootStarted,       // playerId, roomId or corpse playerId (B), kind (C: 0 chest, 1 corpse, 2 key): the channel begins
+        LootStarted,       // playerId, roomId or corpse id (B), kind (C: 0 chest, 1 corpse, 2 key, 3 hazard, 4 door, 5 shrine altar with B the shrine room): the channel begins
         LootInterrupted,   // playerId
         DoorsOpened,       // t: the 10 s countdown ended; spawn doors unseal for everyone
         SilverPicked,      // playerId, roomId: takes the room's silver, once (needs an open container channel for chests; mob piles are free)
@@ -245,8 +245,21 @@ namespace DungeonGen.Core.Net
         public const int SoulsPerResurrection = 2;
         /// <summary>A boss's soul is in its chest: whoever opens the chest first takes it, not whoever landed the kill.</summary>
         public const int SoulsPerBossChest = 1;
+        /// <summary>What a retired <see cref="MatchEventKind.ShrinePurchase"/> cost; only old logs carry one (2026-10-26 owner #3: no shop at shrines).</summary>
         public const int SoulsPerShrinePurchase = 1;
         public const int BroughtItemIdBase = 100000;
+        /// <summary>The loot-channel kind (<see cref="MatchEventKind.LootStarted"/> C) of a shrine choice being prayed at the altar.</summary>
+        public const int ShrineChannelKind = 5;
+
+        /// <summary>
+        /// Corpse ids at or above this are the bodies of players who were resurrected (2026-10-26 owner #1): the corpse stays where it lay, keyed
+        /// <see cref="RemainsOf"/> (the player id plus this), so the same player's later death makes a second, separate corpse.
+        /// </summary>
+        public const int RemainsIdBase = 1 << 20;
+        /// <summary>The corpse id a resurrected player's old body keeps (also its dead combatant's id on the server).</summary>
+        public static int RemainsOf(int playerId) => RemainsIdBase + playerId;
+        /// <summary>The player a corpse id belongs to: itself, or the resurrected player whose remains these are.</summary>
+        public static int CorpseOwner(int corpseId) => corpseId >= RemainsIdBase ? corpseId - RemainsIdBase : corpseId;
 
         /// <summary>Value (Item.Value) of every item, generated or brought in, for extraction scoring.</summary>
         public Dictionary<int, int> ItemValue { get; } = new Dictionary<int, int>();
@@ -324,7 +337,7 @@ namespace DungeonGen.Core.Net
                             Loots.Remove(e.B);
                         }
                         // The kill's soul is on the corpse: the first ENEMY of the dead player to loot it takes it, even if their own team rifled the body first.
-                        if (CorpseSouls.Contains(e.A) && PlayerTeam.TryGetValue(e.B, out int looterTeam) && PlayerTeam.TryGetValue(e.A, out int deadTeam) && looterTeam != deadTeam)
+                        if (CorpseSouls.Contains(e.A) && PlayerTeam.TryGetValue(e.B, out int looterTeam) && PlayerTeam.TryGetValue(CorpseOwner(e.A), out int deadTeam) && looterTeam != deadTeam)
                         { CorpseSouls.Remove(e.A); GrantSoul(e.B); }
                         OpenedCorpses.Add(e.A); break;
                     }
@@ -505,13 +518,19 @@ namespace DungeonGen.Core.Net
                         int cost = ResurrectionCostAt(e.C);
                         if (SoulsOf(e.B) < cost) { rejection = $"resurrector needs {cost} souls"; return false; }
                         Souls[e.B] = SoulsOf(e.B) - cost;
-                        // The body does not come back with them: they return naked (2026-10-22 "Round, progression…" #3). What the corpse still held falls on
-                        // the floor of the room it lay in, open to anyone like a dropped item; its silver and an unclaimed kill soul go with the body (2026-10-26 shrines).
+                        if (Loots.TryGetValue(e.B, out var prayed) && prayed.kind == ShrineChannelKind) Loots.Remove(e.B);   // the altar channel that paid for it is done
+                        // The body does not come back with them: they return naked (2026-10-22 "Round, progression…" #3). The corpse stays where it lay with
+                        // everything on it (items, silver, an unclaimed kill soul; opened or not), lootable by anyone like any corpse, the resurrected player
+                        // included (2026-10-26 owner #1). It is re-keyed RemainsOf(player), so a later death of the same player makes a second corpse.
                         if (Corpses.TryGetValue(e.A, out var left))
                         {
-                            int fell = PlayerRoom.TryGetValue(e.A, out int lay) ? lay : -1;
-                            foreach (int it in left.OrderBy(i => i)) if (fell >= 0 && !DestroyedItems.Contains(it) && !ItemOwner.ContainsKey(it)) FloorItems[it] = fell;
+                            int remains = RemainsOf(e.A);
                             Corpses.Remove(e.A);
+                            Corpses[remains] = left;
+                            if (OpenedCorpses.Contains(e.A)) OpenedCorpses.Add(remains);
+                            if (CorpseSilver.TryGetValue(e.A, out int bodySilver)) CorpseSilver[remains] = bodySilver;
+                            if (CorpseSouls.Contains(e.A)) CorpseSouls.Add(remains);
+                            if (PlayerRoom.TryGetValue(e.A, out int lay)) PlayerRoom[remains] = lay;   // where the body lies (what a team view reads for a corpse)
                         }
                         OpenedCorpses.Remove(e.A); CorpseSilver.Remove(e.A); CorpseSouls.Remove(e.A);
                         DeadPlayers.Remove(e.A); PlayerRoom[e.A] = e.C;
@@ -556,6 +575,11 @@ namespace DungeonGen.Core.Net
                         if (e.C == 3 && !Index.Hazards.ContainsKey(e.B)) { rejection = "no such hazard"; return false; }
                         if (e.C == 4 && !Index.Doors.ContainsKey(e.B)) { rejection = "no such door"; return false; }
                         if (e.C <= 0 || e.C == 2) { if (e.B < 0 || e.B >= Layout.Rooms.Count) { rejection = "no such room"; return false; } }
+                        if (e.C == ShrineChannelKind)
+                        {   // praying at a shrine's altar (2026-10-26 owner #2): the server checks reach and the choice; the state only knows a shrine is there
+                            if (e.B < 0 || e.B >= Layout.Rooms.Count || !Layout.Rooms[e.B].HasShrine) { rejection = "no shrine there"; return false; }
+                            if (!Descriptor.Rules.ShrinesUsable) { rejection = "the shrines are dark"; return false; }
+                        }
                         Loots[e.A] = (e.B, e.C, e.Time); break;
                     }
                 case MatchEventKind.LootInterrupted:
@@ -595,6 +619,7 @@ namespace DungeonGen.Core.Net
                         if (SoulsOf(e.A) < Combat.FightRules.SoulsToArmUltimate) { rejection = $"you need {Combat.FightRules.SoulsToArmUltimate} souls"; return false; }
                         Souls[e.A] = SoulsOf(e.A) - Combat.FightRules.SoulsToArmUltimate;
                         UltimateCharges[e.A] = Combat.FightRules.UltimateUsesPerArming;
+                        if (Loots.TryGetValue(e.A, out var prayed) && prayed.kind == ShrineChannelKind) Loots.Remove(e.A);   // the altar channel that paid for it is done
                         break;
                     }
                 case MatchEventKind.UltimateUsed:
@@ -808,14 +833,17 @@ namespace DungeonGen.Core.Net
         public HashSet<int> EverTaken { get; } = new HashSet<int>();
     }
 
-    /// <summary>What a player asks a shrine for (<see cref="PlayerIntent.ShrineAction"/>; the byte on the wire).</summary>
-    public enum ShrineAction : byte { None = 0, ArmUltimate = 1, Resurrect = 2, Buy = 3 }
+    /// <summary>
+    /// What a player asks a shrine for (<see cref="PlayerIntent.ShrineAction"/>; the byte on the wire). 3 was "buy a consumable": the shop is gone
+    /// (2026-10-26 owner #3) and the byte stays reserved, so an old client's press is refused ("no shop at shrines") rather than read as something else.
+    /// </summary>
+    public enum ShrineAction : byte { None = 0, ArmUltimate = 1, Resurrect = 2, RetiredBuy = 3 }
 
     /// <summary>One thing a shrine offers this player: what it is, its price in souls, and why not when it cannot be had (null when it can).</summary>
     public sealed class ShrineChoice
     {
         public ShrineAction Action;
-        /// <summary>The dead teammate's player id (Resurrect), the index into <see cref="Items.Consumable.All"/> (Buy), 0 otherwise. What <see cref="PlayerIntent.ShrineArg"/> carries.</summary>
+        /// <summary>The dead teammate's player id (Resurrect), 0 otherwise. What <see cref="PlayerIntent.ShrineArg"/> carries.</summary>
         public int Arg;
         public string Label;
         public int Cost;
@@ -828,10 +856,12 @@ namespace DungeonGen.Core.Net
     public sealed class ShrineOptions
     {
         public int Player;
-        /// <summary>The shrine room the player stands in, or -1.</summary>
+        /// <summary>The shrine room the player stands in, or -1. The panel shows from anywhere in the room; the choices need the altar.</summary>
         public int ShrineRoom = -1;
         public bool AtShrine => ShrineRoom >= 0;
-        /// <summary>Why the shrine offers nothing at all right now (not at one, the shrines are dark, downed, busy), or null.</summary>
+        /// <summary>Within reach of the altar (<see cref="ShrineRules.InReach"/>): the shrine's cell or one next to it.</summary>
+        public bool AtAltar;
+        /// <summary>Why the shrine offers nothing at all right now (not at one, the shrines are dark, downed, busy, not at the altar), or null.</summary>
         public string Refusal;
         public int Souls;
         /// <summary>What a resurrection costs at this shrine now (the cheap-shrine event makes it one).</summary>
@@ -839,34 +869,71 @@ namespace DungeonGen.Core.Net
         public ShrineChoice Arm;
         /// <summary>One entry per dead teammate (players who left for the hub included, refused).</summary>
         public List<ShrineChoice> Resurrect = new List<ShrineChoice>();
-        /// <summary>One entry per consumable, in <see cref="Items.Consumable.All"/> order.</summary>
-        public List<ShrineChoice> Buy = new List<ShrineChoice>();
-        public IEnumerable<ShrineChoice> All { get { if (Arm != null) yield return Arm; foreach (var c in Resurrect) yield return c; foreach (var c in Buy) yield return c; } }
+        /// <summary>The choice being prayed for at the altar right now (its channel is running), or null.</summary>
+        public ShrineChoice Praying;
+        /// <summary>How far the prayer is, 0..1.</summary>
+        public float PrayingFraction;
+        public IEnumerable<ShrineChoice> All { get { if (Arm != null) yield return Arm; foreach (var c in Resurrect) yield return c; } }
         public ShrineChoice Find(ShrineAction action, int arg) => action == ShrineAction.ArmUltimate ? Arm : All.FirstOrDefault(c => c.Action == action && c.Arg == arg);
     }
 
     /// <summary>
     /// The shrine, as decided (DECISIONS 2026-10-22 "Round, progression…" #3 and "Moment-to-moment…" #7; 2026-10-23 "Souls are personal", "Economy-in-the-dungeon
-    /// and ultimates" #3; 2026-10-23 "Interiors, doors, hazards, mutators, events, bots" #4 and #5; 2026-10-26 shrines): used by standing in its room (the shrine stands at the centre of a hub);
-    /// no channel. Everything is paid from the user's own souls. Arm the ultimate: 2 souls, one use, only while not already armed, lost on death and
-    /// at extraction. Resurrect a dead teammate: 2 souls (1 at the cheap-shrine event's shrine during its minute), once per player per round, never one
-    /// who left for the hub; they stand up at the shrine at full health, naked, pockets empty. Buy a consumable: 1 soul each, any of
-    /// <see cref="Items.Consumable.All"/>. All of it dark under the Godless mutator. Not while dead, downed or channelling.
-    /// The state validates the events again (<see cref="MatchEventKind.UltimateArmed"/>, <see cref="MatchEventKind.PlayerResurrected"/>,
-    /// <see cref="MatchEventKind.ShrinePurchase"/>); this only names what would pass and why not.
+    /// and ultimates" #3; 2026-10-23 "Interiors, doors, hazards, mutators, events, bots" #4 and #5; 2026-10-26 shrines; 2026-10-26 answers from the owner #1–#3):
+    /// the shrine stands at the centre of its room (<see cref="AltarCell"/>), and a choice is prayed for there: a <see cref="ChannelSeconds"/> channel started by
+    /// the choice, only within <see cref="ReachCells"/> of the altar, broken by moving, casting or taking damage like looting, and applied when it completes.
+    /// Everything is paid from the user's own souls. Arm the ultimate: 2 souls, one use, only while not already armed, lost on death and at extraction.
+    /// Resurrect a dead teammate: 2 souls (1 at the cheap-shrine event's shrine during its minute), once per player per round, never one who left for the hub;
+    /// they stand up at the shrine at full health, naked, pockets empty, and their corpse stays where it lay with everything on it. No shop: consumables come
+    /// from the vendor and loot. All of it dark under the Godless mutator. Not while dead, downed or channelling something else.
+    /// The state validates the events again (<see cref="MatchEventKind.UltimateArmed"/>, <see cref="MatchEventKind.PlayerResurrected"/>); this only names
+    /// what would pass and why not.
     /// </summary>
     public static class ShrineRules
     {
+        /// <summary>Seconds of praying at the altar before a choice takes (2026-10-26 owner #2: "about 2 s").</summary>
+        public const float ChannelSeconds = 2f;
+        /// <summary>How far from the altar a player may pray, in cells (Chebyshev): the shrine's own cell or one next to it.</summary>
+        public const int ReachCells = 1;
+        /// <summary>Why a press of the retired buy byte is refused.</summary>
+        public const string NoShop = "no shop at shrines";
+        /// <summary>Shown while the player is in the shrine room but too far from the altar.</summary>
+        public const string NotAtAltar = "step up to the altar";
+        /// <summary>The other choices' refusal while one is being prayed for.</summary>
+        public const string Praying = "praying at the altar";
+
+        /// <summary>The shrine's own cell: the centre of its room (where <see cref="Stages.ShrinePlacer"/>'s shrine stands).</summary>
+        public static GridPoint AltarCell(Room room) => room.Center;
+
+        /// <summary>Is <paramref name="cell"/> within reach of the altar of shrine room <paramref name="room"/>?</summary>
+        public static bool InReach(DungeonLayout layout, int room, GridPoint cell)
+        {
+            if (room < 0 || room >= layout.Rooms.Count || !layout.Rooms[room].HasShrine) return false;
+            var a = AltarCell(layout.Rooms[room]);
+            return Math.Max(Math.Abs(cell.X - a.X), Math.Abs(cell.Y - a.Y)) <= ReachCells;
+        }
+
         /// <summary>
-        /// What the shrine in <paramref name="room"/> offers <paramref name="player"/>. <paramref name="blocked"/> is the caller's reason the player
-        /// cannot act at all (downed, channelling, not in the round), or null. Works on the server's state and on a client's mirror (which does not know
+        /// What the shrine where <paramref name="player"/> stands (on <paramref name="cell"/>) offers them. <paramref name="blocked"/> is the caller's reason the
+        /// player cannot act at all (downed, channelling, not in the round), or null. Works on the server's state and on a client's mirror (which does not know
         /// who was already resurrected once; the server refuses that).
         /// </summary>
-        public static ShrineOptions OptionsFor(MatchState st, int player, int room, string blocked = null)
+        public static ShrineOptions OptionsAt(MatchState st, int player, GridPoint cell, string blocked = null)
+        {
+            int room = st.Layout.InBounds(cell) ? st.Layout.RoomIdAt[cell.X, cell.Y] : -1;
+            return OptionsFor(st, player, room, blocked, InReach(st.Layout, room, cell));
+        }
+
+        /// <summary>
+        /// What the shrine in <paramref name="room"/> offers <paramref name="player"/>; <paramref name="atAltar"/> says whether they are within reach of its altar
+        /// (true for callers that checked it themselves). See <see cref="OptionsAt"/>.
+        /// </summary>
+        public static ShrineOptions OptionsFor(MatchState st, int player, int room, string blocked = null, bool atAltar = true)
         {
             var o = new ShrineOptions { Player = player, Souls = st.SoulsOf(player) };
             bool atShrine = room >= 0 && room < st.Layout.Rooms.Count && st.Layout.Rooms[room].HasShrine;
             if (atShrine) o.ShrineRoom = room;
+            o.AtAltar = atShrine && atAltar;
             o.ResurrectionCost = atShrine ? st.ResurrectionCostAt(room) : st.Descriptor.Rules.ResurrectionCost;
             if (!st.PlayerTeam.TryGetValue(player, out int team)) o.Refusal = "not in the round";
             else if (st.DeadPlayers.Contains(player) || st.ExtractedPlayers.Contains(player)) o.Refusal = "not in the round";
@@ -874,6 +941,7 @@ namespace DungeonGen.Core.Net
             else if (!atShrine) o.Refusal = "not at a shrine";
             else if (st.Downed.ContainsKey(player)) o.Refusal = "downed";
             else if (blocked != null) o.Refusal = blocked;
+            else if (!o.AtAltar) o.Refusal = NotAtAltar;
             string Price(int cost) => o.Souls >= cost ? null : $"needs {cost} soul{(cost == 1 ? "" : "s")} (you have {o.Souls})";
 
             int arm = Combat.FightRules.SoulsToArmUltimate;
@@ -884,21 +952,17 @@ namespace DungeonGen.Core.Net
                 string why = o.Refusal ?? (st.LeftPlayers.Contains(mate) ? "left for the hub" : st.ResurrectedOnce.Contains(mate) ? "already resurrected this round" : Price(o.ResurrectionCost));
                 o.Resurrect.Add(new ShrineChoice { Action = ShrineAction.Resurrect, Arg = mate, Label = "Resurrect " + (st.ClassOf(mate)?.Name ?? "teammate") + " " + mate, Cost = o.ResurrectionCost, Refusal = why });
             }
-            var all = Items.Consumable.All;
-            for (int i = 0; i < all.Count; i++)
-                o.Buy.Add(new ShrineChoice { Action = ShrineAction.Buy, Arg = i, Label = all[i].Name, Cost = MatchState.SoulsPerShrinePurchase, Refusal = o.Refusal ?? Price(MatchState.SoulsPerShrinePurchase) });
             return o;
         }
 
-        /// <summary>The event a choice becomes, for <paramref name="player"/> at <paramref name="shrineRoom"/> (the state validates it).</summary>
-        public static MatchEvent EventFor(ShrineAction action, int arg, int player, int shrineRoom, float time)
+        /// <summary>The event a completed prayer becomes, for <paramref name="player"/> at <paramref name="shrineRoom"/> (the state validates it). Null for anything else.</summary>
+        public static MatchEvent? EventFor(ShrineAction action, int arg, int player, int shrineRoom, float time)
         {
             switch (action)
             {
                 case ShrineAction.ArmUltimate: return new MatchEvent(MatchEventKind.UltimateArmed, time, player, shrineRoom);
                 case ShrineAction.Resurrect: return new MatchEvent(MatchEventKind.PlayerResurrected, time, arg, player, shrineRoom);
-                case ShrineAction.Buy: return new MatchEvent(MatchEventKind.ShrinePurchase, time, player, arg, shrineRoom);
-                default: throw new ArgumentOutOfRangeException(nameof(action));
+                default: return null;
             }
         }
     }

@@ -48,8 +48,8 @@ namespace DungeonGen.Core.Net
         public int BossPotionsEach = 1;
         /// <summary>Average health (potions counted; nobody under half) the squad needs before it goes for the roaming elite, and the seconds of round that must remain for the clock alone not to send it out while an event is on.</summary>
         public float EliteReadyHealth = 0.85f, EventGraceSeconds = 240f;
-        /// <summary>Potions the whole squad must still hold between them before it goes for the roaming elite.</summary>
-        public int ElitePotionsTogether = 2;
+        /// <summary>Potions the whole squad must still hold between them before it goes for the roaming elite. One since shrines stopped selling them (2026-10-26 owner #3): with two, squads that once topped up at a shrine never went.</summary>
+        public int ElitePotionsTogether = 1;
         /// <summary>A dead teammate is worth two souls at a shrine while at least this much of the round is left (they come back naked: they need time to be of use).</summary>
         public float ResurrectWithSecondsLeft = 180f;
         /// <summary>How far (rooms) a bot walks out of its way to a shrine: to resurrect a teammate, and to arm its ultimate before the boss the squad is heading for (short, so the squad is not left waiting at the door).</summary>
@@ -118,7 +118,7 @@ namespace DungeonGen.Core.Net
             }
             bool UncommittedBoss(Combatant o) { var b = BossOf(server, o.Id); return b != null && b.RoomId != Squad.EngagedBoss; }
             var inSight = sim.Combatants.Values.Where(o => o.Team != c.Team && !o.Dead && Vec2.Distance(o.Position, c.Position) <= range && sim.CanSee(c.Position, o.Position) && !Avoided(o) && !UncommittedBoss(o) && !(_ignore.TryGetValue(o.Id, out float ig) && sim.Time < ig && !o.Downed)).ToList();
-            // A potion when it would matter (pockets come from the loadout or a shrine; bots seated bare have none).
+            // A potion when it would matter (pockets come from the loadout; bots seated bare have none).
             byte drink = 0;
             bool underThreat = inSight.Any(o => !o.Downed);
             if (c.Health < c.MaxHealth * (underThreat ? 0.5f : Squad.DrinkBelowHealth))
@@ -233,7 +233,7 @@ namespace DungeonGen.Core.Net
                 var hurt = mates.Where(m => m.Alive && m.Health < m.MaxHealth * 0.9f && Vec2.Distance(m.Position, c.Position) <= heal.RangeCells).OrderBy(m => m.Health / m.MaxHealth).FirstOrDefault();
                 if (hurt != null && sim.Cast(c.Id, heal.Id, hurt.Position).Ok) { _did = "mend"; return Idle(PlayerId); }
             }
-            // 3a. The shrine first (it takes no time): resurrect a dead teammate while it is worth it, arm the ultimate before a boss, a spare soul on a potion.
+            // 3a. The shrine first: resurrect a dead teammate while it is worth it, arm the ultimate before a boss (a 2 s prayer at the altar).
             { var shrine = !Squad.UsesShrines ? null : ShrineErrand(server, c, dt); if (shrine.HasValue) return shrine.Value; }
 
             // 3. Something to do where we stand.
@@ -431,30 +431,44 @@ namespace DungeonGen.Core.Net
 
         // ---------------- the shrine ----------------
 
-        /// <summary>Shrine choices this bot made that went through (arm, resurrect, buy), for the lab's counts.</summary>
-        public int ShrineArms, ShrineResurrects, ShrineBuys;
-        private bool _shrineAsked; private ShrineAction _shrineAskedFor; private float _shrineIgnoreUntil = -1f, _shrineWalkSince = -1f;
+        /// <summary>Shrine prayers this bot completed (arm, resurrect) and ones broken off before they took (a hit, walking off), for the lab's counts.</summary>
+        public int ShrineArms, ShrineResurrects, ShrineBroken;
+        private bool _shrineAsked, _shrineHooked, _praying; private float _shrineIgnoreUntil = -1f, _shrineWalkSince = -1f;
 
         /// <summary>
-        /// Souls are spent at a shrine, in this order: a dead teammate (resurrectable, the bot can pay, enough round left, not on the way out), then the
-        /// bot's own ultimate (two souls, not armed; walked to only when the squad heads for a boss and a shrine is close, otherwise armed in passing),
-        /// then a Health Potion for a spare soul when the pockets hold none. Returns the intent for this tick, or null to carry on. A refused choice
-        /// leaves the shrine alone for 20 s; a walk that takes over 40 s is given up for a minute.
+        /// Count prayers as their events land (they take <see cref="ShrineRules.ChannelSeconds"/>), and answer last tick's choice: a refused start leaves
+        /// the shrine alone for 20 s. A broken prayer is simply started again on a later tick if it is still worth it.
         /// </summary>
-        /// <summary>The answer to last tick's shrine choice (the server applies a bot's intent in the same tick): count it, or leave the shrine alone for 20 s if it was refused.</summary>
         private void NoteShrineAnswer(MatchServer server)
         {
+            if (!_shrineHooked)
+            {
+                _shrineHooked = true;
+                server.EventRaised += e =>
+                {
+                    if (e.Kind == MatchEventKind.UltimateArmed && e.A == PlayerId) ShrineArms++;
+                    else if (e.Kind == MatchEventKind.PlayerResurrected && e.B == PlayerId) ShrineResurrects++;
+                    else if (e.Kind == MatchEventKind.LootInterrupted && e.A == PlayerId && _praying) ShrineBroken++;
+                };
+            }
+            _praying = server.ChannelOf(PlayerId) == MatchServer.ShrineChannel;
             if (!_shrineAsked) return;
             _shrineAsked = false;
-            if (server.ShrineRefusal(PlayerId) != null) _shrineIgnoreUntil = server.Sim.Time + 20f;
-            else if (_shrineAskedFor == ShrineAction.ArmUltimate) ShrineArms++;
-            else if (_shrineAskedFor == ShrineAction.Resurrect) ShrineResurrects++;
-            else if (_shrineAskedFor == ShrineAction.Buy) ShrineBuys++;
+            if (!_praying && server.ShrineRefusal(PlayerId) != null) _shrineIgnoreUntil = server.Sim.Time + 20f;
         }
 
+        /// <summary>
+        /// Souls are spent at a shrine's altar, in this order: a dead teammate (resurrectable, the bot can pay, enough round left, not on the way out), then
+        /// the bot's own ultimate (two souls, not armed; walked to only when the squad heads for a boss and a shrine is close, otherwise armed in passing when
+        /// the bot is in a shrine room anyway). The bot walks up to the altar (<see cref="MatchServer.AltarSpot"/>), makes the choice, and stands still holding
+        /// Space for the <see cref="ShrineRules.ChannelSeconds"/> prayer; a hit or a fight breaks it and the errand starts over once it is quiet again.
+        /// Returns the intent for this tick, or null to carry on. A refused choice leaves the shrine alone for 20 s; a walk that takes over 40 s is given up for a minute.
+        /// </summary>
         private PlayerIntent? ShrineErrand(MatchServer server, Combatant c, float dt)
         {
             var st = server.State; var sim = server.Sim; var layout = server.Layout;
+            // Praying: stand still with Space held until it takes (or a hit breaks it).
+            if (server.ChannelOf(PlayerId) == MatchServer.ShrineChannel) { _did = "pray"; _shrineWalkSince = -1f; return Hold(c, c.Position + c.Facing); }
             int souls = st.SoulsOf(PlayerId);
             if (souls <= 0 || !server.Descriptor.Rules.ShrinesUsable || sim.Time < _shrineIgnoreUntil || server.ChannelOf(PlayerId) != null) { _shrineWalkSince = -1f; return null; }
             float left = server.Clock.SecondsRemaining(server.Elapsed);
@@ -462,38 +476,38 @@ namespace DungeonGen.Core.Net
             var dead = st.PlayerTeam.Where(kv => kv.Value == Squad.Team && kv.Key != PlayerId && st.DeadPlayers.Contains(kv.Key) && !st.LeftPlayers.Contains(kv.Key) && !st.ResurrectedOnce.Contains(kv.Key)).Select(kv => kv.Key).OrderBy(p => p).ToList();
             bool wantRes = resWorth && dead.Count > 0 && CheapestShrine(server) >= 0;   // someone to bring back, and a shrine within reach we can pay at
             bool armed = st.UltimateCharges.TryGetValue(PlayerId, out int charges) && charges > 0;
+            bool wantArm = !armed && !wantRes && souls >= FightRules.SoulsToArmUltimate;   // souls a teammate's life needs are not spent on the ultimate
             var o = server.ShrineOptionsFor(PlayerId);
-            if (o.AtShrine && o.Refusal == null)
+            if (o.AtAltar && o.Refusal == null)
             {
                 ShrineChoice pick = null;
                 if (resWorth && dead.Count > 0) pick = o.Resurrect.FirstOrDefault(r => r.Available);
-                if (pick == null && !armed && o.Arm.Available && !wantRes) pick = o.Arm;   // souls a teammate's life needs are not spent on the ultimate
-                if (pick == null && !wantRes && (armed || souls < FightRules.SoulsToArmUltimate))
-                {
-                    var potion = Consumable.ByName(Consumable.HealthPotionName);
-                    if (!server.PocketsOf(PlayerId).TryGetValue(potion.Name, out int pots) || pots <= 0) pick = o.Buy.FirstOrDefault(b => b.Available && b.Label == potion.Name);
-                }
+                if (pick == null && wantArm && o.Arm.Available) pick = o.Arm;
                 if (pick != null)
                 {
-                    _shrineAsked = true; _shrineAskedFor = pick.Action; _shrineWalkSince = -1f; _did = "shrine";
+                    _shrineAsked = true; _shrineWalkSince = -1f; _did = "shrine";
                     DebugLog?.Invoke($"   T{Squad.Team} {PlayerId} {sim.Time:0}s shrine {pick}");
-                    return new PlayerIntent { PlayerId = PlayerId, ShrineAction = (byte)pick.Action, ShrineArg = pick.Arg, AimX = c.Position.X + c.Facing.X, AimY = c.Position.Y + c.Facing.Y };
+                    return new PlayerIntent { PlayerId = PlayerId, ShrineAction = (byte)pick.Action, ShrineArg = pick.Arg, Interact = true, AimX = c.Position.X + c.Facing.X, AimY = c.Position.Y + c.Facing.Y };
                 }
             }
-            // Worth a walk?
+            // Worth a walk? To the altar of the cheapest shrine for a teammate; for the ultimate, the altar of the shrine room we are in (in passing) or a close one before a boss.
             int target = wantRes ? CheapestShrine(server) : -1;
-            bool bossAhead = Squad.GoalRoom >= 0 && layout.Rooms[Squad.GoalRoom].IsBossRoom && !st.DeadBosses.Contains(Squad.GoalRoom) && Squad.EngagedBoss < 0;
-            if (target < 0 && !armed && souls >= FightRules.SoulsToArmUltimate && bossAhead)
+            if (target < 0 && wantArm)
             {
+                bool bossAhead = Squad.GoalRoom >= 0 && layout.Rooms[Squad.GoalRoom].IsBossRoom && !st.DeadBosses.Contains(Squad.GoalRoom) && Squad.EngagedBoss < 0;
                 int here = server.RoomOf(PlayerId);
-                target = layout.Rooms.Where(r => r.HasShrine).Select(r => r.Id).OrderBy(r => RoomsAway(layout, here, r)).ThenBy(r => r).DefaultIfEmpty(-1).First();
-                if (target >= 0 && RoomsAway(layout, here, target) > Squad.ArmDetourRooms) target = -1;
+                if (o.AtShrine && !o.AtAltar && o.Refusal == ShrineRules.NotAtAltar) target = o.ShrineRoom;
+                else if (bossAhead)
+                {
+                    target = layout.Rooms.Where(r => r.HasShrine).Select(r => r.Id).OrderBy(r => RoomsAway(layout, here, r)).ThenBy(r => r).DefaultIfEmpty(-1).First();
+                    if (target >= 0 && RoomsAway(layout, here, target) > Squad.ArmDetourRooms) target = -1;
+                }
             }
             if (target < 0) { _shrineWalkSince = -1f; return null; }
             if (_shrineWalkSince < 0f) _shrineWalkSince = sim.Time;
             else if (sim.Time - _shrineWalkSince > 40f) { _shrineIgnoreUntil = sim.Time + 60f; _shrineWalkSince = -1f; return null; }
             _did = "to shrine";
-            return WalkTo(server, c, layout.Rooms[target].Center, dt);
+            return WalkTo(server, c, server.AltarSpot(target).Cell, dt);
         }
 
         /// <summary>The shrine room where a resurrection is cheapest (the cheap-shrine event's, for its minute), nearest first, that this bot can pay at and reach within <see cref="BotSquad.ResurrectDetourRooms"/>; -1 if none.</summary>

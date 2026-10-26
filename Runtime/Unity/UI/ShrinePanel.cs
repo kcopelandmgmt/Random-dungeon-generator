@@ -13,7 +13,7 @@ namespace DungeonGen.Unity.UI
     /// <see cref="PendingShrineActions"/>, which the input controller copies into the next intent; the server decides.
     /// Reads the host's <see cref="MatchServer.ShrineOptionsFor"/>; on a remote client the same rules (<see cref="ShrineRules.OptionsFor"/>) over the
     /// team's mirrored state. Hidden while paused, at the summary or recap, and while the inventory is open (they share the left side).
-    /// Tests drive it with SendMessage("RefreshNow") and find the buttons by name: ShrineArm, ShrineRes-{player}, ShrineBuy-{index}.
+    /// Tests drive it with SendMessage("RefreshNow") and find the buttons by name: ShrineArm, ShrineRes-{player}. There is no shop at shrines (2026-10-26 owner #3).
     /// </summary>
     public sealed class ShrinePanel : MonoBehaviour
     {
@@ -139,12 +139,7 @@ namespace DungeonGen.Unity.UI
                 Row("ShrineRes-" + who, c.Label.Replace("Resurrect ", ""), $"{c.Cost} soul{(c.Cost == 1 ? "" : "s")} · returns naked, once a round", c, "Resurrect", () => PendingShrineActions.Resurrect(who), ref y);
             }
 
-            Section("OFFERINGS", ref y);
-            foreach (var c in o.Buy)
-            {
-                int index = c.Arg;
-                Row("ShrineBuy-" + index, c.Label, $"{c.Cost} soul", c, "Buy", () => PendingShrineActions.Buy(index), ref y);
-            }
+            Note("ShrineHow", "Choose, then hold still at the altar for " + ShrineRules.ChannelSeconds.ToString("0") + " s. Damage breaks the prayer.", ref y);
             _panel.sizeDelta = new Vector2(Width, -y + 14f);
         }
 

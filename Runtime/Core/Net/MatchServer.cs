@@ -84,7 +84,12 @@ namespace DungeonGen.Core.Net
         private int _eventCursor;
         private float _sightTimer;
 
-        private sealed class Channel { public string Kind; public int Target; public float Started; public float Seconds; }
+        private sealed class Channel
+        {
+            public string Kind; public int Target; public float Started; public float Seconds;
+            /// <summary>A "shrine" channel's choice, applied when it completes.</summary>
+            public ShrineAction Action; public int Arg;
+        }
 
         /// <summary>Server-only: seeds the death-trash rolls (<see cref="DurabilityRules.DeathTrashChance"/>) like the loot. Never sent to a client.</summary>
         private readonly int _lootSecret;
@@ -279,7 +284,7 @@ namespace DungeonGen.Core.Net
         /// <summary>Every consumable this player used, with when. What settlement reads.</summary>
         public IReadOnlyList<(float time, string name)> ConsumableUsesBy(int playerId) =>
             _consumableUses.TryGetValue(playerId, out var l) ? l : (IReadOnlyList<(float, string)>)Array.Empty<(float, string)>();
-        /// <summary>What this player has in their pockets now: carried in, bought at shrines, minus uses; a death empties them.</summary>
+        /// <summary>What this player has in their pockets now: carried in (plus shrine purchases in an old log), minus uses; a death empties them.</summary>
         public Dictionary<string, int> PocketsOf(int playerId) =>
             Profile.RoundSettlement.PocketsAt(State, playerId, ConsumablesCarriedBy(playerId), ConsumableUsesBy(playerId), float.MaxValue);
 
@@ -307,7 +312,7 @@ namespace DungeonGen.Core.Net
         }
 
         /// <summary>
-        /// Use one consumable from a standing player's pockets: carried in, or bought at a shrine this round
+        /// Use one consumable from a standing player's pockets: carried in (or, in an old log, bought at a shrine)
         /// (<see cref="MatchEventKind.ShrinePurchase"/>). False if they have none left, cannot act, or it is on cooldown
         /// (2026-10-22 "Open questions closed" #8: Health Potion 30% over 3 s, 60 s cooldown; Antidote a bottled Purge, 90 s). The effect runs in the
         /// simulator, so heal events, snapshots and the death recap see it. The Salvage Kit is only spent here: which item to break down is the profile's call
@@ -408,6 +413,7 @@ namespace DungeonGen.Core.Net
                 if (e.Kind == FightEventKind.Hit && e.Amount > 0f && _channels.TryGetValue(e.Target, out var ch) && FightRules.LootInterruptedByDamage) Interrupt(e.Target, ch);
             }
             _eventCursor = Sim.Events.Count;
+            TickShrineChannels();
             // The clock's events, stamped no earlier than the simulator's time.
             foreach (var e in Clock.Tick(Elapsed)) Raise(new MatchEvent(e.Kind, Math.Max(e.Time, Sim.Time), e.A, e.B, e.C));
             MidRoundEvent();
@@ -471,11 +477,13 @@ namespace DungeonGen.Core.Net
             }
             if (intent.ShrineAction != 0)
             {
-                // A shrine choice (arm, resurrect, buy) at the shrine room this player stands in, through the same validated events as everything else.
+                // A shrine choice (arm, resurrect) starts praying at the altar within reach; the same choice again just continues it.
                 UseShrine(playerId, (ShrineAction)intent.ShrineAction, intent.ShrineArg);
                 intent.ShrineAction = 0; intent.ShrineArg = 0;
                 _intents[playerId] = intent;   // one press, one use
             }
+            // Walking away from the altar breaks a prayer (2026-10-26 owner #2); any other channel holds the player still instead.
+            if (intent.Move.Length > 0.05f && _channels.TryGetValue(playerId, out var praying) && praying.Kind == ShrineChannel) Interrupt(playerId, praying);
             var aim = intent.Aim;
             if (intent.Move.Length > 0.05f && !_channels.ContainsKey(playerId)) Sim.Move(playerId, c.Position + intent.Move.Normalized * 10f, dt);
             else if ((aim - c.Position).Length > 0.1f) c.Facing = (aim - c.Position).Normalized;
@@ -503,7 +511,8 @@ namespace DungeonGen.Core.Net
             else
             {
                 _heldSinceDoorOpened.Remove(playerId);
-                if (_channels.TryGetValue(playerId, out var held)) Interrupt(playerId, held);
+                // A prayer is started by a click on the shrine panel, not a held key: letting go of Space does not end it (moving, casting or a hit does).
+                if (_channels.TryGetValue(playerId, out var held) && held.Kind != ShrineChannel) Interrupt(playerId, held);
             }
         }
 
@@ -531,6 +540,7 @@ namespace DungeonGen.Core.Net
         {
             if (_channels.TryGetValue(playerId, out var ch))
             {
+                if (ch.Kind == ShrineChannel) return;   // Space keeps a prayer going; TickShrineChannels completes it
                 if (Sim.Time - ch.Started < ch.Seconds) return;
                 _channels.Remove(playerId);
                 // Two players can hold the same thing; the second to finish finds it done and simply lets go.
@@ -664,41 +674,100 @@ namespace DungeonGen.Core.Net
 
         // ---------------- shrines (PlayerIntent.ShrineAction / ShrineArg) ----------------
 
+        /// <summary>The channel kind of a prayer at a shrine's altar (<see cref="ChannelOf"/>, the HUD's channel bar).</summary>
+        public const string ShrineChannel = "shrine";
+
         private readonly Dictionary<int, string> _shrineRefusals = new Dictionary<int, string>();
 
-        /// <summary>Why this player's last shrine choice was refused, or null if it went through (or none was made).</summary>
+        /// <summary>Why this player's last shrine choice was refused or broken off, or null if it went through (or none was made).</summary>
         public string ShrineRefusal(int playerId) => _shrineRefusals.TryGetValue(playerId, out var why) ? why : null;
 
         /// <summary>
-        /// What the shrine this player stands at offers them now, and why not for each choice (<see cref="ShrineRules.OptionsFor"/>): arm the
-        /// ultimate, resurrect each dead teammate, buy each consumable. A shrine is used by standing in its room (the cell the player is on, not the
-        /// last room the state heard of); not while downed or channelling.
+        /// What the shrine this player stands at offers them now, and why not for each choice (<see cref="ShrineRules.OptionsAt"/>): arm the ultimate,
+        /// resurrect each dead teammate. Read from the cell the player is on (not the last room the state heard of): anywhere in the shrine room shows the
+        /// shrine, only within <see cref="ShrineRules.ReachCells"/> of its altar can a choice be prayed for; not while downed or channelling something else.
+        /// While a prayer runs, <see cref="ShrineOptions.Praying"/> names it with its progress.
         /// </summary>
         public ShrineOptions ShrineOptionsFor(int playerId)
         {
             var c = Sim?.Get(playerId);
-            string blocked = c == null || c.Dead || !State.PlayersInside.Contains(playerId) ? "not in the round" : c.Downed ? "downed" : _channels.ContainsKey(playerId) ? "busy channelling" : null;
-            return ShrineRules.OptionsFor(State, playerId, c == null ? -1 : CellRoom(c), blocked);
+            _channels.TryGetValue(playerId, out var ch);
+            bool praying = ch != null && ch.Kind == ShrineChannel;
+            string blocked = c == null || c.Dead || !State.PlayersInside.Contains(playerId) ? "not in the round" : c.Downed ? "downed" : ch != null ? (praying ? ShrineRules.Praying : "busy channelling") : null;
+            var o = c == null ? ShrineRules.OptionsFor(State, playerId, -1, blocked, false) : ShrineRules.OptionsAt(State, playerId, c.Position.Cell, blocked);
+            if (praying)
+            {
+                var what = ShrineRules.OptionsAt(State, playerId, c.Position.Cell).Find(ch.Action, ch.Arg);
+                o.Praying = new ShrineChoice { Action = ch.Action, Arg = ch.Arg, Label = what?.Label ?? ch.Action.ToString(), Cost = what?.Cost ?? 0 };
+                o.PrayingFraction = Math.Max(0f, Math.Min(1f, (Sim.Time - ch.Started) / ch.Seconds));
+            }
+            return o;
         }
 
         /// <summary>
-        /// Carry out a shrine choice (what <see cref="PlayerIntent.ShrineAction"/> does): checked against <see cref="ShrineOptionsFor"/>, then raised as
-        /// the validated event (<see cref="MatchEventKind.UltimateArmed"/>, <see cref="MatchEventKind.PlayerResurrected"/>,
-        /// <see cref="MatchEventKind.ShrinePurchase"/>). Arming lights the ultimate on the body; a resurrection stands the teammate up at this shrine
-        /// at full health and naked. False with <see cref="ShrineRefusal"/> set when refused.
+        /// A shrine choice (what <see cref="PlayerIntent.ShrineAction"/> does): checked against <see cref="ShrineOptionsFor"/>, then the prayer starts at the
+        /// altar (<see cref="MatchEventKind.LootStarted"/> kind <see cref="MatchState.ShrineChannelKind"/>, <see cref="ShrineRules.ChannelSeconds"/>). It is held
+        /// like looting and broken like it: walking, casting or a hit ends it (<see cref="MatchEventKind.LootInterrupted"/>), as does leaving the altar's reach.
+        /// When it completes the validated event is raised (<see cref="MatchEventKind.UltimateArmed"/>, <see cref="MatchEventKind.PlayerResurrected"/>).
+        /// The same choice again while it runs continues it; a different one starts over. The retired buy byte is refused ("no shop at shrines").
+        /// True when the prayer started or continues; false with <see cref="ShrineRefusal"/> set when refused.
         /// </summary>
         public bool UseShrine(int playerId, ShrineAction action, int arg)
         {
             if (Sim == null) return false;
+            if (action == ShrineAction.RetiredBuy) { _shrineRefusals[playerId] = ShrineRules.NoShop; return false; }
+            if (_channels.TryGetValue(playerId, out var running) && running.Kind == ShrineChannel)
+            {
+                var body = Sim.Get(playerId);
+                bool still = body != null && body.Alive && !State.Downed.ContainsKey(playerId) && State.Loots.TryGetValue(playerId, out var loot) && loot.kind == MatchState.ShrineChannelKind;
+                if (still && running.Action == action && running.Arg == arg) return true;   // the same choice again: keep praying
+                Interrupt(playerId, running);                                                // a different one (or a prayer that can no longer go on) starts over
+            }
             var o = ShrineOptionsFor(playerId);
             var choice = o.Find(action, arg);
             string why = choice == null ? (action == ShrineAction.Resurrect ? "not a dead teammate" : "the shrine offers no such thing") : choice.Refusal;
-            if (why == null && !Raise(ShrineRules.EventFor(action, arg, playerId, o.ShrineRoom, Sim.Time))) why = RecentRejections.Count > 0 ? RecentRejections[RecentRejections.Count - 1] : "refused";
+            if (why == null && !Raise(new MatchEvent(MatchEventKind.LootStarted, Sim.Time, playerId, o.ShrineRoom, MatchState.ShrineChannelKind))) why = LastRejection();
             if (why != null) { _shrineRefusals[playerId] = why; return false; }
             _shrineRefusals.Remove(playerId);
-            if (action == ShrineAction.ArmUltimate) { var body = Sim.Get(playerId); if (body != null) body.UltimateArmed = true; }   // a bot's fight brain casts from the body
-            else if (action == ShrineAction.Resurrect) StandUpAtShrine(arg, o.ShrineRoom);
+            _channels[playerId] = new Channel { Kind = ShrineChannel, Target = o.ShrineRoom, Started = Sim.Time, Seconds = ShrineRules.ChannelSeconds, Action = action, Arg = arg };
             return true;
+        }
+
+        private string LastRejection() => RecentRejections.Count > 0 ? RecentRejections[RecentRejections.Count - 1] : "refused";
+
+        /// <summary>Every tick, after damage broke what it broke: drop prayers whose player went down or out, break those that left the altar's reach, complete the rest that are due.</summary>
+        private void TickShrineChannels()
+        {
+            foreach (var kv in _channels.Where(kv => kv.Value.Kind == ShrineChannel).ToList())
+            {
+                int p = kv.Key; var ch = kv.Value;
+                var body = Sim.Get(p);
+                if (body == null || body.Dead || body.Downed || !State.Loots.TryGetValue(p, out var loot) || loot.kind != MatchState.ShrineChannelKind) { Interrupt(p, ch); continue; }
+                if (!ShrineRules.InReach(Layout, ch.Target, body.Position.Cell)) { Interrupt(p, ch); _shrineRefusals[p] = "moved away from the altar"; continue; }
+                if (Sim.Time - ch.Started < ch.Seconds - 0.0001f) continue;
+                CompleteShrine(p, ch);
+            }
+        }
+
+        /// <summary>The prayer is done: check the choice again (a teammate may have been brought back meanwhile, souls spent) and raise its event.</summary>
+        private void CompleteShrine(int playerId, Channel ch)
+        {
+            _channels.Remove(playerId);
+            var o = ShrineOptionsFor(playerId);
+            var choice = o.Find(ch.Action, ch.Arg);
+            string why = choice == null ? (ch.Action == ShrineAction.Resurrect ? "not a dead teammate" : "the shrine offers no such thing") : choice.Refusal;
+            Vec2? lay = ch.Action == ShrineAction.Resurrect ? Sim.Get(ch.Arg)?.Position : null;
+            var ev = ShrineRules.EventFor(ch.Action, ch.Arg, playerId, ch.Target, Sim.Time);
+            if (why == null && (ev == null || !Raise(ev.Value))) why = ev == null ? "the shrine offers no such thing" : LastRejection();
+            if (why != null)
+            {
+                _shrineRefusals[playerId] = why;
+                if (State.Loots.TryGetValue(playerId, out var loot) && loot.kind == MatchState.ShrineChannelKind) Raise(new MatchEvent(MatchEventKind.LootInterrupted, Sim.Time, playerId));
+                return;
+            }
+            _shrineRefusals.Remove(playerId);
+            if (ch.Action == ShrineAction.ArmUltimate) { var body = Sim.Get(playerId); if (body != null) body.UltimateArmed = true; }   // a bot's fight brain casts from the body
+            else { LeaveRemains(ch.Arg, lay); StandUpAtShrine(ch.Arg, ch.Target); }
         }
 
         /// <summary>
@@ -713,13 +782,27 @@ namespace DungeonGen.Core.Net
             return Raise(new MatchEvent(MatchEventKind.UltimateUsed, Sim.Time, playerId));
         }
 
-        /// <summary>The resurrected body: up at the shrine, full health and resource, nothing on it (the state already put the corpse's leftovers on its floor).</summary>
+        /// <summary>
+        /// The resurrected player's old body stays where it lay (2026-10-26 owner #1): a dead combatant keyed <see cref="MatchState.RemainsOf"/> at that spot,
+        /// so Space, the loot panel, bots and team snapshots find the corpse (which the state re-keyed the same way) like any other.
+        /// </summary>
+        private void LeaveRemains(int playerId, Vec2? at)
+        {
+            int id = MatchState.RemainsOf(playerId);
+            var body = Sim.Get(playerId);
+            if (!State.Corpses.ContainsKey(id) || body == null || body.Stats == null || Sim.Get(id) != null) return;
+            var remains = Combatant.Player(id, body.Team, body.Stats, at ?? body.Position, body.Spec);
+            remains.Dead = true; remains.Health = 0f;
+            Sim.Add(remains);
+        }
+
+        /// <summary>The resurrected body: up at the shrine, full health and resource, nothing on it (its corpse, with everything that was on it, stays where it lay).</summary>
         private void StandUpAtShrine(int playerId, int room)
         {
             var body = Sim.Get(playerId);
             if (body == null) return;
             body.Dead = false; body.Downed = false; body.FinishDamage = 0f;
-            body.Position = ShrineSpot(room);
+            body.Position = AltarSpot(room);
             // Naked: a loadout player's sheet was rebuilt from what they wear (nothing) when the event was raised; anyone else gets the bare sheet, keeping their spec.
             if (body.Class != null && !_broughtBy.ContainsKey(playerId) && _spec.TryGetValue(playerId, out var spec))
                 body.ApplyStats(PlayerStats.For(body.Class, WornBy(playerId), Descriptor.Settings.Combat), spec);
@@ -730,11 +813,14 @@ namespace DungeonGen.Core.Net
             RefreshCarry(playerId);
         }
 
-        /// <summary>Where a resurrected player stands: the walkable cell nearest the shrine room's centre, beside the shrine itself.</summary>
-        private Vec2 ShrineSpot(int room)
+        /// <summary>
+        /// Where to stand at a shrine room's altar: the walkable cell beside the altar (within <see cref="ShrineRules.ReachCells"/>) nearest the room's centre,
+        /// else the nearest walkable cell of the room. A resurrected player stands up here; bots walk here to pray.
+        /// </summary>
+        public Vec2 AltarSpot(int room)
         {
             var r = Layout.Rooms[room];
-            var centre = Vec2.Of(r.Center);
+            var centre = Vec2.Of(ShrineRules.AltarCell(r));
             for (int ring = 1; ring <= 4; ring++)
                 for (int dx = -ring; dx <= ring; dx++)
                     for (int dy = -ring; dy <= ring; dy++)

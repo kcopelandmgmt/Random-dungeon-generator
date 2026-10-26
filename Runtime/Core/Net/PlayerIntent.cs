@@ -39,9 +39,9 @@ namespace DungeonGen.Core.Net
         /// </summary>
         public int SalvageItemId;
         /// <summary>
-        /// A shrine choice (<see cref="DungeonGen.Core.Net.ShrineAction"/>: 0 none, 1 arm the ultimate, 2 resurrect, 3 buy) with its argument: the dead teammate's
-        /// player id to resurrect, or the index into <see cref="DungeonGen.Core.Items.Consumable.All"/> to buy. The server routes it to
-        /// <see cref="MatchServer.UseShrine"/> (the shrine room you stand in) and clears it: one press, one use. Appended after the salvage id: when set,
+        /// A shrine choice (<see cref="DungeonGen.Core.Net.ShrineAction"/>: 0 none, 1 arm the ultimate, 2 resurrect; 3 is reserved, it was "buy" and is refused
+        /// as "no shop at shrines") with its argument: the dead teammate's player id to resurrect. The server routes it to <see cref="MatchServer.UseShrine"/>,
+        /// which starts (or, the same choice again, continues) the prayer at the altar within reach, and clears it: one press, one use. Appended after the salvage id: when set,
         /// the item block and the salvage id are written too (zeros), then 1 + 4 bytes; an intent without it is byte-for-byte the old format and every
         /// older payload reads as "no shrine action".
         /// </summary>

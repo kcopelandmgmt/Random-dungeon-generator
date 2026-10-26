@@ -27,8 +27,6 @@ namespace DungeonGen.Unity
         public static void Arm() => _queue.Add(new Choice(ShrineAction.ArmUltimate, 0));
         /// <summary>Resurrect this dead teammate.</summary>
         public static void Resurrect(int playerId) => _queue.Add(new Choice(ShrineAction.Resurrect, playerId));
-        /// <summary>Buy this consumable (an index into <see cref="DungeonGen.Core.Items.Consumable.All"/>).</summary>
-        public static void Buy(int consumableIndex) => _queue.Add(new Choice(ShrineAction.Buy, consumableIndex));
         public static void Clear() => _queue.Clear();
 
         /// <summary>Copy the oldest waiting choice into the intent (one per intent; the next waits for the next send). Returns true if one was copied.</summary>

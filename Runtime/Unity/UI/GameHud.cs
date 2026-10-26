@@ -494,8 +494,18 @@ namespace DungeonGen.Unity.UI
         {
             if (Paused) TogglePause();
             var flow = GameFlow.Instance;
-            if (flow != null && flow.Phase == FlowPhase.InRound) { flow.LeaveRound(); return; }
+            if (flow != null && flow.Phase == FlowPhase.InRound) { StartCoroutine(LeaveThenSummary(flow)); return; }
             GameFlow.Ensure().ReturnToMenu();   // a greybox round with no flow behind it: just go to the menu
+        }
+
+        /// <summary>Leaving counts as a death: forfeit, wait for the settlement (online, the server's result), then show the death summary; its button returns to the menu (2026-10-26 owner #7).</summary>
+        private System.Collections.IEnumerator LeaveThenSummary(GameFlow flow)
+        {
+            flow.ForfeitRound();
+            float t = Time.unscaledTime;
+            while (flow.Phase == FlowPhase.InRound && Time.unscaledTime - t < 10f) yield return null;
+            ShowSummaryNow();
+            if (!SummaryVisible) flow.LeaveRound();   // nothing to show (no state): the old path, straight to the menu with a note
         }
 
         // ---------------- input while a panel is open ----------------
