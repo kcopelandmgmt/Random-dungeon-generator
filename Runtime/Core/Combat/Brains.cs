@@ -390,7 +390,13 @@ namespace DungeonGen.Core.Combat
         public FightSim Sim { get; }
         public DungeonLayout Layout { get; }
         public List<MobController> Mobs { get; } = new List<MobController>();
-        public BossController Boss { get; private set; }
+        /// <summary>Every stationed boss, in stationing order. A dungeon has several boss rooms and the final boss.</summary>
+        public List<BossController> Bosses { get; } = new List<BossController>();
+        /// <summary>The most recently stationed boss (the single-boss API the fight lab and older tests use).</summary>
+        public BossController Boss => Bosses.Count == 0 ? null : Bosses[Bosses.Count - 1];
+        private readonly Dictionary<int, int> _bossRoomOf = new Dictionary<int, int>();
+        /// <summary>Boss combatant ids count down from 99 (91..99), so each boss's adds (id × 100 + n) get their own block above 9100 and never meet mob (500+) or bot (900+) ids.</summary>
+        public const int FirstBossId = 99, MaxBosses = 9;
         public CombatBaseline Baseline { get; }
         private readonly Dictionary<int, int> _packOf = new Dictionary<int, int>();
         private int _nextId = 500;
@@ -419,23 +425,27 @@ namespace DungeonGen.Core.Combat
         public BossController StationBoss(Room room)
         {
             if (room.Boss == null) return null;
-            Boss = new BossController(Sim, room.Boss, room.Id, Vec2.Of(room.Center), Layout, MobTeam);
-            return Boss;
+            if (Bosses.Count >= MaxBosses) throw new InvalidOperationException($"At most {MaxBosses} bosses per encounter director.");
+            int id = FirstBossId - Bosses.Count;
+            var boss = new BossController(Sim, room.Boss, room.Id, Vec2.Of(room.Center), Layout, MobTeam, id);
+            Bosses.Add(boss);
+            _bossRoomOf[boss.Boss.Id] = room.Id;
+            return boss;
         }
 
         public void Step(float dt)
         {
             foreach (var m in Mobs) m.Step(Sim, dt);
-            if (Boss != null)
+            foreach (var boss in Bosses)
             {
-                Boss.Passives(Sim);
-                Boss.Step(Sim, dt, Baseline);
-                // Brood and risen adds fight for the boss: they chase the mark if there is one, else the nearest.
-                foreach (int id in Boss.Adds.ToList())
+                boss.Passives(Sim);
+                boss.Step(Sim, dt, Baseline);
+                // Brood and risen adds fight for their boss: they chase its mark if there is one, else the nearest.
+                foreach (int id in boss.Adds.ToList())
                 {
                     var add = Sim.Get(id);
                     if (add == null || add.Dead || !add.CanAct) continue;
-                    var marked = Sim.Combatants.Values.FirstOrDefault(o => o.Team != add.Team && o.Alive && o.Buffs.Any(b => b.Kind == BuffKind.Marked && b.Source == Boss.Boss.Id));
+                    var marked = Sim.Combatants.Values.FirstOrDefault(o => o.Team != add.Team && o.Alive && o.Buffs.Any(b => b.Kind == BuffKind.Marked && b.Source == boss.Boss.Id));
                     var target = marked ?? Sim.Combatants.Values.Where(o => o.Team != add.Team && o.Alive && !o.IsMob).OrderBy(o => Vec2.Distance(o.Position, add.Position)).FirstOrDefault();
                     if (target == null) continue;
                     var basic = AbilityBook.Get("Mob.basic");
@@ -449,7 +459,7 @@ namespace DungeonGen.Core.Combat
         public IEnumerable<MatchEvent> Drain(int from, Func<int, int> roomOfPlayer)
         {
             for (int i = from; i < Sim.Events.Count; i++)
-                foreach (var e in FightBridge.ToMatchEvents(Sim.Events[i], Sim, roomOfPlayer, id => Boss != null && Boss.Boss.Id == id ? Boss.RoomId : (int?)null, id => _packOf.TryGetValue(id, out int p) ? p : (int?)null))
+                foreach (var e in FightBridge.ToMatchEvents(Sim.Events[i], Sim, roomOfPlayer, id => _bossRoomOf.TryGetValue(id, out int r) ? r : (int?)null, id => _packOf.TryGetValue(id, out int p) ? p : (int?)null))
                     yield return e;
         }
     }
