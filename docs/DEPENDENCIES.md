@@ -39,6 +39,7 @@ Scripting Define `FISHNET` only once Fishnet is installed.
 
 | Asset | Where | Used for |
 |-------|-------|----------|
+| FishNet 4.7.4 (release `FishNetworking.4.7.4R.unitypackage` from GitHub, kept in `D:\Unity Assets\`) | `Assets/FishNet`, `Assets/DefaultPrefabObjects.asset` | Online play through `DungeonGen.Unity.Fishnet` (Tugboat UDP transport, broadcasts only). FishNet sets the `FISHNET` and `FISHNET_V4` defines itself. The UPM git path does not compile (stripped Pro transport). |
 | Piloto Studio Elemental VFX Mega Bundle (1,786 prefabs, Shader Graph) | `Assets/Piloto Studio` | Ability effects via `AbilityVfxLibrary`; chosen in the audition |
 | Packs on disk, not yet imported | `D:\Unity Assets\*.unitypackage` | Animations (RPG, Paladin, Archer, Caster, Synty locomotion), weapons, environments, monsters |
 

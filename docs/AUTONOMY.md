@@ -36,6 +36,7 @@ bash Tools/Build/unity-batch.sh build-win                    # release player �
 bash Tools/Build/unity-batch.sh smoke-release                # release player muted+minimised with -releasesmoke: menu → round → leave → summary → menu; throwaway profile in Logs/release-profile; shots in Logs/release-shots
 bash Tools/Build/unity-batch.sh build-win-dev                # development player → dungeongame\Builds\WinDev\DungeonGame.exe
 bash Tools/Build/unity-batch.sh smoke                        # dev player muted+minimised with -autotest; prints smoke-result.json; no lane needed
+bash Tools/Build/unity-batch.sh smoke-net [port]             # two dev players over 127.0.0.1 (-autohost / -autojoin): net-host-result.json, net-client-result.json, shots in Logs/net-shots
 ```
 
 The player's settings and its always-included shaders are set by `Editor/PlayerBuild.cs`, never by
@@ -58,7 +59,7 @@ tool prints a dungeon without Unity: `cd Tools/AsciiPreview && dotnet run -- --t
    through `MatchServer.SetIntent` with the input controller off; `GameHarness.cs` has the shared helpers. Every run
    renders 1600x900 PNGs (no HUD) to `dungeongame/Logs/shots/`; read them, since the test only fails black or flat images.
    New test files are added per feature (one file per agent); `tests EditMode` checks the scene setup.
-   At the end of each wave: `build-win`, `smoke-release`, `build-win-dev`, `smoke`, and read both sets of screenshots.
+   At the end of each wave: `build-win`, `smoke-release`, `build-win-dev`, `smoke`, `smoke-net`, and read the screenshots.
 4. Update `TASKS.md` (what was done, what was verified, what is left), and `ARCHITECTURE.md` /
    `DEPENDENCIES.md` if a file, assembly, asset folder or external dependency was added or removed.
    This is a hard rule: a task is not finished until the documents say so.
