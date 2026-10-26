@@ -31,8 +31,9 @@ could not be verified headless (say why).
 | 3.2b | Item leftovers: overload slow-down not applied to movement; dropping a worn piece does not change stats; a network client's view lacks item details (base, affixes, weight, carried items); Space cannot pick up floor items; Salvage Kit in the dungeon not wired. Fixed by orchestrator: UI clicks no longer fire LMB/RMB attacks. | 3.2 | todo |
 | 3.3 | Atmosphere: dark ambient, black background, fog, URP post-processing, torch/brazier lights, fog of war for unexplored rooms, ability icons, plus 2.1b visual leftovers | agent | doing | |
 | 3.6 | Round balance: survivable, fun rounds measured in RoundLab (extraction 35–60%, mixed death causes, bosses stay home, team beats a room boss) with a regression test | agent | doing | |
-| 3.4 | Audio leftovers (2.2b) | — | queued | |
-| 3.5 | Fishnet multiplayer (2.6) | — | queued | |
+| 3.4 | Audio leftovers (2.2b): hazard and torch loops, per-element impacts, footsteps for others | agent | doing | |
+| 3.7 | Item rule leftovers (3.2b core part): overload slow-down, worn-piece loss changes stats, Space takes floor items, Salvage Kit in the dungeon | agent | doing | |
+| 3.5 | Fishnet multiplayer (2.6) | — | queued (after atmosphere: adding the package and the define recompiles everything) | |
 
 ## Wave 2 (queued; starts as wave 1 lands)
 
