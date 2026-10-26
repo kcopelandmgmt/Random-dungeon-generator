@@ -268,7 +268,7 @@ namespace DungeonGen.Unity.UI
                 _draftClass = c;
                 foreach (var (bb, cc) in buttons) bb.SetSelected(cc == c);
                 desc.text = c == null ? "" : $"{UiStyle.Colour(c.Name, UiStyle.Gold)}  ·  {c.Tagline}\n{UiStyle.Colour("In the dungeon:", UiStyle.TextDim)} {c.DungeonUtility}\n" +
-                    UiStyle.Colour("Specs: " + string.Join(", ", WeaponSpec.ForClass(c.Name).Select(s => $"{s.Name} ({s.WeaponBase})")), UiStyle.TextDim);
+                    UiStyle.Colour("Specs: " + string.Join(", ", GameFlow.SpecsFor(c.Name).Select(s => $"{s.Name} ({s.WeaponBase})")), UiStyle.TextDim);
             }
             foreach (var (b, c) in buttons) { var cc = c; b.onClick.AddListener(() => Pick(cc)); }
             Pick(_draftClass);
@@ -304,7 +304,7 @@ namespace DungeonGen.Unity.UI
 
             var specs = _flow.Specs;
             string current = _flow.CurrentSpec;
-            float cardW = 620f, gap = 30f, x0 = -(specs.Count - 1) * (cardW + gap) / 2f;
+            float gap = 24f, cardW = Mathf.Min(620f, (1360f - gap * Mathf.Max(0, specs.Count - 1)) / Mathf.Max(1, specs.Count)), x0 = -(specs.Count - 1) * (cardW + gap) / 2f;
             for (int i = 0; i < specs.Count; i++)
             {
                 var s = specs[i];
@@ -317,7 +317,7 @@ namespace DungeonGen.Unity.UI
                 rt.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(x0 + i * (cardW + gap), -165f), new Vector2(cardW, 345f));
                 card.SetSelected(s.Name == current);
                 var lbl = card.GetComponentInChildren<Text>();
-                lbl.alignment = TextAnchor.UpperLeft; lbl.fontSize = 19; lbl.rectTransform.Stretch(26f, 22f, 18f, 14f);
+                lbl.alignment = TextAnchor.UpperLeft; lbl.fontSize = specs.Count > 2 ? 17 : 19; lbl.rectTransform.Stretch(26f, 22f, 18f, 14f);
                 string ult = s.Ultimate ?? (WeaponSpec.Ultimates.TryGetValue(s.Name, out var u) ? u : null);
                 lbl.text = $"<size=34><b><color=#{UiStyle.Hex(UiStyle.Gold)}>{s.Name}</color></b></size>   <color=#{UiStyle.Hex(UiStyle.TextDim)}>{s.WeaponBase}</color>\n" +
                            $"<i>{s.Tagline}</i>\n\n" +

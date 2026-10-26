@@ -154,7 +154,26 @@ namespace DungeonGen.Unity
         }
 
         /// <summary>The specs the selected character's class has (one per weapon base).</summary>
-        public IReadOnlyList<WeaponSpec> Specs => Character == null ? Array.Empty<WeaponSpec>() : WeaponSpec.ForClass(Character.Class.Name).ToList();
+        public IReadOnlyList<WeaponSpec> Specs => Character == null ? Array.Empty<WeaponSpec>() : SpecsFor(Character.Class.Name);
+
+        /// <summary>A class's specs: its weapon specs, or for the Elementalist one per element kit, mapped to the Intelligence weapon base of that element (a kit with no such base is skipped with a warning).</summary>
+        public static IReadOnlyList<WeaponSpec> SpecsFor(string className)
+        {
+            if (className != "Elementalist") return WeaponSpec.ForClass(className).ToList();
+            var list = new List<WeaponSpec>();
+            foreach (var kit in ElementKit.All)
+            {
+                var b = ItemBase.Weapons.FirstOrDefault(w => w.ScalesWith == DungeonGen.Core.Combat.Attribute.Intelligence && w.AttackType == kit.Element);
+                if (b == null) { Debug.LogWarning($"Elementalist kit {kit.Name} has no {kit.Element} Intelligence weapon base; skipped."); continue; }
+                string Ab(string key, string fallback)
+                {
+                    var a = AbilityBook.For(kit.Name).FirstOrDefault(x => x.Id == kit.Name + "." + key);
+                    return a == null ? fallback : $"{a.Name}: {a.Text}";
+                }
+                list.Add(new WeaponSpec(className, b.Name, kit.Name, kit.Tagline, Ab("bolt", kit.Bolt), Ab("zone", kit.Zone), Ab("mobility", kit.Mobility), kit.Passive, "See the element kit."));
+            }
+            return list;
+        }
 
         /// <summary>The spec the weapon in hand gives (what the server will seat).</summary>
         public string CurrentSpec => Character == null || Profile == null ? null : Loadout.For(Profile, Character).Spec;
@@ -171,7 +190,7 @@ namespace DungeonGen.Unity
         public string ChooseSpec(string specName)
         {
             if (Character == null) return "Choose a character first.";
-            var spec = WeaponSpec.ForClass(Character.Class.Name).FirstOrDefault(s => s.Name == specName);
+            var spec = SpecsFor(Character.Class.Name).FirstOrDefault(s => s.Name == specName);
             if (spec == null) return $"{Character.Class.Name} has no spec called {specName}.";
             if (Character.Spec?.Name == spec.Name) return null;
             var b = ItemBase.ByName(spec.WeaponBase);
