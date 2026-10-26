@@ -32,7 +32,7 @@ could not be verified headless (say why).
 | 2.4 | Real UI in uGUI built from code: main menu (play, class and spec, settings with volume, quit), in-round HUD (health, resource, ability bar, channel, clock, souls, silver, announcements), pause menu, death recap and round summary screens, return to menu; profile saved to disk and settled after each round | 1.5, 1.6 | doing |
 | 2.5 | Loot and inventory: chest contents panel, take/roll prompts, carried items and weight, stash and equip in the menu, settlement after a round saved to disk | 1.6, 2.4 | todo |
 | 2.6 | Fishnet: install from GitHub, prove host and client in two muted processes on one machine | 1.5 | todo |
-| 2.7 | Core gaps from 1.6: death on reconnect expiry, 50% item trash on death, consumable effects (health potion etc.), kill-XP cap at settlement | 1.6 | doing |
+| 2.7 | Core gaps from 1.6: death on reconnect expiry, 50% item trash on death, consumable effects (health potion etc.), kill-XP cap at settlement | 1.6 | done (core 233; round sim 0 rejected) | Also fixed: bots tried doors they could not work (30 rejections on one seed). The host must pass `AccountOf` to `Settle` for the kill-XP cap to apply to known accounts. |
 
 ## Done before the program (2026-10-24)
 

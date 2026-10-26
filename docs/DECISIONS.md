@@ -3,6 +3,18 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-26 · Death trash, disconnects and consumables as built — BUILT
+
+1. **A disconnect past the 60 s window raises `PlayerDied` (killer -1)**, so corpse, souls and loot
+   behave like any death.
+2. **The 50% trash on death covers every item the corpse holds**: worn, carried and starter, uniques
+   included. Rolled per item from the loot secret and the victim, so clients cannot predict it; each
+   loss is an `ItemDestroyed`. Keys are not items and always drop.
+3. **Health Potion: 30% of max health over 3 s, 60 s cooldown**, stops if the drinker is downed.
+   **Antidote: removes every status, 90 s cooldown.** Salvage Kit is a hub action, not usable from
+   an intent. One use per press (`PlayerIntent.ConsumableSlot`, cleared after it is applied).
+4. **Kill XP is paid once per victim account per day** (`KillXpTracker` on the profile).
+
 ## 2026-10-26 · Settlement: what a finished round does to the profile — BUILT (`RoundSettlement`)
 
 1. **The profile does not change until the round settles.** Gear brought in still shows on the

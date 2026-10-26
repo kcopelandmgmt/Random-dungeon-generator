@@ -8,7 +8,7 @@ namespace DungeonGen.Unity
     /// <summary>
     /// Reads the New Input System and turns it into a <see cref="PlayerIntent"/> every server tick:
     /// WASD as a screen-relative direction turned into world space under the camera's fixed yaw, mouse aim as a point
-    /// on the ground in simulator cells, LMB basic, RMB bolt, Q zone, E mobility, R ultimate, Space held
+    /// on the ground in simulator cells, LMB basic, RMB bolt, Q zone, E mobility, R ultimate, 1 health potion, 2 antidote, Space held
     /// to interact, F to ping, Tab held for the full map (pushed into MiniMapHud). The base assembly
     /// reads no input, so this component also feeds the camera's aim point and scroll-wheel zoom each frame. Rebindable through the
     /// actions asset; controller sticks map to the same actions. Nothing moves locally: the server does.
@@ -34,6 +34,8 @@ namespace DungeonGen.Unity
         private IMatchTransport _transport;
         private float _accum; private uint _tick;
         private bool _basicQueued, _boltQueued, _zoneQueued, _mobilityQueued, _ultQueued, _pingQueued;
+        private InputAction _potion, _antidote;
+        private byte _consumableQueued;   // PlayerIntent.ConsumableSlot: 1 Health Potion, 2 Antidote
 
         public void Attach(IMatchTransport transport) => _transport = transport;
 
@@ -61,6 +63,9 @@ namespace DungeonGen.Unity
                 _ultimate = new InputAction("Ultimate", InputActionType.Button, "<Keyboard>/r"); _ultimate.AddBinding("<Gamepad>/buttonNorth");
                 _interact = new InputAction("Interact", InputActionType.Button, "<Keyboard>/space"); _interact.AddBinding("<Gamepad>/buttonSouth");
                 _ping = new InputAction("Ping", InputActionType.Button, "<Keyboard>/f"); _ping.AddBinding("<Gamepad>/buttonWest");
+                _potion = new InputAction("Potion", InputActionType.Button, "<Keyboard>/1"); _potion.AddBinding("<Gamepad>/dpad/left");
+                _antidote = new InputAction("Antidote", InputActionType.Button, "<Keyboard>/2"); _antidote.AddBinding("<Gamepad>/dpad/right");
+                _potion.Enable(); _antidote.Enable();
                 _map = new InputAction("Map", InputActionType.Button, "<Keyboard>/tab"); _map.AddBinding("<Gamepad>/select");
                 _zoom = new InputAction("Zoom", InputActionType.Value, "<Mouse>/scroll/y");
                 _zoomHold = new InputAction("ZoomHold", InputActionType.Value, "<Gamepad>/dpad/y");
@@ -68,11 +73,14 @@ namespace DungeonGen.Unity
             }
             _basic.performed += _ => _basicQueued = true; _bolt.performed += _ => _boltQueued = true; _zone.performed += _ => _zoneQueued = true;
             _mobility.performed += _ => _mobilityQueued = true; _ultimate.performed += _ => _ultQueued = true; _ping.performed += _ => _pingQueued = true;
+            if (_potion != null) _potion.performed += _ => _consumableQueued = 1;
+            if (_antidote != null) _antidote.performed += _ => _consumableQueued = 2;
         }
 
         private void OnDisable()
         {
             if (Actions == null) foreach (var a in new[] { _move, _aim, _basic, _bolt, _zone, _mobility, _ultimate, _interact, _ping, _map, _zoom, _zoomHold }) a?.Disable();
+            _potion?.Disable(); _antidote?.Disable();
         }
 
         private void Update()
@@ -113,7 +121,8 @@ namespace DungeonGen.Unity
             intent.AimX = aim.X; intent.AimY = aim.Y;
             intent.Basic = _basicQueued || _basic.IsPressed(); intent.Bolt = _boltQueued; intent.Zone = _zoneQueued; intent.Mobility = _mobilityQueued; intent.Ultimate = _ultQueued;
             intent.Interact = _interact.IsPressed(); intent.Ping = _pingQueued; intent.PingKind = (byte)PingKind.Look;
-            _basicQueued = _boltQueued = _zoneQueued = _mobilityQueued = _ultQueued = _pingQueued = false;
+            intent.ConsumableSlot = _consumableQueued;
+            _basicQueued = _boltQueued = _zoneQueued = _mobilityQueued = _ultQueued = _pingQueued = false; _consumableQueued = 0;
             return true;
         }
 
