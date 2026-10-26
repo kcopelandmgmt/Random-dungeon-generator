@@ -41,3 +41,7 @@ an inset square frame despite "no border"; `gpt-image-2` costs 9, fills the canv
 Then `bash Tools/Build/unity-batch.sh method DungeonGen.Unity.Editor.AbilityIconBaker.FromImages` boxes them to 128 px, adds the element
 frame (gold double line for ultimates) into `Assets/UI/AbilityIcons/` and refreshes the lookup; any ability with no image falls back to
 the old particle baker (`AbilityIconBaker.Bake` still bakes everything that way).
+
+## portrait_sheets.py
+
+Studio portraits of every class, boss and mob come from the PlayMode test `PortraitTests` (category Portraits; runs with `unity-batch.sh tests PlayMode`) into `dungeongame/Logs/portraits/<group>-<slug>.png`. `python -I Tools/AssetGen/portrait_sheets.py` lays them out as labelled sheets (`sheet-classes.png`, `sheet-bosses.png`, `sheet-mobs.png`). Needs Pillow.
