@@ -19,6 +19,7 @@ Files per folder: `<slug>.fbx`, `<slug>_basecolor.png`, `<slug>_thumb.png`, `<sl
 * `models/ledger.json` records every task, key index, kind and credits; the tool refuses to exceed 4,500.
 * Resumable: rerun the same command; finished steps are skipped, unfinished tasks are polled again. A failed step is
   retried once; `--reset-failed` grants fresh attempts.
+* Regenerating a model: move its files into a subfolder (e.g. models/<slug>/_old, manifest included) so the skip logic sees it as pending, then run --only <slug>. Wave 5.5 (2026-10-26) redid ember_wisp, frostbound, ashen_colossus and glasswright with a shared MUTED suffix (muted dark-fantasy palette, warm torchlight accents); the first versions are in _old, a discarded second frostbound/glasswright try in _attempt1/_attempt2.
 * Edit prompts, polycounts and animation action ids in the `ASSETS` list at the top of the file.
 
 ## elevenlabs.py
@@ -41,6 +42,20 @@ an inset square frame despite "no border"; `gpt-image-2` costs 9, fills the canv
 Then `bash Tools/Build/unity-batch.sh method DungeonGen.Unity.Editor.AbilityIconBaker.FromImages` boxes them to 128 px, adds the element
 frame (gold double line for ultimates) into `Assets/UI/AbilityIcons/` and refreshes the lookup; any ability with no image falls back to
 the old particle baker (`AbilityIconBaker.Bake` still bakes everything that way).
+
+### Item icons (`--set items`)
+
+`python -I Tools/AssetGen/meshy_images.py run --set items --model gpt-image-2` paints one inventory icon per item base (the 28 of
+`ItemBase.All`: 11 weapons, 15 armour pieces, Amulet, Ring), per consumable (`Consumable.All`) and for the purse (Silver, Scrap, Prime
+Shards, Essence): 35 icons into `dungeongame/Assets/Generated/item-icons/<slug>.png` (slug = name lower-cased with underscores:
+`plate_helm`, `health_potion`) with `manifest.json` beside them. Prompt = `ITEM_STYLE` (single object, centred, plain dark background,
+no frame, no text) + a motif + a key: armour weight is grouped by material (Heavy = dark steel plate, Medium = brown leather with iron
+studs, Light = plum and blue cloth and silk), magic weapons get their element glow. Ledger entries use slug `item/<slug>`; the set has its
+own ceiling, `ITEM_BUDGET` = 330 credits including retries (`status --set items` prints what it has spent). First run (2026-10-26):
+35 icons, 315 credits, no regenerations. Then `bash Tools/Build/unity-batch.sh method DungeonGen.Unity.Editor.ItemIconSetup.Run` (also
+greybox step 35) imports them as 256 px mipmapped sprites and writes the Resources lookup `item-icons/Resources/ItemIcons.asset` read by
+`ItemIcons.For(item or name)`, plus `item-icons/Resources/PaperDollModels.asset` (the hero entries of the avatar library, for the
+Stash & Equipment screen's live model).
 
 ## portrait_sheets.py
 

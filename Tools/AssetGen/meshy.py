@@ -18,7 +18,9 @@ EST = {"preview-meshy-7.1": 20, "preview-meshy-6-lite": 5, "refine": 10, "rig": 
 STYLE = "Stylized low-poly fantasy, hand-painted textures, chunky readable silhouette, dark gothic dungeon palette, game-ready. "
 CHAR = "Single character in A-pose facing forward, no base, no pedestal, no background. "
 CREA = "Single creature, no base, no background, sits on the ground. "
+FLOAT = "Single floating creature, no base, no background. "
 PROP = "Single object, no background, sits flat on the ground. "
+MUTED = "Muted desaturated dark-fantasy palette, painterly, warm torchlight accents."
 TEX = "hand-painted stylized fantasy texture, dark gothic palette, painterly, no baked lighting"
 
 # Meshy animation library ids (checked against GET /openapi/v1/animations/library)
@@ -39,9 +41,9 @@ def boss(slug, desc, humanoid=False, h=3.5, atk=128, cast=101, optional_rig=Fals
     return d
 
 
-def mob(slug, desc, humanoid=False, h=1.8, atk=A_ATK):
+def mob(slug, desc, humanoid=False, h=1.8, atk=A_ATK, floater=False):
     d = dict(slug=slug, cat="mob", model="meshy-6-lite", polys=6000, humanoid=humanoid, rig=humanoid, height=h,
-             prompt=STYLE + (CHAR if humanoid else CREA) + desc)
+             prompt=STYLE + (CHAR if humanoid else FLOAT if floater else CREA) + desc)
     if humanoid:
         d["actions"] = {"idle": A_IDLE, "attack": atk, "death": A_DEATH}
     return d
@@ -60,8 +62,8 @@ ASSETS = [
     hero("shade", "Masked rogue assassin with twin daggers, dark leather armour, tattered hood and scarf, lean and agile.", 1.75, 97, 92),
     boss("iron_juggernaut", "Hulking iron golem knight, massive riveted iron plates, glowing furnace chest, giant fists.", True, 3.5, 128, 101),
     boss("hive_matron", "Giant insect queen with a huge swollen egg sac abdomen, chitin plates, mandibles, multiple legs."),
-    boss("ashen_colossus", "Towering burning ash giant, body of cracked charcoal stone with glowing embers inside, huge arms.", True, 5.0, 238, 101),
-    boss("glasswright", "Crystal-glass sorcerer in jagged glass-shard robes, translucent crystal limbs, glowing core, standing upright.", True, 2.2, 129, 126, optional_rig=True),
+    boss("ashen_colossus", "Huge hunched giant of cooled black lava rock and grey ash, broad rounded shoulders, massive heavy fists hanging low, glowing orange cracks across the stone body. " + MUTED, True, 5.0, 238, 101),
+    boss("glasswright", "Tall gaunt sorcerer whose long robes are made entirely of overlapping translucent shards of coloured glass in teal, amber and violet, large crystal clusters growing from both shoulders, glowing crystal fragments, pale gaunt face, standing upright. " + MUTED, True, 2.2, 129, 126, optional_rig=True),
     boss("bone_choir", "Cluster of singing skeletons fused into one grotesque mass of bones and open screaming skulls."),
     boss("hound_of_vesh", "Huge shadow hound, four legs, wispy dark smoke fur, glowing eyes, snarling jaws, quadruped."),
     boss("lantern_wraith", "Floating hooded wraith in tattered robes holding a glowing lantern, no legs, ghostly."),
@@ -70,8 +72,8 @@ ASSETS = [
     mob("bandit", "Human bandit thug with leather armour, bandana, a short sword and a patched cloak.", True, 1.75),
     mob("hollow_knight", "Empty animated suit of plate armour with glowing void eyes, rusted and dented, holding a rusty sword.", True, 1.9),
     mob("skitterer", "Small spider-like creature with eight thin legs, bulbous body and several eyes."),
-    mob("ember_wisp", "Floating flame spirit, a swirling teardrop of fire with a face, glowing embers."),
-    mob("frostbound", "Ice-encrusted undead warrior covered in frost and icicles, tattered armour, blue glowing eyes.", True, 1.9),
+    mob("ember_wisp", "Floating ember spirit, a small burning skull-like core of charred bone and glowing coals with a few trailing flame wisps curling behind it, no legs, no arms, compact silhouette readable from above. " + MUTED, floater=True),
+    mob("frostbound", "Undead warrior frozen in a thick crust of blue-white ice, large jagged ice crystals and icicles growing over rusted iron plate armour, white frost on every surface, glowing pale blue eyes, a broken sword with a snapped blade in one hand. " + MUTED, True, 1.9),
     mob("storm_acolyte", "Robed lightning cultist with hood, sparking crackling hands, belt of charms.", True, 1.75),
     mob("carrion_crawler", "Large segmented crawler like a giant centipede with a tentacled mouth, many legs."),
     mob("gravewalker", "Rotting zombie in shredded clothes, exposed ribs, hunched, arms outstretched.", True, 1.7),
