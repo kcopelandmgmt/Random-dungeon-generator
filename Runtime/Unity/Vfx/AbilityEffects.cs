@@ -23,6 +23,8 @@ namespace DungeonGen.Unity
         public bool GreyboxFallbacks = true;
         [Tooltip("Seconds a spawned effect lives when its particle systems do not say.")]
         public float DefaultLifetimeSeconds = 3f;
+        [Tooltip("Upper bound for the lifetime worked out from particle settings; packs sometimes author an infinite start lifetime.")]
+        public float MaxLifetimeSeconds = 8f;
         public float AvatarHeight = 1f;
         public bool FloatingNumbers = true;
 
@@ -118,7 +120,7 @@ namespace DungeonGen.Unity
             bool flies = shape == AbilityShape.Projectile || shape == AbilityShape.Pierce || (projectile != null && dir.magnitude > 1.5f);
             if (flies)
             {
-                GameObject go = projectile != null ? Instantiate(projectile, from, rot) : GreyboxFallbacks ? GreyboxSphere(from, 0.5f, shape == AbilityShape.Pierce ? new Color(0.6f, 0.9f, 1f) : new Color(1f, 0.8f, 0.3f)) : null;
+                GameObject go = projectile != null ? Neutralise(Instantiate(projectile, from, rot)) : GreyboxFallbacks ? GreyboxSphere(from, 0.5f, shape == AbilityShape.Pierce ? new Color(0.6f, 0.9f, 1f) : new Color(1f, 0.8f, 0.3f)) : null;
                 if (go != null) _flights.Add(new Flight { T = go.transform, From = from, To = to, Speed = Library != null ? Library.ProjectileSpeed(e.Ability) : 25f, Started = Time.time, Ability = e.Ability, Impact = impact });
                 return;
             }
@@ -154,7 +156,7 @@ namespace DungeonGen.Unity
             GameObject go;
             if (prefab != null)
             {
-                go = Instantiate(prefab, centre, Quaternion.identity);
+                go = Neutralise(Instantiate(prefab, centre, Quaternion.identity));
                 float s = radiusMetres * (Library != null ? Library.ZoneScalePerMetre(e.Ability) : 1f);
                 if (s > 0f) go.transform.localScale = prefab.transform.localScale * s;
             }
@@ -192,7 +194,7 @@ namespace DungeonGen.Unity
         /// <summary>Instantiate a library prefab and let it die by itself: looping particle systems are stopped after their duration, the object removed once every system is quiet.</summary>
         public GameObject Spawn(GameObject prefab, Vector3 at, Quaternion rot, float scale)
         {
-            var go = Instantiate(prefab, at, rot);
+            var go = Neutralise(Instantiate(prefab, at, rot));
             if (Math.Abs(scale - 1f) > 0.001f) go.transform.localScale = prefab.transform.localScale * scale;
             var systems = go.GetComponentsInChildren<ParticleSystem>(true);
             float life = DefaultLifetimeSeconds;
@@ -200,10 +202,18 @@ namespace DungeonGen.Unity
             {
                 var main = ps.main;
                 float d = main.duration + main.startLifetime.constantMax + main.startDelay.constantMax;
-                if (!main.loop) life = Mathf.Max(life, d);
+                if (!main.loop && !float.IsNaN(d) && !float.IsInfinity(d)) life = Mathf.Max(life, Mathf.Min(d, MaxLifetimeSeconds));   // some packs author an infinite start lifetime
                 if (!ps.isPlaying) ps.Play();
             }
             StartCoroutine(Retire(go, systems, life));
+            return go;
+        }
+
+        /// <summary>Effects are drawn, not simulated: pack prefabs that carry a rigidbody or collider must not fall, push or trigger anything.</summary>
+        private static GameObject Neutralise(GameObject go)
+        {
+            foreach (var rb in go.GetComponentsInChildren<Rigidbody>(true)) { rb.isKinematic = true; rb.detectCollisions = false; }
+            foreach (var c in go.GetComponentsInChildren<Collider>(true)) c.enabled = false;
             return go;
         }
 

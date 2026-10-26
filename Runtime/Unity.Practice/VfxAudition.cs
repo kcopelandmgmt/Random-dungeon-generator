@@ -31,7 +31,11 @@ namespace DungeonGen.Unity
         [Tooltip("File next to the Assets folder that remembers every vote.")]
         public string VotesFile = "VfxAudition.json";
         public int LocalPlayerId = 1;
+#if UNITY_EDITOR
         public bool Open = true;
+#else
+        public bool Open = false;       // prefab discovery needs the AssetDatabase, so the panel is editor-only
+#endif
         [Tooltip("Seconds between casts while C is held.")]
         public float RepeatSeconds = 0.3f;
         [Tooltip("Abilities with fewer matching candidates than this show the whole catalogue instead.")]
@@ -59,6 +63,9 @@ namespace DungeonGen.Unity
 
         private void OnEnable()
         {
+#if !UNITY_EDITOR
+            enabled = false; return;    // no AssetDatabase in a player: nothing to audition
+#endif
             _abilities = AbilityBook.All.OrderBy(a => a.Spec).ThenBy(a => (int)a.Kind).ToList();
             LoadCatalogue();
             LoadVotes();
@@ -107,56 +114,13 @@ namespace DungeonGen.Unity
             {
                 case AbilityShape.Projectile: case AbilityShape.Pierce: return VfxRole.Projectile;
                 case AbilityShape.Circle: return a.IsZone ? VfxRole.Zone : VfxRole.Impact;
-                case AbilityShape.Target: return VfxRole.Impact;
+                case AbilityShape.Target: case AbilityShape.Cone: return VfxRole.Impact;
                 default: return VfxRole.Cast;
             }
         }
 
-        private static readonly Dictionary<DamageType, string[]> ElementWords = new Dictionary<DamageType, string[]>
-        {
-            { DamageType.Fire, new[] { "Fire", "Flame", "Lava", "Burn", "Ember", "Magma" } },
-            { DamageType.Frost, new[] { "Frost", "Ice", "Snow", "Freez", "Cold" } },
-            { DamageType.Lightning, new[] { "Shock", "Lightning", "Thunder", "Tesla", "Electric", "Volt" } },
-            { DamageType.Poison, new[] { "Poison", "Acid", "Toxic", "Goo", "Venom" } },
-            { DamageType.Shadow, new[] { "Dark", "Void", "Shadow", "Crimson", "Blood", "Curse" } },
-            { DamageType.Physical, new string[0] },
-        };
-
-        private static string[] ShapeWords(AbilityDefinition a)
-        {
-            switch (a.Shape)
-            {
-                case AbilityShape.Projectile: return new[] { "Projectile", "Bolt", "Arrow", "Shot", "Missile", "Ball", "Spear", "Orb", "Bullet", "Lance", "Dart", "Throw" };
-                case AbilityShape.Pierce: return new[] { "Beam", "Ray", "Laser", "Pierce", "Arrow", "Spear", "Lance", "Line", "Projectile", "Shot" };
-                case AbilityShape.Circle: return a.IsZone
-                    ? new[] { "Area", "AOE", "Floor", "Field", "Pool", "Rain", "Ring", "Zone", "Puddle", "Circle", "Ground", "Totem", "Tower", "Trap", "Nova", "Aura", "Healing" }
-                    : new[] { "Explosion", "Blast", "Nova", "Burst", "Impact", "AOE", "Area", "Smash", "Slam", "Crack", "Quake" };
-                case AbilityShape.Cone: return new[] { "Slash", "Cone", "Breath", "Wave", "Swing", "Sweep", "Claw", "Cleave", "Fan", "Spray", "Flamethrower" };
-                case AbilityShape.Dash: return new[] { "Dash", "Trail", "Blink", "Teleport", "Smoke", "Step", "Charge", "Rush", "Leap", "Warp" };
-                case AbilityShape.Self: return new[] { "Aura", "Shield", "Buff", "Guard", "Barrier", "Armor", "Armour", "Glow", "Power", "Rage" };
-                default: return a.Heal > 0f ? new[] { "Heal", "Holy", "Cure", "Bless", "Light", "Fairy", "Nature", "Restore" } : new[] { "Impact", "Hit", "Strike", "Stab", "Slash", "Bash", "Smash", "Crack" };
-            }
-        }
-
-        private List<string> CandidatesFor(AbilityDefinition a)
-        {
-            var words = ShapeWords(a).ToList();
-            if (a.Kind == AbilityKind.Ultimate) words.AddRange(new[] { "Meteor", "Storm", "Nova", "Rain", "Giant", "Mega", "Ultimate", "Explosion", "Apocalypse" });
-            var element = a.Element.HasValue && ElementWords.TryGetValue(a.Element.Value, out var ew) ? ew : new string[0];
-            var heal = a.Heal > 0f ? new[] { "Heal", "Holy", "Nature", "Fairy", "Light", "Bees" } : new string[0];
-            bool Has(string s, string w) => s.IndexOf(w, StringComparison.OrdinalIgnoreCase) >= 0;
-            var scored = new List<(string path, int score)>();
-            foreach (var p in _catalogue)
-            {
-                string file = Path.GetFileNameWithoutExtension(p);
-                int score = 0;
-                if (words.Any(w => Has(file, w))) score += 2;
-                if (element.Length > 0 && element.Any(w => Has(p, w))) score += 1;
-                if (heal.Length > 0 && heal.Any(w => Has(p, w))) score += 1;
-                if (score >= 2 || (element.Length > 0 && score >= 1 && words.Count == 0)) scored.Add((p, score));
-            }
-            return scored.OrderByDescending(s => s.score).ThenBy(s => s.path, StringComparer.OrdinalIgnoreCase).Select(s => s.path).ToList();
-        }
+        /// <summary>Best-fitting prefabs for the ability in the role being auditioned; the ranking lives in <see cref="VfxMatcher"/>.</summary>
+        private List<string> CandidatesFor(AbilityDefinition a) => VfxMatcher.CandidatesFor(a, _role, _catalogue);
 
         private void Select(int abilityIndex)
         {
