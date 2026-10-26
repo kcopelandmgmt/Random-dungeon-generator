@@ -58,7 +58,7 @@ namespace DungeonGen.Unity.UI
                 if (why != null) { setMessage(why); UiSound.Play(UiSound.Error); }
             }, new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(400f, -290f), new Vector2(320f, 60f));
             host.interactable = available;
-            var hostNote = UiStyle.Label(panel, "HostNote", "Others join at this machine's address. Across the internet the port must be forwarded (UDP).", 18, UiStyle.TextFaint, TextAnchor.MiddleLeft);
+            var hostNote = UiStyle.Label(panel, "HostNote", "Friends across the internet: the game asks your router to open the UDP port (UPnP); the lobby says if it worked.", 18, UiStyle.TextFaint, TextAnchor.MiddleLeft);
             hostNote.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(60f, -340f), new Vector2(1060f, 30f));
 
             // Join.
@@ -71,6 +71,7 @@ namespace DungeonGen.Unity.UI
             addr.characterLimit = 64;
             string last = PlayerPrefs.GetString(NetSessions.LastAddressKey, NetSessions.DefaultAddress);
             int lastPort = PlayerPrefs.GetInt(NetSessions.LastPortKey, NetSessions.DefaultPort);
+            if (last.Contains(":") && !last.StartsWith("[")) last = "[" + last + "]";   // an IPv6 address keeps its port apart
             addr.SetTextWithoutNotify(lastPort == NetSessions.DefaultPort ? last : last + ":" + lastPort);
             var join = Btn(panel, "JoinButton", "Join", () =>
             {
@@ -79,8 +80,10 @@ namespace DungeonGen.Unity.UI
                 if (why != null) { setMessage(why); UiSound.Play(UiSound.Error); }
             }, new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(720f, -470f), new Vector2(260f, 60f));
             join.interactable = available;
+            var joinNote = UiStyle.Label(panel, "JoinNote", "A host name or an IP address, with an optional port: friend.example.net, 203.0.113.5:7771, [2001:db8::1]:7770.", 18, UiStyle.TextFaint, TextAnchor.MiddleLeft);
+            joinNote.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(60f, -520f), new Vector2(1060f, 30f));
             var ded = UiStyle.Label(panel, "DedicatedNote", "A dedicated server is this game run with  -batchmode -nographics -server -port 7770.", 18, UiStyle.TextFaint, TextAnchor.MiddleLeft);
-            ded.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(60f, -520f), new Vector2(1060f, 30f));
+            ded.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(60f, -555f), new Vector2(1060f, 30f));
 
             Btn(panel, "BackButton", "Back", back, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(40f, 36f), new Vector2(260f, 64f));
             return panel;
@@ -95,7 +98,19 @@ namespace DungeonGen.Unity.UI
             bool server = session != null && session.IsServer;
             Header(panel, server ? "YOUR LOBBY" : "LOBBY");
             var status = UiStyle.Label(panel, "Status", session?.Status ?? "Not connected.", 22, UiStyle.TextDim, TextAnchor.MiddleCenter, FontStyle.Italic);
-            status.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -112f), new Vector2(1060f, 34f));
+            status.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -106f), new Vector2(1060f, 32f));
+            // The host's reach beyond its own network: the router's port mapping (UPnP) asked for when hosting; rebuilt when it answers.
+            if (server && session is INetReachability reach && !string.IsNullOrEmpty(reach.Reachability))
+            {
+                var colour = reach.PubliclyReachable == true ? UiStyle.Good : reach.PubliclyReachable == false ? UiStyle.Bad : UiStyle.TextFaint;
+                var r = UiStyle.Label(panel, "Reachability", reach.Reachability, 20, colour, TextAnchor.MiddleCenter);
+                r.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -138f), new Vector2(1100f, 28f));
+                if (!string.IsNullOrEmpty(reach.LanAddress))
+                {
+                    var lan = UiStyle.Label(panel, "LanAddress", $"Friends on your network join at {reach.LanAddress}", 19, UiStyle.TextFaint, TextAnchor.MiddleCenter);
+                    lan.rectTransform.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0.5f), new Vector2(0f, 236f), new Vector2(1060f, 30f));
+                }
+            }
 
             var lobby = session?.Lobby ?? new LobbyState();
             int teams = Math.Max(1, lobby.Teams);

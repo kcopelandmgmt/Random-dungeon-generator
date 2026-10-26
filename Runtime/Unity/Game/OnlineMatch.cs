@@ -17,7 +17,8 @@ namespace DungeonGen.Unity
     /// (<see cref="MatchEventKind.PlayerDisconnected"/>), a returning one is seated on the new connection and gets the descriptor and view
     /// again (<see cref="MatchEventKind.PlayerReconnected"/>), a forfeit is a death, and every remote player whose round is over is sent their
     /// <see cref="RoundResult"/> to settle on their own machine. On a client: attaches the bootstrap, the world view, the HUD and the input to the
-    /// session's round transport, sets this process's player id everywhere, and keeps the <see cref="ClientMirror"/>. Never pauses.
+    /// session's round transport (through a <see cref="ClientTransport"/>: the prediction's intent tap and the <c>-netlag</c> simulated lag), sets this
+    /// process's player id everywhere, keeps the <see cref="ClientMirror"/>, and predicts the local avatar's walking (<see cref="ClientPrediction"/>). Never pauses.
     /// </summary>
     public sealed class OnlineMatch : MonoBehaviour
     {
@@ -41,6 +42,10 @@ namespace DungeonGen.Unity
         public bool Joined { get; private set; }
         public int LocalPlayerId { get; private set; } = -1;
         public MatchServer MatchServer => Bootstrap != null ? Bootstrap.Server : null;
+        /// <summary>Remote client: the session's round transport wrapped with the prediction tap and the simulated lag (<c>-netlag</c>); null on a server.</summary>
+        public ClientTransport ClientLink { get; private set; }
+        /// <summary>Remote client: the local avatar's movement prediction (null on a server, or with <c>-noprediction</c>).</summary>
+        public ClientPrediction Prediction { get; private set; }
         /// <summary>Remote players seated this round, by id, with the team they play on.</summary>
         public IReadOnlyDictionary<int, int> RemoteSeats => _remoteSeats;
         /// <summary>Lobby players the round turned away (a refused loadout), with why.</summary>
@@ -237,10 +242,22 @@ namespace DungeonGen.Unity
             WireFromScene();
             if (Bootstrap == null || Builder == null || World == null) { Debug.LogError("OnlineMatch: the round scene is missing its bootstrap, builder or world view."); return; }
             AttachSession(session);   // not "Attach": the scene's components get SendMessage("Attach", transport)
+            // Everything on this client hears the round through the link: the prediction's intent tap, and the simulated lag when asked for.
+            ClientLink = new ClientTransport(Transport, ClientTransport.LaunchLagMs());
+            Transport = ClientLink;
+            if (ClientLink.LagSeconds > 0f) Debug.Log($"OnlineMatch: simulating a {ClientLink.LagSeconds * 1000f:0} ms round trip (-netlag).");
             Bootstrap.Attach(Transport);
             if (Server != null) Server.Bootstrap = Bootstrap;   // never steps: a client has no server
             AttachViews(session.LocalPlayerId);
             ClientMirror.Current = new ClientMirror(session.LocalPlayerId, World, Transport);
+            var sheet = OnlineLaunch.Current?.Loadout?.Stats;
+            if (ClientPrediction.Enabled && sheet != null)
+            {
+                Prediction = gameObject.AddComponent<ClientPrediction>();
+                if (Server != null) Prediction.ServerTickSeconds = 1f / Mathf.Max(1, Server.TickRate);
+                var link = ClientLink;
+                Prediction.Begin(link, World, Bootstrap, Builder, sheet, () => (session is INetLatency l ? l.RoundTripSeconds : 0f) + link.LagSeconds);
+            }
             foreach (var mb in FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None)) if (mb is IRoundUi ui) ui.Attach(Transport);
             Joined = true;
             session.RoundSceneReady();
@@ -255,6 +272,8 @@ namespace DungeonGen.Unity
         }
 
         // ---------------- per frame ----------------
+
+        private void Update() => ClientLink?.Pump();   // a remote client: deliver what the simulated lag held back
 
         private void LateUpdate()
         {

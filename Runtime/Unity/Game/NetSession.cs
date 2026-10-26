@@ -108,6 +108,28 @@ namespace DungeonGen.Unity
         /// <summary>Client and host: this player's character and loadout. Null on a dedicated server.</summary>
         public JoinRequest Join;
         public int BotTeams = 1, TeamSize = 3, MaxPlayers = 12;
+        /// <summary>Server: ask the router to forward the port (UPnP) when listening beyond this machine. <c>-noupnp</c> turns it off too.</summary>
+        public bool MapPort = true;
+    }
+
+    /// <summary>
+    /// A server session that can say whether the internet reaches it (2026-10-26 online play beyond the LAN): the UPnP port mapping's outcome, for the
+    /// host's lobby. Optional beside <see cref="INetSession"/>.
+    /// </summary>
+    public interface INetReachability
+    {
+        /// <summary>Null when not asked (a client, or listening on this machine only); a "checking" line while the router is asked; then the result line.</summary>
+        string Reachability { get; }
+        /// <summary>Null while unknown; true when friends outside the network can join.</summary>
+        bool? PubliclyReachable { get; }
+        /// <summary>This machine's address and port on its own network ("192.168.1.20:7770"), for friends on the LAN (null when unknown).</summary>
+        string LanAddress { get; }
+    }
+
+    /// <summary>A client session's measured round trip to the server (seconds), for prediction. Optional beside <see cref="INetSession"/>.</summary>
+    public interface INetLatency
+    {
+        float RoundTripSeconds { get; }
     }
 
     /// <summary>
@@ -203,11 +225,27 @@ namespace DungeonGen.Unity
             s?.Stop();
         }
 
-        /// <summary>Parse "host" or "host:port"; the port falls back to <paramref name="defaultPort"/>.</summary>
+        /// <summary>
+        /// Parse what a player types to join: a host name or an IP, with an optional port: "friend.example.net", "203.0.113.5:7771", "[2001:db8::1]:7770",
+        /// a bare IPv6 address, or any of them pasted with a "udp://" prefix or a trailing slash. The port falls back to <paramref name="defaultPort"/>.
+        /// </summary>
         public static (string host, ushort port) ParseAddress(string text, ushort defaultPort = DefaultPort)
         {
             text = (text ?? "").Trim();
+            int scheme = text.IndexOf("://", StringComparison.Ordinal);
+            if (scheme >= 0) text = text.Substring(scheme + 3);
+            text = text.TrimEnd('/').Trim();
             if (text.Length == 0) return (DefaultAddress, defaultPort);
+            if (text.StartsWith("["))
+            {
+                int close = text.IndexOf(']');
+                if (close > 1)
+                {
+                    string inside = text.Substring(1, close - 1), rest = text.Substring(close + 1);
+                    if (rest.StartsWith(":") && ushort.TryParse(rest.Substring(1), out ushort pv6) && pv6 > 0) return (inside, pv6);
+                    return (inside, defaultPort);
+                }
+            }
             int colon = text.LastIndexOf(':');
             if (colon > 0 && text.IndexOf(':') == colon && ushort.TryParse(text.Substring(colon + 1), out ushort p) && p > 0) return (text.Substring(0, colon), p);
             return (text, defaultPort);

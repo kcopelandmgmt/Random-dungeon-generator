@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Reflection;
+using System.Threading.Tasks;
 using DungeonGen.Core.Net;
 using FishNet.Connection;
 using FishNet.Managing;
@@ -22,8 +24,11 @@ namespace DungeonGen.Unity
     /// <see cref="FishnetMatchTransport"/>, and treats a join with a seated player's account and character during the round as a reconnect.
     /// Client: connects, sends its join once Fishnet authenticated it, follows the lobby, and on <see cref="NetControl.RoundStarting"/> makes the
     /// round's transport (which buffers until the scene is ready). A connection lost mid-round is retried every two seconds for the 60 s reconnect window.
+    /// Beyond the LAN (2026-10-26): a server listening past this machine asks the router to forward its UDP port (<see cref="UpnpPortMapper"/>, on a
+    /// background task, about 3 s at most; renewed at half the lease; removed on shutdown) and reports the outcome as <see cref="Reachability"/> for
+    /// the host's lobby; a client accepts a host name (looked up off the main thread) as well as an IP, and reports its round trip for prediction.
     /// </summary>
-    public sealed class FishnetSession : MonoBehaviour, INetSession
+    public sealed class FishnetSession : MonoBehaviour, INetSession, INetReachability, INetLatency
     {
         public const int HostPlayerId = 1, FirstRemotePlayerId = 2;
         public const float ReconnectSeconds = 60f, RetryEverySeconds = 2f;
@@ -66,6 +71,16 @@ namespace DungeonGen.Unity
         private bool _stopped, _welcomed, _joinSent, _reconnecting;
         private float _lostAt = -1f, _nextRetry;
         private string _status = "";
+        // Client: the address actually dialled (a host name looked up once), and the lookup in flight.
+        private string _connectHost;
+        private Task<IPAddress[]> _resolve;
+        // Server: the router's port mapping.
+        private UpnpPortMapper _upnp;
+        private Task<UpnpResult> _upnpTask;
+        private string _reachability, _lan, _lanFound;
+        private bool? _public;
+        private float _renewAt = -1f;
+        private bool _quitting;
 
         public NetRole Role => _options.Role;
         public bool IsServer => Role == NetRole.Host || Role == NetRole.Dedicated;
@@ -77,6 +92,13 @@ namespace DungeonGen.Unity
         public FishnetMatchTransport RoundTransport => _transport;
         public int RoundSeed { get; private set; }
         public bool InRound { get; private set; }
+        public string Reachability => _reachability;
+        public bool? PubliclyReachable => _public;
+        public string LanAddress => _lan;
+        /// <summary>Client: Fishnet's measured round trip (it includes up to a Fishnet tick each way).</summary>
+        public float RoundTripSeconds => _nm != null && _nm.TimeManager != null ? _nm.TimeManager.RoundTripTime / 1000f : 0f;
+        /// <summary>Server: the last port-mapping attempt (null before one finished).</summary>
+        public UpnpResult PortMapping { get; private set; }
 
         public event Action LobbyChanged;
         public event Action RoundStarting;
@@ -119,6 +141,7 @@ namespace DungeonGen.Unity
                 _status = ok ? $"Listening on {(bind.Length > 0 ? bind : "every interface")}:{_options.Port}" : $"Could not listen on port {_options.Port}";
                 Debug.Log("FishnetSession: " + _status);
                 if (!ok) { Close(_status); return; }
+                StartPortMapping(bind);
             }
             else
             {
@@ -133,14 +156,38 @@ namespace DungeonGen.Unity
         private void Connect()
         {
             _joinSent = false;
-            bool ok = _nm.ClientManager.StartConnection(_options.Address, _options.Port);
+            if (_connectHost == null)
+            {
+                string host = (_options.Address ?? "").Trim();
+                if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase)) _connectHost = "127.0.0.1";
+                else if (IPAddress.TryParse(host, out _)) _connectHost = host;
+                else
+                {
+                    // A host name: look it up off the main thread; Update dials once it is known.
+                    if (_resolve == null) { _resolve = Dns.GetHostAddressesAsync(host); _status = $"Looking up {host}…"; Debug.Log("FishnetSession: " + _status); }
+                    return;
+                }
+            }
+            bool ok = _nm.ClientManager.StartConnection(_connectHost, _options.Port);
             _status = ok ? $"Connecting to {_options.Address}:{_options.Port}…" : $"Could not start connecting to {_options.Address}:{_options.Port}";
             Debug.Log("FishnetSession: " + _status);
         }
 
         private void Update()
         {
-            if (_stopped || IsServer) return;
+            if (_stopped) return;
+            if (IsServer) { UpdatePortMapping(); return; }
+            if (_resolve != null && _resolve.IsCompleted)
+            {
+                var lookup = _resolve; _resolve = null;
+                var found = lookup.Status == TaskStatus.RanToCompletion ? lookup.Result : null;
+                var ip = found?.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork) ?? found?.FirstOrDefault();
+                if (ip == null) { Close($"Could not find the host {_options.Address}."); return; }
+                _connectHost = ip.ToString();
+                Debug.Log($"FishnetSession: {_options.Address} is {_connectHost}.");
+                Connect();
+                return;
+            }
             if (_reconnecting)
             {
                 float lost = Time.realtimeSinceStartup - _lostAt;
@@ -149,9 +196,58 @@ namespace DungeonGen.Unity
                 if (Time.realtimeSinceStartup >= _nextRetry && !_nm.ClientManager.Started)
                 {
                     _nextRetry = Time.realtimeSinceStartup + RetryEverySeconds;
-                    _nm.ClientManager.StartConnection(_options.Address, _options.Port);
+                    _nm.ClientManager.StartConnection(_connectHost ?? _options.Address, _options.Port);
                 }
             }
+        }
+
+        // ---------------- the router (UPnP) ----------------
+
+        /// <summary>Server listening beyond this machine: ask the router to forward the port, on a background task.</summary>
+        private void StartPortMapping(string bind)
+        {
+            bool thisMachineOnly = bind == "127.0.0.1" || bind == "::1" || bind.Equals("localhost", StringComparison.OrdinalIgnoreCase);
+            if (!_options.MapPort || thisMachineOnly || LaunchFlags.Has("-noupnp")) return;
+            _upnp = new UpnpPortMapper { Description = $"Dungeon Game (UDP {_options.Port})" };
+            _reachability = $"Asking your router to open UDP {_options.Port} for friends outside your network…";
+            BeginMapping();
+        }
+
+        private void BeginMapping()
+        {
+            var mapper = _upnp; ushort port = _options.Port;
+            _upnpTask = Task.Run(() => { _lanFound = UpnpPortMapper.LanAddress(); return mapper.Map(port); });
+        }
+
+        private void UpdatePortMapping()
+        {
+            if (_upnpTask != null && _upnpTask.IsCompleted)
+            {
+                var task = _upnpTask; _upnpTask = null;
+                var r = task.Status == TaskStatus.RanToCompletion ? task.Result : new UpnpResult { Port = _options.Port, Error = task.Exception?.GetBaseException().Message ?? "cancelled" };
+                bool changed = PortMapping == null || PortMapping.Reachable != r.Reachable || PortMapping.ExternalIp != r.ExternalIp;
+                PortMapping = r; _public = r.Reachable; _reachability = r.Summary; _lan = _lanFound != null ? $"{_lanFound}:{_options.Port}" : null;
+                _renewAt = r.Mapped && r.LeaseSeconds > 0 ? Time.realtimeSinceStartup + r.LeaseSeconds * 0.5f : -1f;
+                Debug.Log("FishnetSession: UPnP " + r + (_lan != null ? $"; LAN address {_lan}" : ""));
+                if (changed) LobbyChanged?.Invoke();
+            }
+            if (_upnp != null && _upnpTask == null && _renewAt > 0f && Time.realtimeSinceStartup >= _renewAt) { _renewAt = -1f; BeginMapping(); }
+        }
+
+        /// <summary>Remove the router's forward (after any attempt still running). Off the main thread, except a short bounded wait when the game quits.</summary>
+        private void ReleasePortMapping()
+        {
+            if (_upnp == null) return;
+            var mapper = _upnp; var pending = _upnpTask;
+            _upnp = null; _upnpTask = null;
+            var unmap = Task.Run(() =>
+            {
+                try { pending?.Wait(4000); } catch (Exception) { }
+                bool removed = mapper.Unmap();
+                if (removed) Debug.Log($"FishnetSession: UPnP mapping for UDP {mapper.MappedPort} removed.");
+                return removed;
+            });
+            if (_quitting) { try { unmap.Wait(1500); } catch (Exception) { } }
         }
 
         // ---------------- sending ----------------
@@ -404,11 +500,12 @@ namespace DungeonGen.Unity
                 }
             }
             catch (Exception e) { Debug.LogWarning("FishnetSession: stopping threw " + e.Message); }
+            ReleasePortMapping();
             if (NetSessions.Current == (INetSession)this) NetSessions.StopCurrent();
             if (this != null) Destroy(gameObject, 0.25f);
         }
 
         private void OnDestroy() { _stopped = true; }
-        private void OnApplicationQuit() => Stop();
+        private void OnApplicationQuit() { _quitting = true; Stop(); }
     }
 }

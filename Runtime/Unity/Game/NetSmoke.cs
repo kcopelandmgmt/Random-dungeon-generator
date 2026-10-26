@@ -224,7 +224,7 @@ namespace DungeonGen.Unity
             _facts["rebuiltDungeon"] = match.Bootstrap.State != null; _facts["sawOwnAvatar"] = world.LocalAvatar != null;
             if (world.LocalAvatar == null) { Note("no own avatar from the snapshots"); yield return Finish(false); yield break; }
             SilenceInput();
-            var transport = session.Transport;
+            var transport = match.Transport;   // the client link: intents reach the prediction and go through the simulated lag (-netlag)
             var st = match.Bootstrap.State;
             var layout = st.Layout;
 
@@ -295,6 +295,14 @@ namespace DungeonGen.Unity
                 yield return Seconds(0.05f);
             }
             transport.SendIntent(new PlayerIntent { PlayerId = me, Tick = ++tick }.ToBytes());
+            if (match.Prediction != null && match.Prediction.Active)
+            {
+                // Standing still, the predicted avatar and the server's must meet within a second.
+                float leadAtStop = match.Prediction.LeadCells;
+                yield return Seconds(1f);
+                _facts["predictionLeadAtStopCells"] = leadAtStop;
+                _facts["predictionGapAfterStopCells"] = match.Prediction.LeadCells;
+            }
             if (!shot) yield return Shot("client-2-round");
             _facts["drivenSeconds"] = Now - start; _facts["movedCells"] = moved; _facts["sawHostAvatar"] = sawHost; _facts["castsSeen"] = myCasts; _facts["hitsSeen"] = hits;
             _facts["doorShutThenOpened"] = doorDone; _facts["doorsTried"] = doorTries; _facts["spawnDoors"] = doors.Count;
@@ -304,6 +312,20 @@ namespace DungeonGen.Unity
             _facts["itemDetailsResolved"] = mirror?.Items?.Carried.Count(c => c.Item != null) ?? 0;
             _facts["pocketsFromWire"] = string.Join(", ", mirror?.Pockets.Select(kv => kv.Key + " x" + kv.Value) ?? Array.Empty<string>());
             _facts["specFromWire"] = mirror?.Spec;
+            // Prediction of the local avatar (2026-10-26 beyond the LAN): how far it ran ahead of the snapshots, and how it was corrected.
+            var prediction = match.Prediction;
+            _facts["netlagMs"] = match.ClientLink != null ? Mathf.RoundToInt(match.ClientLink.LagSeconds * 1000f) : 0;
+            _facts["fishnetRttMs"] = session is INetLatency lat ? Mathf.RoundToInt(lat.RoundTripSeconds * 1000f) : -1;
+            _facts["predictionActive"] = prediction != null && prediction.Active;
+            bool predicted = prediction != null && prediction.Active && (!_facts.TryGetValue("predictionGapAfterStopCells", out var gap) || gap is float g && g < 0.5f);
+            if (prediction != null && prediction.Active)
+            {
+                _facts["predictionMaxLeadCells"] = prediction.MaxLeadCells;
+                _facts["predictionSnaps"] = prediction.Predictor.Snaps;
+                _facts["predictionCorrections"] = prediction.Predictor.Corrections;
+                _facts["predictionHolds"] = prediction.Predictor.Holds;
+                _facts["predictionSnapshots"] = prediction.Snapshots;
+            }
 
             _stage = "leaving";
             flow.LeaveRound();
@@ -315,7 +337,7 @@ namespace DungeonGen.Unity
             for (int i = 0; i < 10; i++) yield return null;
             string after = Fingerprint(ProfileStore.FilePath);
             _facts["profileChanged"] = after != null && after != before;
-            bool ok = sawHost && moved > 1f && myCasts > 0 && doorDone && flow.LastReport != null && after != before && itemScreens;
+            bool ok = sawHost && moved > 1f && myCasts > 0 && doorDone && flow.LastReport != null && after != before && itemScreens && predicted;
             yield return Finish(ok);
         }
 
