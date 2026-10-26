@@ -64,6 +64,48 @@ namespace DungeonGen.Tests
             Assert.True(Duels(new[] { "Berserker", "Sentinel" }, 2, 12).wins < trio, "a pair does worse than the full party");
         }
 
+        /// <summary>DESIGN: "a geared duo does not" beat the final boss. The strongest pairs the lab has (fire, frost and lightning kits, two Reavers, a Reaver with a Mender) at good gear.</summary>
+        [Fact]
+        public void AGearedPairLosesToTheSovereign()
+        {
+            var pairs = new[]
+            {
+                new[] { "Pyromancy", "Stormcalling" }, new[] { "Pyromancy", "Cryomancy" }, new[] { "Pyromancy", "Pyromancy" }, new[] { "Berserker", "Pyromancy" },
+                new[] { "Duelist", "Duelist" }, new[] { "Duelist", "Pyromancy" }, new[] { "Sentinel", "Pyromancy" }, new[] { "Sentinel", "Stormcalling" },
+                new[] { "Berserker", "Berserker" }, new[] { "Berserker", "Warder" }, new[] { "Cryomancy", "Stormcalling" }, new[] { "Sharpshooter", "Cryomancy" },
+            };
+            int total = 0, fights = 0;
+            foreach (var pair in pairs)
+                foreach (int tier in new[] { 3, 4 })
+                {
+                    var d = Duels(pair, tier, 16);
+                    total += d.wins; fights += d.fights;
+                    Assert.True(d.wins <= 3, $"{string.Join("+", pair)} at tier {tier} won {d.wins} of 16");           // measured 2 of 24 at most
+                }
+            Assert.True(total <= 0.1f * fights, $"geared pairs won {total} of {fights}");                           // measured 1-2%
+        }
+
+        [Fact]
+        public void ATrioThatLosesAMemberStillFightsTheTriosBoss()
+        {
+            // The judgement counts the most players that stood against it together; a downed or dead member does not turn the trio's boss into the pair's.
+            var layout = DungeonGenerator.Generate(DungeonSettings.ForTeams(4), 7);
+            var sim = new FightSim(layout, 3);
+            var dir = new EncounterDirector(sim, layout);
+            var room = layout.FinalBossRoom;
+            var inside = GridPoint.Cardinals.Select(c => room.Doors.First() + c).First(p => room.Bounds.Contains(p));
+            for (int i = 0; i < 3; i++) sim.Add(FightLab.Player(1 + i, 0, Reference[i], 2, Vec2.Of(inside) + new Vec2(0f, 0.3f * i)));
+            var boss = dir.StationBoss(room);
+            float baseScale = boss.Boss.DamageScale;
+            for (int i = 0; i < 100; i++) { dir.Step(0.1f); foreach (var c in sim.Combatants.Values.Where(c => !c.IsMob)) c.Health = c.MaxHealth; }
+            Assert.True(boss.Engaged && !boss.Boss.Dead, "the fight is on");
+            Assert.Equal(baseScale, boss.Boss.DamageScale, 3);                            // three stood against it: no penalty, no ward
+            sim.Get(2).Dead = true;
+            for (int i = 0; i < 20; i++) dir.Step(0.1f);
+            Assert.Equal(baseScale, boss.Boss.DamageScale, 3);
+            Assert.DoesNotContain(boss.Boss.Buffs, b => b.Kind == BuffKind.DamageReduction);
+        }
+
         [Fact]
         public void TheBudgetIsHalfTheTunedHealthAndTheFloodDrains()
         {

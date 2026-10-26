@@ -162,12 +162,35 @@ namespace DungeonGen.Core.Combat
                     case "Thorned": _thorned = true; break;
                 }
             }
-            _enrageAt = enrage;
+            _enrageAt = Archetype == BossArchetype.FinalBoss ? enrage : enrage;
             if (Archetype.Name == "Lantern Wraith") Boss.PassesDoors = true;
             if (Archetype.Name == "Ashen Colossus") Boss.HazardImmune = true;
             _nextAddId = id * 100 + 1;
         }
         private bool _venomous, _thorned;
+
+        private float _shortFactor = 1f; private int _peakFoes;
+        /// <summary>
+        /// The Sovereign judges the party that stands against it: the most players that have been in its arena together this fight. Under three, it hits harder for every one
+        /// missing and takes less damage (the final boss "needs all three roles"; DESIGN: a geared pair must not be able to take it). Downed players still count, so a trio that
+        /// loses a member keeps fighting the trio's boss. Enrage is left at twice the target time: the trio's kill-time tail is long (7% of kills run past 120 s) and the ward is what stops pairs.
+        /// </summary>
+        private void Judge(FightSim sim)
+        {
+            if (sim.Time - _started < SovereignJudgeDelay) return;
+            int foes = sim.Combatants.Values.Count(o => o.Team != Boss.Team && !o.IsMob && !o.Dead && InArena(o.Position));
+            _peakFoes = Math.Max(_peakFoes, foes);
+            float f = _peakFoes >= 3 ? 1f : (float)Math.Pow(SovereignShortHandedDamage, 3 - Math.Max(1, _peakFoes));
+            if (Math.Abs(f - _shortFactor) > 1e-4f) { Boss.DamageScale *= f / _shortFactor; _shortFactor = f; }
+            Boss.Buffs.RemoveAll(bf => bf.Kind == BuffKind.DamageReduction && bf.Source == Boss.Id);
+            if (_peakFoes < 3) Boss.Buffs.Add(new Buff { Kind = BuffKind.DamageReduction, Magnitude = SovereignShortHandedWard, Until = sim.Time + 0.3f, Source = Boss.Id });
+        }
+        /// <summary>Seconds into a fight before the Sovereign counts who stands against it (a party walks in one by one). A longer grace was a loophole: burst pairs killed it inside it.</summary>
+        public const float SovereignJudgeDelay = 5f;
+        /// <summary>Per player missing from three: the Sovereign's damage multiplier (a pair takes x2, a solo x4) ...</summary>
+        public const float SovereignShortHandedDamage = 2f;
+        /// <summary>... and the share of incoming damage it shrugs off while fewer than three stand against it (x2.5 effective health for a pair).</summary>
+        public const float SovereignShortHandedWard = 0.6f;
 
         public float HealthFraction => Boss.Health / Boss.MaxHealth;
 
@@ -255,6 +278,7 @@ namespace DungeonGen.Core.Combat
             }
             _lastEnemyAt = sim.Time;
             if (!Engaged) { _started = sim.Time; _nextSlam = sim.Time + 6f; _nextMechanic = sim.Time + 8f; _nextSecondary = sim.Time + 12f; }
+            if (Archetype == BossArchetype.FinalBoss) Judge(sim);
             if (!Enraged && sim.Time - _started >= _enrageAt) { Enraged = true; Boss.DamageScale *= 2f; sim.Emit(FightEventKind.Phase, Boss.Id, -1, 0f, "enrage"); }
             int phase = HealthFraction > 0.7f ? 1 : HealthFraction > 0.35f ? 2 : 3;
             if (phase > Phase) { Phase = phase; sim.Emit(FightEventKind.Phase, Boss.Id, -1, phase, "phase"); OnPhase(sim, phase, baseline); }
@@ -315,6 +339,8 @@ namespace DungeonGen.Core.Combat
         {
             _started = -1f; _chaseUntil = -1f;
             if (Enraged) { Enraged = false; Boss.DamageScale /= 2f; }
+            if (_shortFactor != 1f) { Boss.DamageScale /= _shortFactor; _shortFactor = 1f; }
+            _peakFoes = 0;
             if (_overdriveUntil > 0f) { Boss.AttackSpeedScale /= 2f; _overdriveUntil = -1f; }
             if (Phase >= 2 && Archetype.Name == "Hive Matron") Boss.MoveSpeedScale /= 1.4f;
             Phase = 1; _overdriven = false;
@@ -416,7 +442,7 @@ namespace DungeonGen.Core.Combat
                 var t = sim.Get(int.Parse(channel.Substring(6)));
                 if (t != null && t.Alive && Vec2.Distance(t.Position, Boss.Position) <= 3f)
                 {
-                    float wanted = 0.6f * b.PlayerHealth;
+                    float wanted = 0.6f * b.PlayerHealth * _shortFactor;
                     var crush = new AbilityDefinition("Boss.crush", "Crush", "Boss", AbilityKind.Bolt, AbilityShape.Target, TargetFilter.Everyone, 3f, 2f, wanted / Math.Max(1f, Boss.Dps * Boss.DamageScale), 0f, "Crush");
                     sim.Strike(Boss, t, crush);
                 }
