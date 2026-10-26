@@ -3,6 +3,31 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-26 · Answers from the owner: shrines, death, rounds, look, online — LOCKED
+
+Asked after the autonomous build; these override anything built before them.
+
+1. **A resurrected player's corpse keeps its items** and stays lootable where it lay (they, a
+   teammate or an enemy can walk back and loot it). Replaces "the body's items fall on the floor".
+2. **Using a shrine is a short channel at the altar** (about 2 s, broken by damage like looting),
+   not instant anywhere in the room.
+3. **No shop at shrines.** Shrines arm ultimates and resurrect only; consumables come from the
+   vendor and loot. Replaces "every consumable sells for 1 soul".
+4. **The 50% death trash exempts nothing** (worn, carried, starter, uniques). Confirmed as built.
+5. **Bosses fully reset 10 s after their arena empties.** Confirmed.
+6. **The roaming elite stays at 8× strength and drops a relic but no soul.** Confirmed.
+7. **Leaving a round from the pause menu shows the death summary first**, then the menu.
+8. **Rounds should average about 10 minutes.** Confirmed as built.
+9. **Corridors are 4 cells wide (8 m)**, still narrowing to one cell at each door.
+10. **Walls are full height and fade when they hide a character** (the camera's view of any player,
+    mob or boss is never blocked), replacing the lowered 1.5 m blocks.
+11. **Fog of war: explored but out of sight is dimmed and greyed.** Confirmed.
+12. **Ability icons are painted fantasy icons**, generated per ability, replacing effect snapshots.
+13. **Local profiles, trusted joins: fine for playing with friends**; a backend can come later.
+14. **If the host leaves, the round ends for everyone.** Confirmed.
+15. **Game speed stays 1.1×.** Confirmed.
+16. **Bot strength stays as built.** Confirmed.
+
 ## 2026-10-26 · Shrines on the server — BUILT
 
 1. **A shrine is used by standing in its room; no channel.** Not while downed, channelling or dead;

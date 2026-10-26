@@ -21,6 +21,14 @@ could not be verified headless (say why).
 | 1.8 | Greybox setup steps: `[GreyboxStep]` hook so features wire themselves into the scene from their own files; `GreyboxRebuild.Run` rebuilds SampleScene headless | orchestrator | done | compile | Fixed `??` on a Unity component lookup in the setup |
 | 1.5 | Player build: `Editor/PlayerBuild.cs` (Windows, development), `-mute` and `-minimized` flags honoured at startup, `unity-batch.sh build-win` | agent | done | build, smoke (exit 0: 30 s, 24 casts ok, 0 exceptions) | Build 382 MB with URP shaders always included (stripping crashed the first player). Follow-ups: avatar capsules rendered magenta (fixed by orchestrator: explicit URP material); audition panel showed in players (sent to 1.3); one 2.7 s frame in the smoke run, cause unknown; `smoke` moved out of the Unity lock (orchestrator). |
 
+## Wave 4: the owner's answers (started 2026-10-26)
+
+| # | Task | Owner | Status | Verified |
+|---|------|-------|--------|----------|
+| 4.1 | Shrines and leaving: corpse keeps items after a resurrection; shrine use is a ~2 s channel at the altar broken by damage; no shrine shop (rules, bots, panel); Leave from pause shows the summary first | agent | doing | |
+| 4.2 | Level look: corridors 4 cells wide; tall walls that fade when they hide a character | agent | doing | |
+| 4.3 | Painted ability icons generated with Meshy text-to-image for all abilities | agent | doing | |
+
 ## Wave 3 (started 2026-10-26)
 
 | # | Task | Owner | Status | Verified |
