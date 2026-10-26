@@ -3,17 +3,16 @@ using DungeonGen.Core;
 using DungeonGen.Core.Hud;
 using DungeonGen.Core.Net;
 using UnityEngine;
-using Compass = DungeonGen.Core.Hud.Compass;   // UnityEngine.Compass is the phone sensor
 
 namespace DungeonGen.Unity
 {
     /// <summary>
-    /// The compass strip at the top of the screen: cardinal letters and markers from
-    /// <see cref="CompassBar"/>. Greybox drawing with OnGUI; swap the draw calls for UI Toolkit or
-    /// UGUI without touching the data. Positions come from the builder's grid mapping; the camera's
-    /// yaw is the strip's centre, which with the locked camera is always north.
+    /// The compass strip at the top of the screen: what <see cref="CompassBar"/> says is known (the nearest extract, boss rooms, shrines, vaults the team
+    /// has seen, team mates and live pings), each with a bearing from the local player. This class holds the markers and the camera's yaw (the strip's
+    /// centre); the uGUI that draws them is the UI assembly's <c>MapCompassView</c>, registered through <see cref="MapHudViews"/>. Positions come from the
+    /// client view (avatars and the mirrored state), never the server.
     /// </summary>
-    public sealed class CompassHud : MonoBehaviour
+    public sealed class CompassHud : MonoBehaviour, IRoundUi
     {
         public DungeonMatchBootstrap Match;
         public DungeonBuilder Builder;
@@ -22,62 +21,75 @@ namespace DungeonGen.Unity
         public Transform LocalPlayer;
         public ClientWorldView World;
         public int LocalPlayerId = 1;
-        [Tooltip("Other players' transforms by id, for teammate markers. Fill from the transport.")]
+        [Tooltip("Other players' transforms by id, for teammate markers. Left empty, their avatars from World are used.")]
         public Dictionary<int, Transform> Players = new Dictionary<int, Transform>();
-        [Tooltip("Live team pings. Fill from the transport; expired ones are ignored.")]
+        [Tooltip("Live team pings. Filled from the round's team channel once the transport is attached; expired ones are ignored.")]
         public List<TeamPing> Pings = new List<TeamPing>();
-        public float StripWidthPx = 640f, StripHeightPx = 28f, TopMarginPx = 8f;
+
+        /// <summary>The root object of the uGUI view (null until the UI assembly's factory has made it).</summary>
+        public GameObject View { get; private set; }
+        /// <summary>The markers to draw, farthest first so the near ones sit on top. Empty until the round has a local player.</summary>
+        public List<CompassMarker> Markers { get; } = new List<CompassMarker>();
+        /// <summary>The camera's yaw: the bearing straight up the screen.</summary>
+        public float YawDegrees { get; private set; } = 45f;
+        public bool ExtractsOpen { get; private set; }
+        public bool HasData { get; private set; }
 
         private readonly Dictionary<int, GridPoint> _cells = new Dictionary<int, GridPoint>();
+        private readonly List<MapActor> _mates = new List<MapActor>();
+        private readonly List<TeamPing> _live = new List<TeamPing>();
+        private IMatchTransport _transport;
 
-        private void OnGUI()
+        private void Awake() { TryMakeView(); }
+
+        private void OnDestroy() { if (_transport != null) _transport.TeamMessageReceived -= OnTeamMessage; }
+
+        private void LateUpdate() { TryMakeView(); Evaluate(); }
+
+        private void TryMakeView()
         {
-            var localPlayer = LocalPlayer != null ? LocalPlayer : World != null && World.LocalAvatar != null ? World.LocalAvatar.transform : null;
-            if (Match == null || Match.State == null || Builder == null || localPlayer == null) return;
-            float yaw = Camera != null ? Camera.YawDegrees : 0f;
-            var me = Builder.WorldToGrid(localPlayer.position);
-            _cells.Clear();
-            foreach (var kv in Players) if (kv.Value != null) _cells[kv.Key] = Builder.WorldToGrid(kv.Value.position);
-
-            float left = (Screen.width - StripWidthPx) / 2f;
-            var strip = new Rect(left, TopMarginPx, StripWidthPx, StripHeightPx);
-            GUI.Box(strip, GUIContent.none);
-            // Cardinals.
-            for (int i = 0; i < 8; i++)
-            {
-                var c = (Cardinal)i;
-                float rel = Compass.Relative(Compass.BearingOf(c), yaw);
-                if (!CompassBar.InWindow(rel)) continue;
-                float x = left + CompassBar.Position01(rel) * StripWidthPx;
-                var style = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = i % 2 == 0 ? FontStyle.Bold : FontStyle.Normal };
-                GUI.Label(new Rect(x - 12f, TopMarginPx, 24f, StripHeightPx), Compass.Abbrev(c), style);
-            }
-            // Markers, below the letters.
-            foreach (var m in CompassBar.Markers(Match.State, LocalPlayerId, me, _cells, Pings, Match.State.Time))
-            {
-                float rel = Compass.Relative(m.Bearing, yaw);
-                if (!CompassBar.InWindow(rel)) continue;
-                float x = left + CompassBar.Position01(rel) * StripWidthPx;
-                string glyph = Glyph(m.Kind);
-                var style = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontSize = m.DistanceCells > CompassBar.NearCells ? 9 : 12 };
-                GUI.Label(new Rect(x - 10f, TopMarginPx + StripHeightPx, 20f, 18f), glyph, style);
-            }
+            if (View == null && MapHudViews.Compass != null) View = MapHudViews.Compass(this);
         }
 
-        private static string Glyph(CompassMarkerKind k)
+        public void SetLocalPlayerId(int id) => LocalPlayerId = id;
+
+        /// <summary>The round's transport: team pings arrive on it.</summary>
+        public void Attach(IMatchTransport transport)
         {
-            switch (k)
+            if (_transport != null) _transport.TeamMessageReceived -= OnTeamMessage;
+            _transport = transport;
+            if (transport != null) transport.TeamMessageReceived += OnTeamMessage;
+        }
+
+        private void OnTeamMessage(byte[] bytes) => MapHudData.AddPing(Pings, bytes, MapHudData.Now(Match != null ? Match.State : null, World));
+
+        private void Evaluate()
+        {
+            Markers.Clear(); HasData = false;
+            var st = Match != null ? Match.State : null;
+            if (st == null || Builder == null) return;
+            var cam = Camera != null ? Camera : MapHudData.FindCamera(ref Camera);
+            YawDegrees = cam != null ? cam.YawDegrees : 45f;
+            if (!MapHudData.TryGetSelf(Builder, LocalPlayer, World, LocalPlayerId, out var me)) return;
+            var cell = me.Rounded;
+            MapHudData.Teammates(st, Builder, World, Players, LocalPlayerId, _mates);
+            _cells.Clear();
+            foreach (var m in _mates) _cells[m.Id] = m.Rounded;
+            float now = MapHudData.Now(st, World);
+            _live.Clear();
+            foreach (var p in Pings) if (now - p.Time <= TeamPing.LifetimeSeconds) _live.Add(p);
+            ExtractsOpen = st.ExtractsOpen;
+
+            // One extract is enough on a strip this narrow: the nearest the team knows.
+            CompassMarker? nearestExtract = null;
+            foreach (var m in CompassBar.Markers(st, LocalPlayerId, cell, _cells, _live, now))
             {
-                case CompassMarkerKind.Teammate: return "●";
-                case CompassMarkerKind.Ping: return "!";
-                case CompassMarkerKind.Extract: return "⇧";
-                case CompassMarkerKind.BossRoom: return "☠";
-                case CompassMarkerKind.FinalBoss: return "♛";
-                case CompassMarkerKind.BossExit: return "⇈";
-                case CompassMarkerKind.Shrine: return "✚";
-                case CompassMarkerKind.Vault: return "⚿";
-                default: return "⌂";
+                if (m.Kind == CompassMarkerKind.Extract) { if (!nearestExtract.HasValue || m.DistanceCells < nearestExtract.Value.DistanceCells) nearestExtract = m; continue; }
+                Markers.Add(m);
             }
+            if (nearestExtract.HasValue) Markers.Add(nearestExtract.Value);
+            Markers.Sort((a, b) => b.DistanceCells.CompareTo(a.DistanceCells));
+            HasData = true;
         }
     }
 }
