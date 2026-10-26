@@ -38,7 +38,13 @@ while true; do
 done
 trap 'rm -rf "$LOCK"' EXIT
 if [ -f "$PROJECT_POSIX/Temp/UnityLockfile" ]; then
-  echo "unity-batch: a Unity editor already has this project open (Temp/UnityLockfile); close it first" >&2; exit 3
+  # A crashed run leaves the editor's lock behind. Only clear it when no Unity process has this project open.
+  if powershell -NoProfile -Command "\$p = Get-CimInstance Win32_Process -Filter \"Name='Unity.exe'\" | Where-Object { \$_.CommandLine -match 'dungeongame' }; if (\$p) { exit 1 } else { exit 0 }" >/dev/null 2>&1; then
+    echo "unity-batch: removing a stale Temp/UnityLockfile (no Unity process has this project open)" >&2
+    rm -f "$PROJECT_POSIX/Temp/UnityLockfile"
+  else
+    echo "unity-batch: a Unity editor already has this project open (Temp/UnityLockfile); close it first" >&2; exit 3
+  fi
 fi
 
 stamp="$(date +%Y%m%d-%H%M%S)"

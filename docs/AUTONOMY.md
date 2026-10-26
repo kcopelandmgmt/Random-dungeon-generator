@@ -17,7 +17,8 @@ settled in `DECISIONS.md`; the order of work in `BUILD_ORDER.md`; the map of the
 | .NET SDK 8 | `C:\Program Files\dotnet\dotnet.exe` |
 | Bought asset packs (.unitypackage) | `D:\Unity Assets\` |
 
-The Unity project is not under git. The package is; the branch is `claude/practical-wright-h5g0so`.
+Both are under git: the package on branch `claude/practical-wright-h5g0so` (pushed to GitHub), the Unity project
+locally on `main` (committed by the orchestrator at the end of each wave; agents never commit there).
 
 ## The one Unity lane
 
@@ -48,7 +49,11 @@ tool prints a dungeon without Unity: `cd Tools/AsciiPreview && dotnet run -- --t
 
 1. `cd Tests && dotnet test` if anything under `Runtime/Core` changed. Must pass. Never skip.
 2. `bash Tools/Build/unity-batch.sh compile`. Zero errors.
-3. `bash Tools/Build/unity-batch.sh tests PlayMode` when the Unity layer or the scene changed.
+3. `bash Tools/Build/unity-batch.sh tests PlayMode` when the Unity layer or the scene changed (about 45 s). The
+   harness in `dungeongame/Assets/Tests/PlayMode` loads SampleScene, hosts the practice round and drives the player
+   through `MatchServer.SetIntent` with the input controller off; `GameHarness.cs` has the shared helpers. Every run
+   renders 1600x900 PNGs (no HUD) to `dungeongame/Logs/shots/`; read them, since the test only fails black or flat images.
+   New test files are added per feature (one file per agent); `tests EditMode` checks the scene setup.
    At the end of each wave: `build-win` then `smoke`, and look at the screenshots.
 4. Update `TASKS.md` (what was done, what was verified, what is left), and `ARCHITECTURE.md` /
    `DEPENDENCIES.md` if a file, assembly, asset folder or external dependency was added or removed.

@@ -55,7 +55,7 @@ tool over Core), `Tools/UnityStubs` (retired 2026-10-26: the real headless Unity
 | `Player/ClientWorldView` | Avatars from snapshots (ground-space interpolation), doors and hazards from the view; raises `SnapshotApplied`. |
 | `TopDownCamera` | Fixed 45° yaw, 50° pitch, scroll zoom 12–28 m, fixed vertical FOV with a 21:9 cap; aim fed by the input layer. |
 | `Hud/PlayerHud`, `CompassHud`, `MiniMapHud` | Greybox OnGUI HUDs drawn from snapshots and HUD models. |
-| `Vfx/AbilityVfxLibrary`, `Vfx/AbilityEffects` | Prefab per ability and role; the effects layer that draws casts, projectiles, impacts, zones and floating numbers from `EffectSnapshot`s. |
+| `Vfx/AbilityVfxLibrary`, `Vfx/AbilityEffects` | Prefab per ability and role; the effects layer that draws casts, projectiles, impacts, zones and floating numbers from `EffectSnapshot`s. Lifetimes are capped (`MaxLifetimeSeconds`) and physics on effect prefabs is neutralised. The library asset is filled by `Editor/VfxAutoAssign` (all abilities, audition yes-votes win, prefab reuse penalised, zone scale measured), which writes `Logs/vfx-assignment.txt`; ranking lives in `Runtime/Unity.Practice/VfxMatcher`. |
 | `PlayerClassDefinition`, `DungeonGizmos` | Designer asset and scene-view overlay. |
 | `Boot/LaunchFlags` | Command-line flags read before the first scene: `-mute` (silences audio all session), `-minimized` (minimises the Windows player), `-autotest`, `-shots <dir>`. `LaunchFlags.Has/Value` for any code. |
 
