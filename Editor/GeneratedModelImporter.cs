@@ -64,7 +64,8 @@ namespace DungeonGen.Unity.Editor
             Prop("wooden_door", Fit.Door, new Vector3(2f, 1.8f, 0f)),
             Prop("vault_door", Fit.Door, new Vector3(2f, 1.8f, 0f)),
             Prop("stone_pillar", Fit.Box, new Vector3(1.5f, 2.0f, 1.5f)),
-            Prop("low_wall", Fit.Box, new Vector3(2f, 0.9f, 2f)),
+            // A run of stones along its own Z (raw 105 x 197 x 829): fill the cell along the run and keep it a wall, not a 2 m slab; DungeonBuilder turns it to the run.
+            Prop("low_wall", Fit.Box, new Vector3(0.5f, 0.8f, 2f)),
             Prop("treasure_chest", Fit.MaxDim, new Vector3(1.1f, 1.1f, 1.1f)),
             Prop("boss_chest", Fit.MaxDim, new Vector3(1.6f, 1.6f, 1.6f)),
             Prop("shrine", Fit.Height, new Vector3(0f, 1.8f, 0f)),

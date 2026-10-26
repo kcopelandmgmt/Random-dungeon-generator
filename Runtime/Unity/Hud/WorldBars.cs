@@ -212,7 +212,8 @@ namespace DungeonGen.Unity
             return new Vector3(b.center.x, b.max.y + HeadroomMetres, b.center.z);
         }
 
-        private static bool IsBody(Renderer r) => (r is MeshRenderer || r is SkinnedMeshRenderer) && r.gameObject.name != "UltimateAura";
+        /// <summary>The model's own meshes: not the ultimate aura disc and not the team ring under the feet (the ring is wider than a slim body and would skew the bar's centre and top).</summary>
+        private static bool IsBody(Renderer r) => (r is MeshRenderer || r is SkinnedMeshRenderer) && r.gameObject.name != "UltimateAura" && r.gameObject.name != "TeamRing";
 
         // ---- hit flash ----
 

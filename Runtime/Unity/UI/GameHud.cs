@@ -58,7 +58,7 @@ namespace DungeonGen.Unity.UI
 
         private sealed class Slot
         {
-            public RectTransform Root; public Image Sweep, Lock, Frame; public Text Key, Seconds, Name, Count;
+            public RectTransform Root; public Image Icon, Sweep, Lock, Frame; public Text Key, Seconds, Name, Count; public string IconFor;
         }
 
         // ---------------- build ----------------
@@ -183,6 +183,8 @@ namespace DungeonGen.Unity.UI
             var s = new Slot();
             var bg = UiStyle.Img(parent, name, new Color(0.10f, 0.085f, 0.08f, 0.95f), UiStyle.Rounded);
             s.Root = bg.rectTransform;
+            s.Icon = UiStyle.Img(s.Root, "Icon", Color.white, null);   // the ability's baked icon (AbilityIcons); under the sweep, lock and frame
+            s.Icon.rectTransform.Stretch(4f, 4f, 4f, 4f); s.Icon.preserveAspect = true; s.Icon.enabled = false;
             s.Sweep = UiStyle.Img(s.Root, "Sweep", new Color(0f, 0f, 0f, 0.7f), UiStyle.White);
             s.Sweep.rectTransform.Stretch(3f, 3f, 3f, 3f);
             s.Sweep.type = Image.Type.Filled; s.Sweep.fillMethod = Image.FillMethod.Radial360; s.Sweep.fillOrigin = (int)Image.Origin360.Top; s.Sweep.fillClockwise = false; s.Sweep.fillAmount = 0f;
@@ -192,11 +194,12 @@ namespace DungeonGen.Unity.UI
             s.Frame.rectTransform.Stretch();
             s.Key = UiStyle.Label(s.Root, "Key", key, size > 80f ? 17 : 15, UiStyle.Gold, TextAnchor.UpperLeft, FontStyle.Bold);
             s.Key.rectTransform.Stretch(7f, 4f, 3f, 4f);
+            var keyShadow = s.Key.gameObject.AddComponent<Shadow>(); keyShadow.effectColor = new Color(0f, 0f, 0f, 0.9f); keyShadow.effectDistance = new Vector2(1.5f, -1.5f);   // readable over a bright icon
             s.Seconds = UiStyle.Label(s.Root, "Seconds", "", size > 80f ? 30 : 22, UiStyle.TextMain, TextAnchor.MiddleCenter, FontStyle.Bold);
             s.Seconds.rectTransform.Stretch(2f, 2f, 10f, 2f);
             s.Count = UiStyle.Label(s.Root, "Count", "", 18, UiStyle.TextMain, TextAnchor.LowerRight, FontStyle.Bold);
             s.Count.rectTransform.Stretch(4f, 7f, 4f, 4f);
-            s.Name = UiStyle.Label(s.Root, "Name", "", size > 80f ? 15 : 13, UiStyle.TextDim, TextAnchor.UpperCenter);
+            s.Name = UiStyle.Label(s.Root, "Name", "", size > 80f ? 13 : 12, UiStyle.TextDim, TextAnchor.UpperCenter);
             s.Name.rectTransform.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 1f), new Vector2(0f, -4f), new Vector2(size + 16f, 22f));
             s.Name.horizontalOverflow = HorizontalWrapMode.Overflow;
             return s;
@@ -237,6 +240,8 @@ namespace DungeonGen.Unity.UI
                 float cd = s.CooldownRemaining != null && i < s.CooldownRemaining.Length ? s.CooldownRemaining[i] : 0f;
                 if (cd > _cdMax[i] || cd <= 0f) _cdMax[i] = cd;
                 slot.Name.text = _book != null && i < _book.Count ? _book[i].Name : "";
+                var iconId = _book != null && i < _book.Count ? _book[i].Id : null;
+                if (iconId != slot.IconFor) { slot.IconFor = iconId; slot.Icon.sprite = AbilityIcons.Get(iconId); slot.Icon.enabled = slot.Icon.sprite != null; }
                 bool locked = i == 4 && !s.UltimateArmed && !(Host?.Sim?.DevCasting ?? false);
                 slot.Lock.enabled = locked;
                 slot.Sweep.fillAmount = !locked && cd > 0f && _cdMax[i] > 0f ? cd / _cdMax[i] : 0f;

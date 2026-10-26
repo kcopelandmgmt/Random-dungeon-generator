@@ -10,7 +10,8 @@ namespace DungeonGen.Unity
     /// <summary>
     /// The client's picture of the fight: avatars from the team snapshot (interpolated between ticks),
     /// shut doors and known hazards from the team view. Enemies exist here only while the server says a
-    /// teammate can see them; when the snapshot stops listing one it fades out. Each avatar is the model its
+    /// teammate can see them; when the snapshot stops listing one it is removed, except a mob that was killed, which stays on the
+    /// floor playing its death clip for <see cref="CorpseLingerSeconds"/> and then sinks away. Each avatar is the model its
     /// <see cref="Library"/> names (driven by an <see cref="AvatarVisual"/>: animator, team ring, facing), or, with no
     /// library or no prefab, a greybox capsule coloured by team and flattened when downed. Both carry a gold
     /// "UltimateAura" disc while an ultimate is armed.
@@ -23,6 +24,10 @@ namespace DungeonGen.Unity
         public float InterpolationSeconds = 0.1f;
         [Tooltip("Class, mob and boss models. Empty: every avatar is a greybox capsule.")]
         public AvatarVisualLibrary Library;
+        [Tooltip("Seconds a killed mob stays on the floor playing its death clip before it sinks away.")]
+        public float CorpseLingerSeconds = 2.5f;
+        [Tooltip("Seconds the sinking fade takes after the linger.")]
+        public float CorpseFadeSeconds = 0.8f;
         public Color AllyColour = new Color(0.3f, 0.7f, 1f), EnemyColour = new Color(1f, 0.3f, 0.3f), MobColour = new Color(0.8f, 0.6f, 0.2f), SelfColour = Color.white, BossColour = new Color(0.6f, 0.2f, 0.9f);
 
         public TeamSnapshot Latest { get; private set; }
@@ -37,6 +42,12 @@ namespace DungeonGen.Unity
         private readonly Dictionary<int, (Vector3 from, Vector3 to, float at)> _lerp = new Dictionary<int, (Vector3, Vector3, float)>();
         private readonly Dictionary<int, Vector3> _ground = new Dictionary<int, Vector3>();
         private readonly HashSet<int> _seenThisSnapshot = new HashSet<int>();
+        private readonly Dictionary<int, AvatarSnapshot> _last = new Dictionary<int, AvatarSnapshot>();
+        private readonly Dictionary<int, float> _lastHitAt = new Dictionary<int, float>();
+        /// <summary>Killed mobs the snapshot no longer lists, kept on the floor for their death clip: object, id, when they died, where they lie.</summary>
+        private readonly List<(GameObject go, int id, float at, Vector3 pos, Vector3 scale)> _dying = new List<(GameObject, int, float, Vector3, Vector3)>();
+        /// <summary>Killed mobs still on the floor (for tests).</summary>
+        public IEnumerable<GameObject> DyingAvatars { get { foreach (var d in _dying) if (d.go != null) yield return d.go; } }
         private IMatchTransport _transport;
 
         public void Attach(IMatchTransport transport)
@@ -53,7 +64,8 @@ namespace DungeonGen.Unity
             foreach (var a in snap.Avatars)
             {
                 _seenThisSnapshot.Add(a.Id);
-                if (!Avatars.TryGetValue(a.Id, out var go) || go == null) { go = Make(a); Avatars[a.Id] = go; }
+                _last[a.Id] = a;
+                if (!Avatars.TryGetValue(a.Id, out var go) || go == null) { DropDying(a.Id); go = Make(a); Avatars[a.Id] = go; }
                 var target = Builder.SimToWorld(new Vec2(a.X, a.Y));
                 _lerp[a.Id] = (_ground.TryGetValue(a.Id, out var shown) ? shown : target, target, Time.time);   // from where it is drawn now, on the ground
                 var facing = new Vector3(a.FacingX, 0f, a.FacingY);
@@ -65,16 +77,79 @@ namespace DungeonGen.Unity
             foreach (var e in snap.Effects)
             {
                 if (e.Kind == EffectKind.Cast && Avatars.TryGetValue(e.Source, out var caster) && caster != null) caster.GetComponent<AvatarVisual>()?.OnCast(e.Ability);
-                else if (e.Kind == EffectKind.Hit && Avatars.TryGetValue(e.Target, out var victim) && victim != null) victim.GetComponent<AvatarVisual>()?.OnHit();
+                else if (e.Kind == EffectKind.Hit && Avatars.TryGetValue(e.Target, out var victim) && victim != null) { victim.GetComponent<AvatarVisual>()?.OnHit(); _lastHitAt[e.Target] = Time.time; }
             }
-            foreach (var id in Avatars.Keys.Where(id => !_seenThisSnapshot.Contains(id)).ToList()) { if (Avatars[id] != null) Destroy(Avatars[id]); Avatars.Remove(id); _lerp.Remove(id); _ground.Remove(id); _models.Remove(id); }
+            foreach (var id in Avatars.Keys.Where(id => !_seenThisSnapshot.Contains(id)).ToList())
+            {
+                var gone = Avatars[id];
+                if (gone != null)
+                {
+                    if (Killed(id)) StartDying(id, gone);
+                    else Destroy(gone);
+                }
+                Avatars.Remove(id); _lerp.Remove(id); _ground.Remove(id); _models.Remove(id); _last.Remove(id); _lastHitAt.Remove(id);
+            }
             Self = snap.Selves.Count == 0 ? (SelfSnapshot?)null : snap.Selves.FirstOrDefault(s => s.PlayerId == LocalPlayerId);
             if (Self.HasValue && Self.Value.PlayerId != LocalPlayerId) Self = null;
             SnapshotApplied?.Invoke(snap);
         }
 
+        /// <summary>
+        /// Did this avatar leave the snapshot because it died? The server drops a mob the tick it dies (it leaves no corpse), so the
+        /// client infers it: a mob last seen dead, nearly dead, or hit within the last 1.5 s. A mob that walked out of sight
+        /// unhurt simply vanishes, as before.
+        /// </summary>
+        private bool Killed(int id)
+        {
+            if (!_last.TryGetValue(id, out var a) || !a.IsMob) return false;
+            return a.Dead || a.HealthFraction <= 0.05f || (_lastHitAt.TryGetValue(id, out float t) && Time.time - t < 1.5f);
+        }
+
+        private void StartDying(int id, GameObject go)
+        {
+            go.name += " (dead)";
+            var visual = go.GetComponent<AvatarVisual>();
+            var anim = visual != null && visual.Animator != null ? visual.Animator : go.GetComponentInChildren<Animator>();
+            if (anim != null && anim.runtimeAnimatorController != null) { anim.SetBool(AvatarVisual.DeadId, true); anim.SetFloat(AvatarVisual.SpeedId, 0f); }
+            if (visual != null && visual.Ring != null) visual.Ring.enabled = false;
+            var aura = go.transform.Find("UltimateAura"); if (aura != null) aura.gameObject.SetActive(false);
+            if (visual == null) go.transform.localScale = new Vector3(go.transform.localScale.x, 0.3f, go.transform.localScale.z);   // the capsule lies down
+            var ground = _ground.TryGetValue(id, out var g) ? g : go.transform.position;
+            _dying.Add((go, id, Time.time, ground, go.transform.localScale));
+        }
+
+        private void DropDying(int id)
+        {
+            for (int i = _dying.Count - 1; i >= 0; i--)
+                if (_dying[i].id == id) { if (_dying[i].go != null) Destroy(_dying[i].go); _dying.RemoveAt(i); }
+        }
+
+        /// <summary>Linger, then sink through the floor and shrink away.</summary>
+        private void UpdateDying()
+        {
+            for (int i = _dying.Count - 1; i >= 0; i--)
+            {
+                var d = _dying[i];
+                if (d.go == null) { _dying.RemoveAt(i); continue; }
+                float age = Time.time - d.at;
+                if (age < CorpseLingerSeconds) continue;
+                float f = CorpseFadeSeconds <= 0f ? 1f : Mathf.Clamp01((age - CorpseLingerSeconds) / CorpseFadeSeconds);
+                if (f >= 1f) { Destroy(d.go); _dying.RemoveAt(i); continue; }
+                float k = f * f;
+                d.go.transform.position = d.pos + Vector3.down * (k * 1.5f);
+                d.go.transform.localScale = d.scale * (1f - 0.6f * k);
+            }
+        }
+
+        private void OnDestroy()
+        {
+            foreach (var d in _dying) if (d.go != null) Destroy(d.go);
+            _dying.Clear();
+        }
+
         private void Update()
         {
+            UpdateDying();
             foreach (var kv in _lerp)
             {
                 if (!Avatars.TryGetValue(kv.Key, out var go) || go == null) continue;
