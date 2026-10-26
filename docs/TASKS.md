@@ -40,6 +40,8 @@ Two limits stay: no third-party relay or matchmaking (needs an account), and the
 | 5.9 | Smaller download: strip unused VFX and assets from the player | agent | next | |
 | 5.10 | Tutorial: a guided solo dungeon teaching souls, shrines and extraction | agent | next | |
 | 5.11 | Gear showcase: four drops per tier and the paper doll, rendered for the owner | agent (sonnet) | done | PlayMode 40/40 (2 new `GearShowcaseTests`, category Showcase); 3,300 rolls per tier through `LootRoller`, 8 cards per tier picked for spread; sheets and paper dolls read by eye, sent to the owner. Findings: affix tiers cap at T4 from item level 4, so Tier III affixes roll the same ranges as Tier I (higher tiers add only base scaling, more Rares and Uniques); all uniques drop at every tier; tooltips don't say which class a piece suits; the stash slot text is small. |
+| 5.12 | UI gallery: crisp 1920x1080 shots of every menu screen and in-round modal, with contact sheets and a critique (`UiGalleryTests`, category Gallery) | agent (sonnet) | doing | |
+| 5.13 | Paper doll redesign (3D character, slots around the body, icon stash grid, stats block) and painted item icons for every base and consumable (Meshy, ≤330 credits), reused in vendor and loot panels | agent (opus) | doing | |
 
 ## Wave 4: the owner's answers (started 2026-10-26)
 
