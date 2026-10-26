@@ -31,7 +31,7 @@ bash Tools/Build/unity-batch.sh compile                      # compile every ass
 bash Tools/Build/unity-batch.sh method DungeonGen.Unity.Editor.GreyboxSceneSetup.Build
 bash Tools/Build/unity-batch.sh import "D:/Unity Assets/Some_Pack.unitypackage"
 bash Tools/Build/unity-batch.sh tests EditMode                # Unity Test Framework, results in Logs/tests-EditMode.xml
-bash Tools/Build/unity-batch.sh tests PlayMode
+bash Tools/Build/unity-batch.sh tests PlayMode [Filter]       # Filter: one test class or name (Unity -testFilter), results in Logs/tests-PlayMode-<Filter>.xml
 bash Tools/Build/unity-batch.sh build-win                    # release player → dungeongame\Builds\Win\DungeonGame.exe
 bash Tools/Build/unity-batch.sh smoke-release                # release player muted+minimised with -releasesmoke: menu → round → leave → summary → menu; throwaway profile in Logs/release-profile; shots in Logs/release-shots
 bash Tools/Build/unity-batch.sh build-win-dev                # development player → dungeongame\Builds\WinDev\DungeonGame.exe

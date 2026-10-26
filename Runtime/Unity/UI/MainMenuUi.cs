@@ -24,6 +24,29 @@ namespace DungeonGen.Unity.UI
 
         public string Current { get; private set; }
 
+        /// <summary>
+        /// A screen another feature adds to the menu (the tutorial, the crafting bench): a button on Main and a builder,
+        /// so features plug in without editing this file. <c>Build(screen, flow, back, show)</c> fills the screen;
+        /// <c>back</c> returns to Main and <c>show</c> opens any screen by name.
+        /// </summary>
+        public sealed class ExtraScreen
+        {
+            public string Name, Label;
+            public int Order;
+            public bool NeedsCharacter;
+            public System.Action<RectTransform, GameFlow, System.Action, System.Action<string>> Build;
+        }
+
+        private static readonly List<ExtraScreen> Extras = new List<ExtraScreen>();
+
+        /// <summary>Add (or replace, by name) a screen with a button on Main. Call it from a [RuntimeInitializeOnLoadMethod].</summary>
+        public static void Register(ExtraScreen screen)
+        {
+            Extras.RemoveAll(e => e.Name == screen.Name);
+            Extras.Add(screen);
+            Extras.Sort((a, b) => a.Order.CompareTo(b.Order));
+        }
+
         private GameFlow _flow;
         private RectTransform _root, _screen;
         private Text _message, _subtitle;
@@ -114,7 +137,10 @@ namespace DungeonGen.Unity.UI
                 case VendorScreenName: VendorScreen.Build(_screen, _flow, () => ShowScreen(Main), () => ShowScreen(VendorScreenName), () => ShowScreen(StashScreenName)); break;
                 case Online: OnlinePanels.BuildOnline(_screen, _flow, () => ShowScreen(Prepare), m => { _flow.Message = m; if (_message != null) _message.text = m; }); break;
                 case Lobby: OnlinePanels.BuildLobby(_screen, _flow); break;
-                default: Current = Main; BuildMain(); break;
+                default:
+                    var extra = Extras.Find(e => e.Name == name);
+                    if (extra != null) { extra.Build(_screen, _flow, () => ShowScreen(Main), ShowScreen); break; }
+                    Current = Main; BuildMain(); break;
             }
             _message.text = _flow?.Message ?? "";
             bool main = Current == Main;
@@ -142,14 +168,24 @@ namespace DungeonGen.Unity.UI
         {
             bool has = _flow.HasProfile && _flow.Character != null;
             var col = new Vector2(0f, 1f);
-            float y = -400f;
+            // The column tightens when features add screens, so it still ends above the bottom edge.
+            bool tight = Extras.Count > 0;
+            float y = tight ? -360f : -400f, step = tight ? 70f : 84f, h = tight ? 60f : 68f;
+            int font = tight ? 26 : 28;
             var play = Btn(_screen, "PlayButton", has ? "Play" : "Create your first character", () => ShowScreen(has ? Prepare : Create), col, new Vector2(0f, 1f), new Vector2(150f, y), new Vector2(460f, 76f), 32);
             play.GetComponent<UiButtonSound>().ClickKey = UiSound.Confirm;
-            Btn(_screen, "CharactersButton", "Characters", () => ShowScreen(_flow.HasProfile ? Characters : Create), col, new Vector2(0f, 1f), new Vector2(150f, y - 96f), new Vector2(460f, 68f));
-            Btn(_screen, "StashButton", "Stash & Equipment", () => ShowScreen(StashScreenName), col, new Vector2(0f, 1f), new Vector2(150f, y - 180f), new Vector2(460f, 68f)).interactable = has;
-            Btn(_screen, "VendorButton", "Vendor", () => ShowScreen(VendorScreenName), col, new Vector2(0f, 1f), new Vector2(150f, y - 264f), new Vector2(460f, 68f)).interactable = has;
-            Btn(_screen, "SettingsButton", "Settings", () => ShowScreen(Settings), col, new Vector2(0f, 1f), new Vector2(150f, y - 348f), new Vector2(460f, 68f));
-            Btn(_screen, "QuitButton", "Quit", Quit, col, new Vector2(0f, 1f), new Vector2(150f, y - 432f), new Vector2(460f, 68f));
+            y -= 96f;
+            Btn(_screen, "CharactersButton", "Characters", () => ShowScreen(_flow.HasProfile ? Characters : Create), col, new Vector2(0f, 1f), new Vector2(150f, y), new Vector2(460f, h), font); y -= step;
+            Btn(_screen, "StashButton", "Stash & Equipment", () => ShowScreen(StashScreenName), col, new Vector2(0f, 1f), new Vector2(150f, y), new Vector2(460f, h), font).interactable = has; y -= step;
+            Btn(_screen, "VendorButton", "Vendor", () => ShowScreen(VendorScreenName), col, new Vector2(0f, 1f), new Vector2(150f, y), new Vector2(460f, h), font).interactable = has; y -= step;
+            foreach (var e in Extras)
+            {
+                var extra = e;
+                Btn(_screen, extra.Name + "Button", extra.Label, () => ShowScreen(extra.Name), col, new Vector2(0f, 1f), new Vector2(150f, y), new Vector2(460f, h), font).interactable = has || !extra.NeedsCharacter;
+                y -= step;
+            }
+            Btn(_screen, "SettingsButton", "Settings", () => ShowScreen(Settings), col, new Vector2(0f, 1f), new Vector2(150f, y), new Vector2(460f, h), font); y -= step;
+            Btn(_screen, "QuitButton", "Quit", Quit, col, new Vector2(0f, 1f), new Vector2(150f, y), new Vector2(460f, h), font);
             BuildAccountCard(_screen);
         }
 

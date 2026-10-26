@@ -92,9 +92,14 @@ case "$cmd" in
   import)
     "$UNITY" -batchmode -nographics -quit -projectPath "$PROJECT" -importPackage "$1" -logFile "$log" ;;
   tests)
-    platform="${1:-PlayMode}"
-    results="$LOGS/tests-$platform.xml"; rm -f "$results"
-    "$UNITY" -batchmode -projectPath "$PROJECT" -runTests -testPlatform "$platform" -testResults "$results" -logFile "$log"
+    platform="${1:-PlayMode}"; filter="$2"   # optional: a test class or name filter (Unity -testFilter, regex), e.g. ShrineTests
+    if [ -n "$filter" ]; then
+      results="$LOGS/tests-$platform-$(echo "$filter" | tr -c 'A-Za-z0-9' '_').xml"; rm -f "$results"
+      "$UNITY" -batchmode -projectPath "$PROJECT" -runTests -testPlatform "$platform" -testFilter "$filter" -testResults "$results" -logFile "$log"
+    else
+      results="$LOGS/tests-$platform.xml"; rm -f "$results"
+      "$UNITY" -batchmode -projectPath "$PROJECT" -runTests -testPlatform "$platform" -testResults "$results" -logFile "$log"
+    fi
     code=$?
     if [ -f "$results" ]; then
       total=$(grep -o 'total="[0-9]*"' "$results" | head -1 | tr -dc '0-9'); failed=$(grep -o 'failed="[0-9]*"' "$results" | head -1 | tr -dc '0-9')
