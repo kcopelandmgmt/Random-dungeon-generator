@@ -171,9 +171,38 @@ namespace DungeonGen.Core.Combat
 
         public float HealthFraction => Boss.Health / Boss.MaxHealth;
 
+        /// <summary>Cells beyond the leash a chaser may follow its quarry (for <see cref="ChaseSeconds"/>), never into a spawn room.</summary>
+        public const int ChaseCells = 10;
+        public const float ChaseSeconds = 8f;
+        /// <summary>Seconds with nobody in the arena before the boss walks home and resets (health, phase, enrage, adds, lava), as a room's pack does.</summary>
+        public const float ResetAfterSeconds = 10f;
+        /// <summary>True while a fight is on: the enrage clock and the mechanic timers run from its start.</summary>
+        public bool Engaged => _started >= 0f;
+        private float _lastEnemyAt = -100f;
+
+        private int RoomAtCell(GridPoint c) => _layout != null && _layout.InBounds(c) ? _layout.RoomIdAt[c.X, c.Y] : -1;
+        private bool InSpawnRoom(Vec2 p) { int r = RoomAtCell(p.Cell); return r >= 0 && _layout.Rooms[r].Type == RoomType.Spawn; }
+        /// <summary>The boss's ground: its room and the corridor cells within the leash of it (never another room).</summary>
+        public bool InArena(Vec2 p)
+        {
+            if (_layout == null) return true;
+            if (!GridPath.WithinLeash(_layout, RoomId, p.Cell, MobRules.LeashCells)) return false;
+            int r = RoomAtCell(p.Cell);
+            return r < 0 || r == RoomId;
+        }
+        /// <summary>Where a chaser may follow its quarry: further out, through corridors and other rooms, but never a spawn room (the countdown spawn is safe).</summary>
+        private bool InChaseReach(Vec2 p) => _layout == null || (GridPath.WithinLeash(_layout, RoomId, p.Cell, MobRules.LeashCells + ChaseCells) && !InSpawnRoom(p));
+        private bool Chaser => Archetype.Family == BossFamily.Chaser;
+        /// <summary>Who the boss may fight now: anyone in its arena; a chaser also keeps a quarry it is chasing.</summary>
+        private bool InReach(Combatant o) => InArena(o.Position) || (Chasing && InChaseReach(o.Position));
+        private bool Chasing => Chaser && _chaseUntil > 0f && _now <= _chaseUntil;
+        private float _now, _chaseSpentAt = -100f, _awaySince = -1f;
+
         private Combatant PickTarget(FightSim sim)
         {
-            var enemies = sim.Combatants.Values.Where(o => o.Team != Boss.Team && !o.Dead && !o.IsMob).ToList();
+            // Bosses fight what is in their arena: a player in the room, or in the corridor at its door. Nobody across the dungeon.
+            var enemies = sim.Combatants.Values.Where(o => o.Team != Boss.Team && !o.Dead && !o.IsMob && InReach(o)).ToList();
+            if (!Engaged) enemies = enemies.Where(o => RoomAtCell(o.Position.Cell) == RoomId || _layout == null || sim.CanSee(Boss.Position, o.Position)).ToList();
             var alive = enemies.Where(o => o.Alive && !o.Has(BuffKind.Invisible)).ToList();
             if (alive.Count == 0) return enemies.FirstOrDefault(o => o.Downed);
             var taunt = Boss.Buffs.FirstOrDefault(b => b.Kind == BuffKind.Taunt);
@@ -206,13 +235,29 @@ namespace DungeonGen.Core.Combat
         {
             baseline = baseline ?? new CombatBaseline();
             if (Boss.Dead) return;
+            _now = sim.Time;
+            if (_wallsUntil > 0f && sim.Time >= _wallsUntil) ClearWalls();
             var target = PickTarget(sim);
-            if (target == null) { if (Vec2.Distance(Boss.Position, _home) > 0.6f) sim.Move(Boss.Id, _home, dt); return; }
-            if (_started < 0f) _started = sim.Time;
+            if (target == null)
+            {
+                if (Boss.Channelling) { Boss.ChannelName = null; Boss.ChannelUntil = 0f; }
+                if (InArena(Boss.Position)) _chaseUntil = -1f;
+                if (Vec2.Distance(Boss.Position, _home) > 0.6f)
+                {
+                    SimpleBrain.Approach(sim, Boss, _home, dt);
+                    // A boss that cannot walk home (a door shut behind it, a crystal wall) is put back after a few seconds rather than left in a doorway.
+                    if (_awaySince < 0f) _awaySince = sim.Time;
+                    else if (sim.Time - _awaySince > 6f && Boss.CanAct) { Boss.Position = _home; _awaySince = -1f; sim.Emit(FightEventKind.Phase, Boss.Id, -1, 0f, "evade"); }
+                }
+                else _awaySince = -1f;
+                if (Engaged && sim.Time - _lastEnemyAt >= ResetAfterSeconds) Reset(sim);
+                return;
+            }
+            _lastEnemyAt = sim.Time;
+            if (!Engaged) { _started = sim.Time; _nextSlam = sim.Time + 6f; _nextMechanic = sim.Time + 8f; _nextSecondary = sim.Time + 12f; }
             if (!Enraged && sim.Time - _started >= _enrageAt) { Enraged = true; Boss.DamageScale *= 2f; sim.Emit(FightEventKind.Phase, Boss.Id, -1, 0f, "enrage"); }
             int phase = HealthFraction > 0.7f ? 1 : HealthFraction > 0.35f ? 2 : 3;
-            if (phase != Phase) { Phase = phase; sim.Emit(FightEventKind.Phase, Boss.Id, -1, phase, "phase"); OnPhase(sim, phase, baseline); }
-            if (_wallsUntil > 0f && sim.Time >= _wallsUntil) { foreach (var w in _tempWalls) _layout.Tiles[w.X, w.Y] = TileType.RoomFloor; _tempWalls.Clear(); _wallsUntil = -1f; }
+            if (phase > Phase) { Phase = phase; sim.Emit(FightEventKind.Phase, Boss.Id, -1, phase, "phase"); OnPhase(sim, phase, baseline); }
             // A channel that just finished lands now.
             if (Boss.CompletedChannel != null) { Resolve(sim, Boss.CompletedChannel, target, baseline); Boss.CompletedChannel = null; }
             if (Boss.Channelling || !Boss.CanAct) return;
@@ -222,22 +267,62 @@ namespace DungeonGen.Core.Combat
             if (sim.Time >= _nextSecondary) { _nextSecondary = sim.Time + 10f; Secondary(sim, target, baseline); }
             // The slam when two or more stand close, else the swing.
             int crowd = sim.Combatants.Values.Count(o => o.Team != Boss.Team && o.Alive && Vec2.Distance(o.Position, Boss.Position) <= 2f);
-            if (sim.Time >= _nextSlam && crowd >= 2 && sim.Cast(Boss.Id, "Boss.slam", Boss.Position).Ok) { _nextSlam = sim.Time + 8f; if (Archetype.Name == "Ashen Colossus") Lava(sim, Boss.Position, 2f, 600f); return; }
+            if (sim.Time >= _nextSlam && crowd >= 2 && sim.Cast(Boss.Id, "Boss.slam", Boss.Position).Ok) { _nextSlam = sim.Time + 8f; return; }
             if (dist <= AbilityBook.Get("Boss.basic").RangeCells + 0.3f && sim.CanSee(Boss.Position, target.Position))
             {
                 var r = sim.Cast(Boss.Id, "Boss.basic", target.Position);
                 if (r.Ok && _venomous) foreach (int tid in r.Targets) sim.Get(tid)?.Status.Apply(StatusEffectDefinition.All[StatusKind.Poisoned], sim.Get(tid).Resistances);
                 return;
             }
-            // Chasers leave the room; everyone else leashes to it.
-            bool chaser = Archetype.Family == BossFamily.Chaser;
-            bool inLeash = _layout == null || GridPath.WithinLeash(_layout, RoomId, Boss.Position.Cell, chaser ? 40 : MobRules.LeashCells);
-            if (chaser && !GridPath.WithinLeash(_layout, RoomId, Boss.Position.Cell, MobRules.LeashCells))
+            // Chasers leave the room after their quarry for a few seconds (never into a spawn); everyone else leashes to the arena.
+            if (Chaser && !InArena(target.Position))
             {
-                if (_chaseUntil < 0f) _chaseUntil = sim.Time + 8f;
-                if (sim.Time > _chaseUntil) { sim.Move(Boss.Id, _home, dt); if (Vec2.Distance(Boss.Position, _home) < 1f) _chaseUntil = -1f; return; }
+                if (_chaseUntil < 0f && sim.Time - _chaseSpentAt > 4f) _chaseUntil = sim.Time + ChaseSeconds;
+                if (!Chasing || !InChaseReach(target.Position))
+                {
+                    if (_chaseUntil > 0f) { _chaseUntil = -1f; _chaseSpentAt = sim.Time; }
+                    Boss.Threat.Remove(target.Id); SimpleBrain.Approach(sim, Boss, _home, dt); return;   // the leash pulls it back
+                }
+                StepToward(sim, target.Position, dt, InChaseReach);
+                return;
             }
-            if (inLeash) sim.Move(Boss.Id, target.Position, dt); else sim.Move(Boss.Id, _home, dt);
+            if (_chaseUntil > 0f && InArena(Boss.Position)) { _chaseUntil = -1f; _chaseSpentAt = sim.Time; }
+            StepToward(sim, target.Position, dt, InArena);
+        }
+
+        /// <summary>Move toward a point unless the step would leave the ground the boss may stand on; then go home instead.</summary>
+        private void StepToward(FightSim sim, Vec2 to, float dt, Func<Vec2, bool> allowed)
+        {
+            var dir = to - Boss.Position;
+            var probe = Boss.Position + (dir.Length < 1e-3f ? new Vec2(0f, 0f) : dir.Normalized * 0.6f);
+            if (!allowed(probe)) { if (!allowed(Boss.Position)) SimpleBrain.Approach(sim, Boss, _home, dt); return; }
+            SimpleBrain.Approach(sim, Boss, to, dt);
+            if (!allowed(Boss.Position)) SimpleBrain.Approach(sim, Boss, _home, dt);
+        }
+
+        private void ClearWalls()
+        {
+            if (_layout != null) foreach (var w in _tempWalls) _layout.Tiles[w.X, w.Y] = TileType.RoomFloor;
+            _tempWalls.Clear(); _wallsUntil = -1f;
+        }
+
+        /// <summary>
+        /// Nobody has stood in the arena for <see cref="ResetAfterSeconds"/>: the fight is over. The boss
+        /// heals, its phase, enrage and timers start again, its adds and its lava go, as a pack resets
+        /// when its room empties (MobRules). A team that walks out to drink comes back to a fresh boss.
+        /// </summary>
+        public void Reset(FightSim sim)
+        {
+            _started = -1f; _chaseUntil = -1f;
+            if (Enraged) { Enraged = false; Boss.DamageScale /= 2f; }
+            if (_overdriveUntil > 0f) { Boss.AttackSpeedScale /= 2f; _overdriveUntil = -1f; }
+            if (Phase >= 2 && Archetype.Name == "Hive Matron") Boss.MoveSpeedScale /= 1.4f;
+            Phase = 1; _overdriven = false;
+            Boss.Health = Boss.MaxHealth; Boss.Status.Cleanse(); Boss.ChannelName = null; Boss.ChannelUntil = 0f; Boss.Threat.Clear();
+            foreach (int id in _adds) if (sim.Get(id) is Combatant a && !a.Dead) { a.Dead = true; sim.Emit(FightEventKind.Died, Boss.Id, a.Id, 0f, "reset"); }
+            sim.Zones.RemoveAll(z => z.Caster == Boss.Id);
+            ClearWalls();
+            sim.Emit(FightEventKind.Phase, Boss.Id, -1, 0f, "reset");
         }
 
         private float MechanicPeriod()
@@ -298,7 +383,7 @@ namespace DungeonGen.Core.Combat
             switch (Archetype.Name)
             {
                 case "Glasswright":      // Shardstorm: everything in sight is hit
-                    foreach (var o in sim.Combatants.Values.Where(o => o.Team != Boss.Team && o.Alive && sim.CanSee(Boss.Position, o.Position)).ToList()) sim.Strike(Boss, o, AbilityBook.Get("Boss.slam"));
+                    foreach (var o in sim.Combatants.Values.Where(o => o.Team != Boss.Team && o.Alive && InReach(o) && sim.CanSee(Boss.Position, o.Position)).ToList()) sim.Strike(Boss, o, AbilityBook.Get("Boss.slam"));
                     break;
                 case "Hive Matron":      // Pheromone: mark a player; the brood follows the mark
                     target.Buffs.Add(new Buff { Kind = BuffKind.Marked, Magnitude = 1f, Until = sim.Time + 8f, Source = Boss.Id }); break;
@@ -306,13 +391,13 @@ namespace DungeonGen.Core.Combat
                     Boss.StartChannel("dirge", 4f, sim.Time); break;
                 case "Iron Juggernaut":  // Trample: charge the furthest player; a wall stops and stuns it
                     {
-                        var far = sim.Combatants.Values.Where(o => o.Team != Boss.Team && o.Alive).OrderByDescending(o => Vec2.Distance(o.Position, Boss.Position)).FirstOrDefault();
+                        var far = sim.Combatants.Values.Where(o => o.Team != Boss.Team && o.Alive && !o.IsMob && InReach(o)).OrderByDescending(o => Vec2.Distance(o.Position, Boss.Position)).FirstOrDefault();
                         if (far == null) break;
                         var before = Boss.Position;
                         var r = sim.Cast(Boss.Id, "Boss.slam", Boss.Position);   // consumes nothing: the trample is a dash
                         var dir = (far.Position - Boss.Position).Normalized;
                         float moved = 0f;
-                        for (float d = 0.25f; d <= 10f; d += 0.25f) { var n = Boss.Position + dir * 0.25f; if (!sim.Walkable(n, Boss)) { Boss.Status.Apply(StatusEffectDefinition.All[StatusKind.Stun]); sim.Emit(FightEventKind.Phase, Boss.Id, -1, 0f, "trample:wall"); break; } Boss.Position = n; moved += 0.25f; if (Vec2.Distance(Boss.Position, far.Position) < 1f) break; }
+                        for (float d = 0.25f; d <= 10f; d += 0.25f) { var n = Boss.Position + dir * 0.25f; if (!InArena(n)) break; if (!sim.Walkable(n, Boss)) { Boss.Status.Apply(StatusEffectDefinition.All[StatusKind.Stun]); sim.Emit(FightEventKind.Phase, Boss.Id, -1, 0f, "trample:wall"); break; } Boss.Position = n; moved += 0.25f; if (Vec2.Distance(Boss.Position, far.Position) < 1f) break; }
                         sim.Emit(FightEventKind.Dashed, Boss.Id, far.Id, moved, "Trample");
                         if (HealthFraction <= 0.5f && !_overdriven) { _overdriven = true; Boss.StartChannel("overdrive", 3f, sim.Time); }
                         break;
@@ -399,6 +484,7 @@ namespace DungeonGen.Core.Combat
         public const int FirstBossId = 99, MaxBosses = 9;
         public CombatBaseline Baseline { get; }
         private readonly Dictionary<int, int> _packOf = new Dictionary<int, int>();
+        private readonly HashSet<int> _clearedPacks = new HashSet<int>();
         private int _nextId = 500;
         public const int MobTeam = 100;
 
@@ -445,9 +531,10 @@ namespace DungeonGen.Core.Combat
                 {
                     var add = Sim.Get(id);
                     if (add == null || add.Dead || !add.CanAct) continue;
-                    var marked = Sim.Combatants.Values.FirstOrDefault(o => o.Team != add.Team && o.Alive && o.Buffs.Any(b => b.Kind == BuffKind.Marked && b.Source == boss.Boss.Id));
-                    var target = marked ?? Sim.Combatants.Values.Where(o => o.Team != add.Team && o.Alive && !o.IsMob).OrderBy(o => Vec2.Distance(o.Position, add.Position)).FirstOrDefault();
-                    if (target == null) continue;
+                    // Adds share their boss's arena: they never leave it after anyone (the brood pours into the corridor at the door, no further).
+                    var marked = Sim.Combatants.Values.FirstOrDefault(o => o.Team != add.Team && o.Alive && boss.InArena(o.Position) && o.Buffs.Any(b => b.Kind == BuffKind.Marked && b.Source == boss.Boss.Id));
+                    var target = marked ?? Sim.Combatants.Values.Where(o => o.Team != add.Team && o.Alive && !o.IsMob && boss.InArena(o.Position)).OrderBy(o => Vec2.Distance(o.Position, add.Position)).FirstOrDefault();
+                    if (target == null) { if (Vec2.Distance(add.Position, boss.Boss.Position) > 2f) SimpleBrain.Approach(Sim, add, boss.Boss.Position, dt); continue; }
                     var basic = AbilityBook.Get("Mob.basic");
                     if (Vec2.Distance(add.Position, target.Position) <= basic.RangeCells + 0.3f) Sim.Cast(add.Id, basic.Id, target.Position); else Sim.Move(add.Id, target.Position, dt);
                 }
@@ -460,7 +547,12 @@ namespace DungeonGen.Core.Combat
         {
             for (int i = from; i < Sim.Events.Count; i++)
                 foreach (var e in FightBridge.ToMatchEvents(Sim.Events[i], Sim, roomOfPlayer, id => _bossRoomOf.TryGetValue(id, out int r) ? r : (int?)null, id => _packOf.TryGetValue(id, out int p) ? p : (int?)null))
+                {
+                    // Two of a pack dying on the same tick each see the pack wiped out: the room is cleared once.
+                    if (e.Kind == MatchEventKind.MobPackCleared && !_clearedPacks.Add(e.A)) continue;
                     yield return e;
+                }
+
         }
     }
 }

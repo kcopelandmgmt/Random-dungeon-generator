@@ -29,6 +29,14 @@ namespace DungeonGen.Core.Combat
         public float FinalBossFightSeconds = 90f;
         /// <summary>Fights longer than this multiple of the target time trigger enrage (boss damage ramps). Stops a single tank cheesing it.</summary>
         public float EnrageAfterMultiple = 2f;
+        /// <summary>
+        /// Fraction of a player's sheet DPS that lands in a real boss fight: walking in, stepping out of
+        /// telegraphs and lava, holding fire past a teammate, picking up the downed. Boss health is tuned on
+        /// realised damage so the target time is the time a fight takes. Measured in the lab (2026-10-26, bot
+        /// trios in real rooms with slot positioning): 200-260 of a ~380 sheet, about 0.55. A solo realises
+        /// more of its sheet but takes every hit; baseline duos still lose most room bosses, so the 2.5-player line holds.
+        /// </summary>
+        public float FightUptime = 0.55f;
 
         public void Validate()
         {
@@ -36,6 +44,7 @@ namespace DungeonGen.Core.Combat
             if (PartySize < 1) throw new ArgumentException("PartySize must be >= 1.");
             if (RoomBossPlayerEquivalents <= 0) throw new ArgumentException("RoomBossPlayerEquivalents must be positive.");
             if (TuningMargin < 1f) throw new ArgumentException("TuningMargin must be >= 1.");
+            if (FightUptime <= 0f || FightUptime > 1f) throw new ArgumentException("FightUptime must be in (0, 1].");
         }
     }
 }

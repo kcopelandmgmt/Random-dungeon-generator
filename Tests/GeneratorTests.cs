@@ -3895,7 +3895,7 @@ namespace DungeonGen.Tests
             {
                 if (FightLab.PartyVsBoss(new[] { "Sentinel", "Berserker", "Warder" }, 2, s).WinnerTeam == 0) wins++;
                 if (FightLab.PartyVsBoss(new[] { "Berserker" }, 4, s).WinnerTeam == 0) soloWins++;
-                if (FightLab.PartyVsBoss(new[] { "Berserker", "Sharpshooter" }, 2, s).WinnerTeam == 0) duoWins++;
+                if (FightLab.PartyVsBoss(new[] { "Berserker", "Sharpshooter" }, 0, s).WinnerTeam == 0) duoWins++;   // the 2.5-player line is drawn at baseline gear (2026-10-26: boss health is tuned on realised party damage, so a geared duo in an empty arena now often wins)
             }
             Assert.True(wins >= 5, $"a geared trio beats the room boss ({wins}/6)");
             Assert.Equal(0, soloWins);                                                                   // a solo does not
@@ -4071,7 +4071,7 @@ namespace DungeonGen.Tests
             Assert.True(colossus.Boss.HazardImmune);
             var v1 = csim.Add(FightLab.Player(1, 0, "Sentinel", 4, new Vec2(10.8f, 10f)));
             var v2 = csim.Add(FightLab.Player(2, 0, "Berserker", 4, new Vec2(9.2f, 10f)));
-            for (int i = 0; i < 80; i++) { v1.Health = v1.MaxHealth; v2.Health = v2.MaxHealth; colossus.Step(csim, 0.1f); csim.Tick(0.1f); }
+            for (int i = 0; i < 120; i++) { v1.Health = v1.MaxHealth; v2.Health = v2.MaxHealth; colossus.Step(csim, 0.1f); csim.Tick(0.1f); }   // Ground Slam (8 s timer, 1.5 s wind-up) is what leaves lava; the crowd slam no longer does (2026-10-26 balance)
             Assert.Contains(csim.Zones, z => z.Caster == colossus.Boss.Id);                              // lava on the floor
             colossus.Passives(csim);
             Assert.True(colossus.Boss.Has(BuffKind.DamageReduction) == csim.Zones.Any(z => z.Caster == colossus.Boss.Id && Vec2.Distance(z.Centre, colossus.Boss.Position) <= z.Ability.Size));   // Ember Shell

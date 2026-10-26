@@ -65,7 +65,7 @@ namespace DungeonGen.Core.Net
                 var downed = st.Log.LastOrDefault(d => d.Kind == MatchEventKind.PlayerDowned && d.A == e.A && d.Time <= e.Time);
                 int by = e.B >= 0 ? e.B : downed.Kind == MatchEventKind.PlayerDowned ? downed.B : -1;
                 var killer = server.Sim.Get(by);
-                string who = by < 0 ? "hazard or clock" : killer == null ? by.ToString() : killer.IsMob ? ((by == 99 || killer.Name.Contains("Boss") || killer.MaxHealth > 6000f) ? "boss " + killer.Name : "mob " + killer.Name) : "player " + killer.Spec;
+                string who = by < 0 ? "hazard or clock" : killer == null ? by.ToString() : killer.IsMob ? (IsBossId(by) ? "boss " + killer.Name : by >= (EncounterDirector.FirstBossId - EncounterDirector.MaxBosses + 1) * 100 ? "boss add " + killer.Name : "mob " + killer.Name) : "player " + killer.Spec;
                 string how = e.Kind == MatchEventKind.PlayerFinished ? "finished" : e.B >= 0 ? "killed" : downed.Kind == MatchEventKind.PlayerDowned ? "bled out" : e.Time >= rules.RoundSeconds ? "clock" : "died";
                 string room = e.C >= 0 && e.C < st.Layout.Rooms.Count ? st.Layout.Rooms[e.C].Type.ToString() : "?";
                 report.DeathCauses.Add($"{how} | {who} | {room}");
@@ -78,6 +78,9 @@ namespace DungeonGen.Core.Net
             }
             return report;
         }
+
+        /// <summary>Boss combatants count down from <see cref="EncounterDirector.FirstBossId"/>; their adds are numbered id × 100 + n.</summary>
+        public static bool IsBossId(int id) => id <= EncounterDirector.FirstBossId && id > EncounterDirector.FirstBossId - EncounterDirector.MaxBosses;
 
         public static List<RoundReport> PlayMany(int firstSeed, int count, int teams = 4, int perTeam = 3, int tier = 1, float dt = 0.1f)
         {

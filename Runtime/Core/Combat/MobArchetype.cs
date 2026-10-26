@@ -69,8 +69,10 @@ namespace DungeonGen.Core.Combat
 
         public float TotalHealth(CombatBaseline b) => Count * Mob.HealthFraction * TierMultiplier * b.PlayerHealth;
         public float TotalDps(CombatBaseline b) => Count * Mob.DpsFraction * TierMultiplier * b.PlayerDps;
-        /// <summary>Rough difficulty in baseline players: the geometric mean of health and DPS fractions, doubled because a mob that cannot heal or dodge is worth about half a player per point.</summary>
-        public static float PlayerEquivalentsPerMob(MobArchetype m) => (float)System.Math.Sqrt(m.HealthFraction * m.DpsFraction) * 2f;
+        /// <summary>Rough difficulty in baseline players: the geometric mean of health and DPS fractions. (It was doubled until 2026-10-26; the round lab showed packs dying in 2-13 s for a few percent of a trio's health, so a mob is worth a player per point, not two.)</summary>
+        public static float PlayerEquivalentsPerMob(MobArchetype m) => (float)System.Math.Sqrt(m.HealthFraction * m.DpsFraction) * MobWorth;
+        /// <summary>Player-equivalents per point of sqrt(health x dps). Lower means more mobs for the same danger budget.</summary>
+        public const float MobWorth = 0.5f;
         public float PlayerEquivalents => Count * TierMultiplier * PlayerEquivalentsPerMob(Mob);
 
         public override string ToString() => $"{Count}x {Mob.Name} (x{TierMultiplier:0.0}, ~{PlayerEquivalents:0.0} PE, {Mob.Damage.Dominant})";

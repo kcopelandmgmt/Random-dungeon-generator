@@ -78,7 +78,7 @@ namespace DungeonGen.Core.Combat
 
         public static EncounterBudget Tune(EncounterKind kind, CombatBaseline b, float playerEquivalents, float gear, float targetSeconds)
         {
-            float d = b.PlayerDps * gear;
+            float d = b.PlayerDps * gear * b.FightUptime;
             float h = b.PlayerHealth * gear;
             float health = playerEquivalents * d * targetSeconds;
             float dps = playerEquivalents * h * b.PartySustain / (targetSeconds * b.TuningMargin);
@@ -88,7 +88,7 @@ namespace DungeonGen.Core.Combat
         /// <summary>Predict how a group of <paramref name="players"/> with the given gear fares. Enrage doubles boss DPS past the enrage time.</summary>
         public static FightOutcome Simulate(EncounterBudget e, CombatBaseline b, int players, float gear = 1f)
         {
-            float d = b.PlayerDps * gear;
+            float d = b.PlayerDps * gear * b.FightUptime;
             float h = b.PlayerHealth * gear;
             float seconds = e.Health / Math.Max(1e-3f, players * d);
             float normal = Math.Min(seconds, e.EnrageSeconds);
