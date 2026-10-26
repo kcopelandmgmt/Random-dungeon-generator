@@ -3,6 +3,23 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-26 · Shrines on the server — BUILT
+
+1. **A shrine is used by standing in its room; no channel.** Not while downed, channelling or dead;
+   dark under Godless.
+2. **Arm: 2 of your own souls, while not armed; one use; re-armable after use.** Lost on death and
+   extraction.
+3. **Resurrect: 2 of the reviver's souls (1 at the cheap-shrine event's shrine during its minute),
+   once per player per round, teammates only, never a player who left.** They stand up beside the
+   shrine at full health, naked, pockets empty. **The body stays behind:** what the corpse still held
+   falls on the floor of the room it lay in, open to anyone; its silver and an unclaimed kill soul
+   are lost.
+4. **Every consumable sells for 1 soul** at a shrine, into the pockets.
+5. **Bots** resurrect when 180 s+ remain and a payable shrine is within 6 rooms (the cheap event
+   first), arm before a boss (shrine within 2 rooms) or in passing, and buy a potion with a spare soul
+   when they have none. 72 rounds, 4×3: 19 arms, 4 resurrections, 20 buys, 0 rejected; extraction
+   about 51–52% with shrines on against 52–54% off on paired seeds.
+
 ## 2026-10-26 · Mid-round events on the server — BUILT
 
 1. **The roaming elite is a real mob** (`EliteController`, combatant 490): a Revenant Champion at 8×

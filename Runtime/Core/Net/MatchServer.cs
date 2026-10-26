@@ -369,6 +369,12 @@ namespace DungeonGen.Core.Net
             // A one-press item choice not applied yet survives a newer intent that carries none (the client sends faster than some tick rates).
             if (!intent.AnyItemAction && _intents.TryGetValue(playerId, out var pending) && pending.AnyItemAction)
             { intent.TakeItemId = pending.TakeItemId; intent.DropItemId = pending.DropItemId; intent.RollItemId = pending.RollItemId; intent.RollChoice = pending.RollChoice; intent.SalvageItemId = pending.SalvageItemId; }
+            // The same for a potion press and a shrine choice: Apply clears both once used, so carrying them never repeats them.
+            if (_intents.TryGetValue(playerId, out var earlier))
+            {
+                if (intent.ConsumableSlot == 0 && earlier.ConsumableSlot != 0) intent.ConsumableSlot = earlier.ConsumableSlot;
+                if (intent.ShrineAction == 0 && earlier.ShrineAction != 0) { intent.ShrineAction = earlier.ShrineAction; intent.ShrineArg = earlier.ShrineArg; }
+            }
             _intents[playerId] = intent;
         }
 
