@@ -30,8 +30,8 @@ input ──intent──► MatchServer (core) ──snapshot/view/event──�
 
 Tests and tools (not Unity assemblies): `Tests` (xUnit over Core; `BalanceTests` are round guard rails: no boss kills outside its arena, rejected 0, an extraction floor), `Tools/AsciiPreview` (console
 tool over Core; `--sim round --sim-teams N --sim-size N` prints a SUMMARY line; `BOTLOG=1` logs squad decisions), `Tools/UnityStubs` (retired 2026-10-26: the real headless Unity compile replaced it and the stub no longer covers the APIs in use),
-`Tools/AssetGen` (Meshy and ElevenLabs generation; `portrait_sheets.py` and `gear_sheets.py` lay out the showcase renders), `Tools/Build` (the Unity lane script).
-Showcase renders for the owner come from PlayMode tests in the Unity project: `PortraitTests` (category Portraits → `Logs/portraits/`) and `GearShowcaseTests` (category Showcase → `Logs/gear/`: rolled drops per tier, `drops.json`, the paper doll).
+`Tools/AssetGen` (Meshy and ElevenLabs generation; `portrait_sheets.py`, `gear_sheets.py` and `ui_gallery_sheet.py` lay out the showcase renders), `Tools/Build` (the Unity lane script).
+Showcase renders for the owner come from PlayMode tests in the Unity project: `PortraitTests` (category Portraits → `Logs/portraits/`) and `GearShowcaseTests` (category Showcase → `Logs/gear/`: rolled drops per tier, `drops.json`, the paper doll) and `UiGalleryTests` (category Gallery → `Logs/ui-gallery/`: every menu screen and in-round panel at 1920x1080 with the canvas scaler forced to 1 so text is sharp; `ui_gallery_sheet.py` writes `index.md` and contact sheets).
 
 ## Runtime/Core, by folder
 
