@@ -24,6 +24,12 @@ namespace DungeonGen.Unity
         public int AccountLevel = 1;
         /// <summary>Hide dev-only panels (the effects audition) until F1.</summary>
         public bool HideDevPanels = true;
+        /// <summary>
+        /// The tutorial (wave 5.10): <see cref="OfflineMatch.Host"/> builds the tutorial's small dungeon and rules (<c>TutorialScript</c>), seats two
+        /// friendly bots (<c>TutorialDirector</c>) instead of enemy teams, and <see cref="GameFlow"/> never settles the round into the profile: the
+        /// <see cref="Loadout"/> belongs to a throwaway profile.
+        /// </summary>
+        public bool Tutorial;
     }
 
     /// <summary>Round UI that wants the round's transport once the offline host has made it (events for announcements).</summary>

@@ -445,7 +445,10 @@ namespace DungeonGen.Core.Net
                     }
                 case MatchEventKind.MobPackCleared:
                     if (!Index.MobPacks.ContainsKey(e.A)) { rejection = "no such pack"; return false; }
-                    ClearedPacks.Add(e.A); break;
+                    ClearedPacks.Add(e.A);
+                    // Tutorial only (wave 5.10): a cleared pack pays a soul to the players who fought it, so two packs arm the ultimate (TutorialScript).
+                    if (Descriptor.Rules.IsTutorial) foreach (int p in TutorialScript.PackSoulRecipients(this, e.A).ToList()) for (int i = 0; i < TutorialScript.SoulsPerPack; i++) GrantSoul(p);
+                    break;
                 case MatchEventKind.BossKilled:
                     {
                         var room = Layout.Rooms[e.A];

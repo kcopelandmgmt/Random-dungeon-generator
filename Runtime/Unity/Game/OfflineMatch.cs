@@ -14,6 +14,8 @@ namespace DungeonGen.Unity
     /// the dev-only <c>PracticeMode</c> wraps it and adds dev casting, the ally bot, hosting on Play and the audition.
     /// Bots never enter the real queue. Because the host is local and alone, the round may pause (<see cref="SetPaused"/>);
     /// a networked round never does.
+    /// The tutorial (<see cref="PracticeLaunch.Tutorial"/>) hosts the tutorial's dungeon and rules and hands the round to a
+    /// <see cref="TutorialDirector"/> (<see cref="Tutorial"/>): two friendly bots, shut spawn doors, the extract after the boss.
     /// </summary>
     public sealed class OfflineMatch : MonoBehaviour
     {
@@ -48,6 +50,9 @@ namespace DungeonGen.Unity
         public bool Paused { get; private set; }
         /// <summary>The launch the round was hosted from (null for a greybox, -autotest or test round).</summary>
         public PracticeLaunch Launch { get; private set; }
+        /// <summary>The tutorial's server half when this round is the tutorial (<see cref="PracticeLaunch.Tutorial"/>), else null.</summary>
+        public TutorialDirector Tutorial { get; private set; }
+        public bool IsTutorial => Tutorial != null;
 
         /// <summary>After the launch's settings are applied, before anything is hosted: a wrapper may adjust the settings.</summary>
         public event Action<OfflineMatch> Preparing;
@@ -110,6 +115,17 @@ namespace DungeonGen.Unity
                 Seed = launch.Seed; BotTeams = Mathf.Clamp(launch.BotTeams, 0, 3); BotsPerTeam = Mathf.Max(1, launch.BotsPerTeam);
                 DevCasting = launch.DevCasting; AllyBots = Mathf.Clamp(launch.AllyBots, 0, 2);
                 if (launch.Loadout != null) LocalSpec = launch.Loadout.Spec;
+                if (launch.Tutorial) { BotTeams = 0; AllyBots = 0; DevCasting = false; }
+            }
+            bool tutorial = launch != null && launch.Tutorial;
+            if (tutorial)
+            {
+                // The tutorial's own small dungeon: a config made at runtime (never an asset), rules bent after hosting (below).
+                var cfg = ScriptableObject.CreateInstance<DungeonConfig>();
+                cfg.name = "Tutorial (runtime)";
+                cfg.Settings = TutorialScript.Settings();
+                Bootstrap.Config = cfg;
+                Bootstrap.RoundSeconds = TutorialScript.RoundSeconds; Bootstrap.ExtractsOpenAfterSeconds = TutorialScript.ExtractsFallbackSeconds;
             }
             Preparing?.Invoke(this);
 
@@ -122,6 +138,9 @@ namespace DungeonGen.Unity
             if (Bootstrap.Config == null) Bootstrap.Config = Builder.Config;
             Bootstrap.TeamSize = 3;
             Bootstrap.HostMatch(Seed);
+            // The bootstrap only knows plain rules: make them the tutorial's before the round's clock is built from them (StartRound). Offline, this
+            // process is the only client and shares the descriptor object, so nobody holds the plain copy.
+            if (tutorial) TutorialScript.ApplyRules(Bootstrap.Descriptor.Rules);
             Transport.Pump();
             Server.StartRound();
             Server.Server.Sim.DevCasting = DevCasting;
@@ -142,7 +161,13 @@ namespace DungeonGen.Unity
             else Server.AddPlayer(me, 0, cls, LocalSpec, PlayerStats.For(cls, GearTier, Bootstrap.Descriptor.Settings.Combat));
 
             int id = BotRules.BotIdBase;
-            for (int b = 0; b < AllyBots; b++) Server.AddBot(id++, 0, BotSpecs[b % BotSpecs.Length], GearTier, null);   // stands and fights only
+            if (tutorial)
+            {
+                // Two friendly bots that follow the player, the spawn doors shut for the door lesson, the extract a minute after the boss.
+                try { Tutorial = new TutorialDirector(Server.Server, me); Tutorial.Begin(id); }
+                catch (InvalidOperationException e) { Debug.LogError("OfflineMatch: the tutorial could not start on seed " + Seed + ": " + e.Message); }
+            }
+            else for (int b = 0; b < AllyBots; b++) Server.AddBot(id++, 0, BotSpecs[b % BotSpecs.Length], GearTier, null);   // stands and fights only
             for (int t = 1; t <= Mathf.Min(BotTeams, Bootstrap.Descriptor.TeamSpawnRooms.Count - 1); t++)
             {
                 var squad = BotsRoam ? new BotSquad { Team = t } : null;

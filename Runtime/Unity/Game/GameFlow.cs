@@ -25,6 +25,9 @@ namespace DungeonGen.Unity
     /// (<see cref="NetSessions"/>) and wait in the lobby (<see cref="FlowPhase.Lobby"/>); when the server starts the round every process loads
     /// the round scene and <see cref="OnlineMatch"/> hosts or joins it. A host settles like the offline round; a client settles its own
     /// profile from the server's <see cref="RoundResult"/> (<see cref="ClientMirror.Result"/>). Leaving online is a forfeit the server records.
+    /// The tutorial (wave 5.10, <see cref="PlayTutorial"/>) is an offline round of its own (<see cref="PracticeLaunch.Tutorial"/>): a throwaway profile's
+    /// starter kit, never settled into the real profile (<see cref="SettleTutorial"/>), which only ever gains the one-time silver reward behind a flag.
+    /// A menu Play on a brand-new account offers the tutorial once first (<see cref="OfferTutorial"/>).
     /// </summary>
     public sealed class GameFlow : MonoBehaviour
     {
@@ -63,6 +66,13 @@ namespace DungeonGen.Unity
         public string Message { get; set; }
         /// <summary>Rounds played this session.</summary>
         public int RoundsPlayed { get; private set; }
+        /// <summary>Is the running (or last) round the tutorial? It is never settled into the profile.</summary>
+        public bool TutorialRound { get; private set; }
+        /// <summary>
+        /// Set by the UI (the Tutorial screen): show the tutorial offer and return true, or false when there is no menu to show it on. A menu Play
+        /// (<see cref="Play"/> with no seed) on a brand-new account calls it once instead of starting the round.
+        /// </summary>
+        public static Func<bool> OfferTutorial;
         /// <summary>Raised whenever anything a screen shows changes.</summary>
         public event Action Changed;
 
@@ -234,11 +244,26 @@ namespace DungeonGen.Unity
             return loadout;
         }
 
-        /// <summary>Start a practice round with the selected character. Returns why not, or null (the round scene is loading).</summary>
+        /// <summary>
+        /// Start a practice round with the selected character. Returns why not, or null (the round scene is loading). A menu Play (no
+        /// <paramref name="seed"/>) on a brand-new account (no round ever settled, never offered before) offers the tutorial once instead: the
+        /// offer is remembered in the profile, so pressing Play again goes in.
+        /// </summary>
         public string Play(int? seed = null)
         {
             if (Phase != FlowPhase.Menu) return "A round is already starting.";
             if (Profile == null || Character == null) return "Create a character first.";
+            if (seed == null && IsBrandNewAccount && OfferTutorial != null)
+            {
+                Profile.Unlocks.Add(TutorialScript.OfferedFlag);
+                Save();
+                if (OfferTutorial())
+                {
+                    Message = "First time down? Take the five-minute tutorial, or skip it and enter the dungeon.";
+                    Changed?.Invoke();
+                    return Message;
+                }
+            }
             // Pockets: every Health Potion and Antidote in the bank comes in (keys 1 and 2); a death loses them.
             var loadout = RoundLoadout(out var refusal);
             if (refusal != null) return refusal;
@@ -250,12 +275,109 @@ namespace DungeonGen.Unity
                 Loadout = loadout,
                 AccountLevel = Profile.AccountLevel,
             };
-            LastReport = null; LastRecap = null; Message = null; _settled = false; _sim = null;
+            LastReport = null; LastRecap = null; Message = null; _settled = false; _sim = null; TutorialRound = false;
             Phase = FlowPhase.LoadingRound;
             Changed?.Invoke();
             Time.timeScale = 1f;
             StartCoroutine(LoadThen(RoundScenePath, null, HostRound));
             return null;
+        }
+
+        // ---------------- the tutorial ----------------
+
+        /// <summary>A profile that has never finished a round and was never offered the tutorial.</summary>
+        public bool IsBrandNewAccount => Profile != null && Profile.SettledRounds.Count == 0 && Profile.AccountXp == 0
+                                         && !Profile.Unlocks.Contains(TutorialScript.OfferedFlag) && !Profile.Unlocks.Contains(TutorialScript.RewardFlag);
+
+        /// <summary>Has this profile already been paid the tutorial's one-time reward?</summary>
+        public bool TutorialRewarded => Profile != null && Profile.Unlocks.Contains(TutorialScript.RewardFlag);
+
+        /// <summary>The class the tutorial seats: the selected character's, or a Warden when there is none.</summary>
+        public ClassArchetype TutorialClass => Character?.Class ?? ClassArchetype.ByName(TutorialScript.FallbackClass);
+
+        /// <summary>
+        /// The tutorial's loadout: a throwaway profile (never saved) with one character of <see cref="TutorialClass"/> in the free starter kit, holding
+        /// the same weapon base as the selected character (so the spec matches), and the new-account potions. Nothing in it is the player's.
+        /// </summary>
+        public Loadout TutorialLoadout()
+        {
+            var cls = TutorialClass;
+            string name = Character?.Name ?? "Delver";
+            var temp = PlayerProfile.NewAccount("tutorial", name, cls);
+            var ch = temp.Characters[0];
+            var weaponBase = Character?.Equipment.Weapon?.Base;
+            if (weaponBase != null && ch.Equipment.Weapon?.Base != weaponBase)
+                ch.Equipment.Equip(new Item(weaponBase, 0, Rarity.Normal, weaponBase.Name, new List<AffixRoll>(), new List<AffixRoll>()).MarkStarter());
+            var potion = Consumable.ByName(Consumable.HealthPotionName);
+            var pockets = new Dictionary<string, int> { [potion.Name] = temp.ConsumableCount(potion) };
+            return Loadout.For(temp, ch, null, pockets);
+        }
+
+        /// <summary>
+        /// Start the tutorial: a short guided offline round in the tutorial's dungeon (<see cref="TutorialScript"/>) with two friendly bots and no
+        /// enemy team. Needs no character (a temporary Warden is seated) and never touches the profile's characters, stash or bank. Returns why not, or null.
+        /// </summary>
+        public string PlayTutorial(int? seed = null)
+        {
+            if (Phase != FlowPhase.Menu) return "A round is already starting.";
+            Loadout loadout;
+            try { loadout = TutorialLoadout(); }
+            catch (Exception e) { return "The tutorial could not start: " + e.Message; }
+            int tutorialSeed;
+            try { tutorialSeed = TutorialScript.PickSeed(seed ?? UnityEngine.Random.Range(1, 1000000)); }
+            catch (InvalidOperationException e) { return e.Message; }
+            OnlineLaunch.Current = null; LocalId = LocalPlayerId;
+            PracticeLaunch.Current = new PracticeLaunch
+            {
+                Seed = tutorialSeed, BotTeams = 0, AllyBots = 0, Tutorial = true,
+                Loadout = loadout, AccountLevel = Profile?.AccountLevel ?? 1,
+            };
+            if (Profile != null && !Profile.Unlocks.Contains(TutorialScript.OfferedFlag)) { Profile.Unlocks.Add(TutorialScript.OfferedFlag); Save(); }
+            LastReport = null; LastRecap = null; Message = null; _settled = false; _sim = null; TutorialRound = true;
+            Phase = FlowPhase.LoadingRound;
+            Changed?.Invoke();
+            Time.timeScale = 1f;
+            StartCoroutine(LoadThen(RoundScenePath, null, HostRound));
+            return null;
+        }
+
+        /// <summary>
+        /// The tutorial's end: settle the throwaway profile (so the summary has the round's real figures), then show it as what it was: nothing
+        /// gained, kept or lost for real. The only change to the real profile is the one-time reward (<see cref="TutorialScript.RewardSilver"/>) on
+        /// the first extraction, remembered by <see cref="TutorialScript.RewardFlag"/> in the profile.
+        /// </summary>
+        private SettlementReport SettleTutorial(MatchServer server)
+        {
+            var launch = PracticeLaunch.Current ?? OfflineMatch.Current?.Launch;
+            var loadout = launch?.Loadout;
+            if (loadout == null) return null;
+            var temp = RoundSettlement.Settle(loadout.Profile, loadout.Character, server, LocalPlayerId);
+            int level = Profile?.AccountLevel ?? 1;
+            var report = new SettlementReport
+            {
+                RoundKey = temp.RoundKey, PlayerId = temp.PlayerId, Outcome = temp.Outcome, Summary = temp.Summary, LevelBefore = level, LevelAfter = level,
+            };
+            if (temp.Outcome == RoundOutcome.Extracted)
+            {
+                // Tutorial gear stays behind: none of it was ever the player's.
+                report.PickupsLost.AddRange(temp.ItemsGained); report.PickupsLost.AddRange(temp.ItemsKept); report.PickupsLost.AddRange(temp.PickupsLost);
+                if (Profile != null && !TutorialRewarded)
+                {
+                    Profile.Silver += TutorialScript.RewardSilver;
+                    Profile.Unlocks.Add(TutorialScript.RewardFlag);
+                    report.SilverDelta = TutorialScript.RewardSilver;
+                    Save();
+                    Message = $"Tutorial complete: +{TutorialScript.RewardSilver} silver. You are ready for the dungeon.";
+                }
+                else Message = "Tutorial complete. The reward is paid once; nothing else changed.";
+            }
+            else
+            {
+                report.ItemsLost.AddRange(temp.ItemsLost); report.PickupsLost.AddRange(temp.PickupsLost);
+                LastRecap = DeathRecap.For(server.State, LocalPlayerId, server.Sim?.Hits, id => server.Sim?.Get(id)?.Name);
+                Message = "You died in the tutorial. In a real round that costs everything you carried; this time nothing was lost.";
+            }
+            return report;
         }
 
         /// <summary>The round scene is up: host the offline round in it (the release host; a dev scene's PracticeMode may have hosted already).</summary>
@@ -473,20 +595,22 @@ namespace DungeonGen.Unity
         {
             if (_settled) return LastReport;
             var server = Server;
-            if (!IsOnlineClient && (server == null || Profile == null || Character == null)) return null;
+            if (TutorialRound && server == null) return null;
+            if (!TutorialRound && !IsOnlineClient && (server == null || Profile == null || Character == null)) return null;
             try
             {
                 SettlementReport report;
-                if (IsOnlineClient) { report = SettleFromResult(); if (report == null) return null; }
+                if (TutorialRound) { report = SettleTutorial(server); if (report == null) return null; }
+                else if (IsOnlineClient) { report = SettleFromResult(); if (report == null) return null; }
                 else
                 {
                     report = RoundSettlement.Settle(Profile, Character, server, LocalPlayerId);
-                    if (report.Outcome == RoundOutcome.Died) LastRecap = DeathRecap.For(server.State, LocalPlayerId, server.Sim?.Hits);
+                    if (report.Outcome == RoundOutcome.Died) LastRecap = DeathRecap.For(server.State, LocalPlayerId, server.Sim?.Hits, id => server.Sim?.Get(id)?.Name);
                 }
                 LastReport = report;
                 _settled = true;
                 RoundsPlayed++;
-                Save();
+                if (!TutorialRound) Save();   // the tutorial saved its reward itself, if any; nothing else changed
                 Phase = FlowPhase.RoundOver;
                 Debug.Log($"GameFlow: round settled: {report.Outcome}, +{report.XpDelta} XP, +{report.SilverDelta} silver, {report.ItemsGained.Count} gained, {report.ItemsLost.Count} lost, level {report.LevelBefore}->{report.LevelAfter}.");
                 Changed?.Invoke();
@@ -544,7 +668,8 @@ namespace DungeonGen.Unity
             if (IsOnlineClient && Phase == FlowPhase.InRound && !_settled) { StartCoroutine(LeaveOnline()); return; }
             if (Phase == FlowPhase.InRound) ForfeitRound();
             var r = LastReport;
-            if (r != null && !r.AlreadySettled)
+            if (TutorialRound) Message = "You left the tutorial. Nothing was lost; start it again from the main menu any time.";
+            else if (r != null && !r.AlreadySettled)
                 Message = $"You left the round. It counts as a death: {r.ItemsLost.Count} item{(r.ItemsLost.Count == 1 ? "" : "s")} lost, +{r.XpDelta} XP.";
             ReturnToMenu();
         }
@@ -569,6 +694,7 @@ namespace DungeonGen.Unity
             if (OnlineLaunch.Current != null && OnlineLaunch.Current.Role != NetRole.Dedicated) EndSession();
             PracticeLaunch.Current = null;
             _sim = null;
+            TutorialRound = false;
             SetRoundPaused(false);
             Time.timeScale = 1f;
             Phase = FlowPhase.LoadingMenu;
