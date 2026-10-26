@@ -75,11 +75,16 @@ Assemblies: `DungeonGen.Core` (no engine references), `DungeonGen.Unity`, `Dunge
 * `docs/DECISIONS.md`: every design decision, dated, with the reasoning and the code that enforces it.
 * `docs/DESIGN.md`: how each stage and system works.
 * `docs/CLASSES.md`: the six classes, their specs and ultimates.
+* `docs/PLAYING.md`: launching, keys, a round start to finish, playing online, where your profile is saved.
 * `docs/BUILD_ORDER.md`: what gets built next, in what order, and what done means for each piece.
 
 ## Status
 
-The design is complete and enforced by tests. The ability pipeline and the mob and boss brains run in the
-core and a greybox Unity layer (input, server simulation, per-team snapshots, HUD, practice mode,
-a first Fishnet transport) is written but has not yet run inside Unity. What does not exist yet:
-room art, visuals for abilities and telegraphs, PlayFab, Easy Anti-Cheat, the store and the menus. See `docs/BUILD_ORDER.md`.
+Playable. A Windows build runs from launch to round to settlement and back: menus, character
+creation, a dark top-down dungeon of generated models under warm torchlight with fog of war, 69
+abilities with effects and icons, mobs, nine bosses with telegraphed wind-ups, loot and inventory,
+group rolls, shrines, the mid-round event, extraction, a stash, equipment and a vendor, offline
+against bot teams or online over FishNet (host, join or dedicated server). How to play:
+`docs/PLAYING.md`. How it was built and how to keep building it: `docs/AUTONOMY.md`,
+`docs/ARCHITECTURE.md`, `docs/DEPENDENCIES.md`, `docs/TASKS.md` (including what is still open:
+NAT traversal and matchmaking, a profile backend, client prediction, a name).
