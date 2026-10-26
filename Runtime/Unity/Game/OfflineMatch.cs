@@ -125,6 +125,7 @@ namespace DungeonGen.Unity
             Transport.Pump();
             Server.StartRound();
             Server.Server.Sim.DevCasting = DevCasting;
+            if (DevCasting) Server.Server.Sim.DevCasters.Add(GameFlow.LocalPlayerId);   // only the person at the keyboard: bots keep their cooldowns
 
             int me = GameFlow.LocalPlayerId;
             var cls = launch?.Loadout != null ? launch.Loadout.Character.Class : FightLab.ClassOf(LocalSpec);

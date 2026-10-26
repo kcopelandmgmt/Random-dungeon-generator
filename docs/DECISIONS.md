@@ -3,6 +3,23 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-26 · Balance follow-ups: bot squads that stay, avoid and loot — BUILT
+
+1. Bots enter with potions: 2 at tier 1, +1 per tier, max 4 (`BotRules.DefaultConsumables`).
+2. A revive starts only on a teammate the round state lists as downed.
+3. The fight bridge reports a cleared pack once.
+4. The fight lab's brain targets only visible enemies in its room and spreads flank slots.
+5. Squads rest at home until the gates, stay inside while carrying under 8 items until 10:00 left,
+   loot corpses, take their own side first, fight players only at 1.7× strength (unless cornered or
+   after 45 s of stand-off), commit to room bosses at 90% health with a potion each, and take the
+   final boss only after a room-boss kill with two potions each.
+6. Dev casting can be limited to listed casters (`FightSim.DevCasters`); practice limits it to the
+   local player.
+
+Measured over 16 seeds: 4×3 extraction 47–50%, mean round 9–9.5 min, PvP share 49–54%; 8×3
+extraction 44%, mean round 10–12.5 min, PvP share 91% (24 players in one dungeon). The mid-round
+events are not spawned by the server yet.
+
 ## 2026-10-26 · Balance pass: arenas, squads, realised damage — BUILT
 
 1. **A boss fights only what stands in its room or the corridor at its door.** A chaser follows its
