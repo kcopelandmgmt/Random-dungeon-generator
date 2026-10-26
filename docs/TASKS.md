@@ -28,7 +28,7 @@ could not be verified headless (say why).
 | 2.1 | Bind generated models: character/mob/boss visuals with Animator (idle, walk, attack, cast, hit, death) driven by snapshots; props and tiles as builder prefabs; editor importer that makes prefabs and URP materials | 1.1 | doing |
 | 2.2 | Game audio: audio library asset, ability/hit/world/UI sounds from effects and events, announcer, music/ambience, honours mute; `[GreyboxStep]` wiring | 1.2 | done (compile, playmode 13/13 incl. 6 audio tests; silent) |
 | 2.2b | Audio left unmapped: hazard and torch loops need positions in the snapshot/view; per-element impact sounds need the element on Hit effects; footsteps for other avatars | 2.2 | todo |
-| 2.3 | Combat readability: telegraph circles that fill to the landing time, world-space health bars with ally/enemy colour and class icon, hit flash | 1.3, 1.7 | todo |
+| 2.3 | Combat readability: telegraph circles that fill to the landing time, world-space health bars with ally/enemy colour and class icon, hit flash | 1.3, 1.7 | done (compile; playmode 21/21 incl. 2 readability tests; `telegraph.png`, `bars.png` checked by eye) |
 | 2.4 | Real UI in uGUI built from code: main menu (play, class and spec, settings with volume, quit), in-round HUD (health, resource, ability bar, channel, clock, souls, silver, announcements), pause menu, death recap and round summary screens, return to menu; profile saved to disk and settled after each round | 1.5, 1.6 | doing |
 | 2.5 | Loot and inventory: chest contents panel, take/roll prompts, carried items and weight, stash and equip in the menu, settlement after a round saved to disk | 1.6, 2.4 | todo |
 | 2.6 | Fishnet: install from GitHub, prove host and client in two muted processes on one machine | 1.5 | todo |
