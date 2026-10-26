@@ -48,7 +48,7 @@ Scripting Define `FISHNET` only once Fishnet is installed.
 | Service | Endpoint | Used by | Budget |
 |---------|----------|---------|--------|
 | Meshy text-to-3D | `POST/GET https://api.meshy.ai/openapi/v2/text-to-3d` (preview → refine), `GET /openapi/v1/balance` | `Tools/AssetGen/meshy.py` | 7 keys, 6,383 credits on 2026-10-25; ceiling 4,500 |
-| Meshy text-to-image | `POST/GET https://api.meshy.ai/openapi/v1/text-to-image` (`ai_model` `gpt-image-2`, 1:1) | `Tools/AssetGen/meshy_images.py` | 9 credits per icon; 657 used for the 69 ability icons |
+| Meshy text-to-image | `POST/GET https://api.meshy.ai/openapi/v1/text-to-image` (`ai_model` `gpt-image-2`, 1:1) | `Tools/AssetGen/meshy_images.py` | 9 credits per icon; 657 for the 69 ability icons, 315 for the 35 item icons |
 | Meshy rigging | `POST/GET https://api.meshy.ai/openapi/v1/rigging` (rigged GLB/FBX, walk and run) | same | 5 per rig |
 | Meshy animation | `/openapi/v1/animations` (`action_id`; one task per action for one FBX each), `/openapi/v1/animations/library` (search action ids) | same | 1,085 credits used for all 38 models on 2026-10-26 |
 | ElevenLabs sound effects | `POST https://api.elevenlabs.io/v1/sound-generation` | `Tools/AssetGen/elevenlabs.py` | 84,600 characters on 2026-10-25; ceiling 60,000 |
