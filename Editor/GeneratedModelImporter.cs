@@ -12,9 +12,11 @@ namespace DungeonGen.Unity.Editor
     /// <summary>
     /// Turns the Meshy downloads under <c>Assets/Generated/models/&lt;slug&gt;/</c> into game prefabs. The postprocessor keeps
     /// every model in that folder on the same import settings (file scale, no imported materials, no cameras or lights,
-    /// Generic rig for rigged and animation files with the rigged file as the avatar source). <see cref="Build"/> then, per
+    /// Generic rig for rigged and animation files with the rigged file as the avatar source, except the rigs
+    /// <see cref="AnimationSetup"/> made Humanoid, which stay Humanoid; medium mesh compression). <see cref="Build"/> then, per
     /// slug: configures clips (idle/walk/run loop), makes a URP Lit material from the base-colour PNG, builds an
-    /// AnimatorController from code for rigged models, measures the model and writes a normalised prefab to
+    /// AnimatorController from code for rigged models (the animation packs' role controller for Humanoid rigs, the Meshy clips
+    /// otherwise), measures the model and writes a normalised prefab to
     /// <c>Assets/Generated/Prefabs/&lt;slug&gt;.prefab</c> (feet at y = 0, size per <see cref="Specs"/>), fills the
     /// <see cref="AvatarVisualLibrary"/> and writes a report to <c>Logs/model-import.txt</c>.
     /// Run headless: <c>bash Tools/Build/unity-batch.sh method DungeonGen.Unity.Editor.GeneratedModelImporter.Build</c>.
@@ -122,19 +124,28 @@ namespace DungeonGen.Unity.Editor
             mi.importVisibility = true;
             mi.materialImportMode = ModelImporterMaterialImportMode.None;
             mi.importBlendShapes = false;
+            mi.meshCompression = ModelImporterMeshCompression.Medium;   // the rigged meshes were most of the player's mesh bytes
             if (rigged || anim)
             {
-                mi.animationType = ModelImporterAnimationType.Generic;
                 mi.importAnimation = anim;
                 mi.optimizeGameObjects = false;
                 if (anim)
                 {
                     string slug = file.Substring(0, file.IndexOf("_anim_", StringComparison.Ordinal));
                     var avatar = AssetDatabase.LoadAllAssetsAtPath($"{Folder(slug)}/{slug}_rigged.fbx").OfType<Avatar>().FirstOrDefault();
+                    // A rig AnimationSetup made Humanoid takes Humanoid clips; the rest stay Generic.
+                    mi.animationType = avatar != null && avatar.isHuman ? ModelImporterAnimationType.Human : ModelImporterAnimationType.Generic;
+                    mi.animationCompression = ModelImporterAnimationCompression.Optimal;   // keyframe reduction
                     if (avatar != null) { mi.avatarSetup = ModelImporterAvatarSetup.CopyFromOther; mi.sourceAvatar = avatar; }
                     else mi.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
                 }
-                else mi.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+                else
+                {
+                    // AnimationSetup.MakeHumanoid stores a bone mapping in the importer: keep such a rig Humanoid on every reimport.
+                    bool human = AnimationSetup.IsHumanoidSlug(file.Substring(0, file.Length - "_rigged".Length)) && mi.humanDescription.human != null && mi.humanDescription.human.Length > 0;
+                    mi.animationType = human ? ModelImporterAnimationType.Human : ModelImporterAnimationType.Generic;
+                    mi.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+                }
             }
             else
             {
@@ -220,11 +231,13 @@ namespace DungeonGen.Unity.Editor
             var clips = new Dictionary<string, AnimationClip>();
             Avatar avatar = null;
             string motionNode = null;
+            bool human = false;
             if (useRig)
             {
                 avatar = AssetDatabase.LoadAllAssetsAtPath(rigged).OfType<Avatar>().FirstOrDefault();
-                row.Rig = avatar != null && avatar.isValid ? "Generic" : "Generic (avatar invalid)";
-                motionNode = FindHips(AssetDatabase.LoadAssetAtPath<GameObject>(rigged));
+                human = avatar != null && avatar.isValid && avatar.isHuman;
+                row.Rig = avatar == null || !avatar.isValid ? "avatar invalid" : human ? "Humanoid" : "Generic";
+                if (!human) motionNode = FindHips(AssetDatabase.LoadAssetAtPath<GameObject>(rigged));
                 foreach (var action in HeroActions)
                 {
                     string ap = Anim(spec.Slug, action);
@@ -237,7 +250,16 @@ namespace DungeonGen.Unity.Editor
 
             var material = MaterialFor(spec.Slug, AssetDatabase.LoadAssetAtPath<Texture2D>(tex));
             if (material == null) row.Notes += "no base colour; ";
-            AnimatorController controller = useRig && clips.ContainsKey("idle") ? BuildController(spec.Slug, clips) : null;
+            // Humanoid rigs play the bought packs (AnimationSetup's role controller); the rest keep their Meshy clips.
+            float runSpeed = 0f;
+            AnimatorController controller = null;
+            if (useRig && human)
+            {
+                controller = AnimationSetup.BuildRoleController(spec.Slug, out runSpeed, out string summary);
+                row.Clips = controller != null ? "pack: " + summary.Split(':')[0] : row.Clips;
+                if (controller == null) row.Notes += "no pack controller (" + summary + "), Meshy clips used; ";
+            }
+            if (controller == null) controller = useRig && clips.ContainsKey("idle") ? BuildController(spec.Slug, clips) : null;
             if (useRig && controller == null) row.Notes += "no idle clip, no animator controller; ";
 
             var asset = AssetDatabase.LoadAssetAtPath<GameObject>(source);
@@ -276,7 +298,10 @@ namespace DungeonGen.Unity.Editor
                     anim.runtimeAnimatorController = controller;
                     anim.applyRootMotion = false;
                     anim.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
-                    root.AddComponent<AvatarVisual>().Animator = anim;
+                    var visual = root.AddComponent<AvatarVisual>();
+                    visual.Animator = anim;
+                    visual.Humanoid = human && controller != null && AnimationSetup.IsHumanoidSlug(spec.Slug);
+                    visual.RunClipSpeed = runSpeed;
                 }
                 else
                 {
@@ -347,7 +372,7 @@ namespace DungeonGen.Unity.Editor
             c.lockRootHeightY = true; c.keepOriginalPositionY = true;
             c.lockRootPositionXZ = false; c.keepOriginalPositionXZ = true;
             mi.clipAnimations = new[] { c };
-            if (!string.IsNullOrEmpty(motionNode)) mi.motionNodeName = motionNode;
+            if (!string.IsNullOrEmpty(motionNode)) mi.motionNodeName = motionNode;   // Generic rigs only; a Humanoid clip's root is its body
             mi.SaveAndReimport();
             var clip = AssetDatabase.LoadAllAssetsAtPath(path).OfType<AnimationClip>().FirstOrDefault(x => !x.name.StartsWith("__preview__", StringComparison.Ordinal));
             if (clip == null) { row.Notes += $"{action}: clip missing; "; return null; }

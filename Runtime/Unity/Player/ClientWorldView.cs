@@ -49,16 +49,40 @@ namespace DungeonGen.Unity
         /// <summary>Killed mobs still on the floor (for tests).</summary>
         public IEnumerable<GameObject> DyingAvatars { get { foreach (var d in _dying) if (d.go != null) yield return d.go; } }
         private IMatchTransport _transport;
+        private System.Action<byte[]> _onSnapshot, _onView;
 
+        /// <summary>
+        /// Listen to a transport. Idempotent: a second Attach to the same transport changes nothing, and attaching to another one
+        /// lets go of the first. (The offline host's <c>SendMessage("Attach")</c> to the input controller reaches every component on
+        /// the scene's Dungeon object, this one included, after the host already attached it; subscribing twice applied every
+        /// snapshot twice and raised <see cref="SnapshotApplied"/> twice per tick.)
+        /// </summary>
         public void Attach(IMatchTransport transport)
         {
+            if (transport == null || ReferenceEquals(transport, _transport)) return;
+            Detach();
             _transport = transport;
-            transport.SnapshotReceived += bytes => Apply(TeamSnapshot.FromBytes(bytes));
-            transport.ViewReceived += _ => SyncDoorsAndHazards();
+            _onSnapshot = bytes => Apply(TeamSnapshot.FromBytes(bytes));
+            _onView = _ => SyncDoorsAndHazards();
+            transport.SnapshotReceived += _onSnapshot;
+            transport.ViewReceived += _onView;
         }
+
+        /// <summary>Stop listening to the attached transport, if any.</summary>
+        public void Detach()
+        {
+            if (_transport == null) return;
+            if (_onSnapshot != null) _transport.SnapshotReceived -= _onSnapshot;
+            if (_onView != null) _transport.ViewReceived -= _onView;
+            _transport = null; _onSnapshot = null; _onView = null;
+        }
+
+        /// <summary>How many snapshots have been applied; for tests (one apply per snapshot sent).</summary>
+        public int AppliedCount { get; private set; }
 
         public void Apply(TeamSnapshot snap)
         {
+            AppliedCount++;
             Latest = snap;
             _seenThisSnapshot.Clear();
             foreach (var a in snap.Avatars)
@@ -88,6 +112,16 @@ namespace DungeonGen.Unity
                     else Destroy(gone);
                 }
                 Avatars.Remove(id); _lerp.Remove(id); _ground.Remove(id); _models.Remove(id); _last.Remove(id); _lastHitAt.Remove(id);
+            }
+            // Teammates' channels (looting, opening, praying) come in their self snapshots; anyone not listed is not seen channelling.
+            foreach (var a in snap.Avatars)
+            {
+                if (!Avatars.TryGetValue(a.Id, out var go) || go == null) continue;
+                var visual = go.GetComponent<AvatarVisual>();
+                if (visual == null) continue;
+                string channel = null;
+                foreach (var s in snap.Selves) if (s.PlayerId == a.Id) { channel = a.Dead || a.Downed ? null : s.ChannelName; break; }
+                visual.SetChannel(channel);
             }
             Self = snap.Selves.Count == 0 ? (SelfSnapshot?)null : snap.Selves.FirstOrDefault(s => s.PlayerId == LocalPlayerId);
             if (Self.HasValue && Self.Value.PlayerId != LocalPlayerId) Self = null;
@@ -143,6 +177,7 @@ namespace DungeonGen.Unity
 
         private void OnDestroy()
         {
+            Detach();
             foreach (var d in _dying) if (d.go != null) Destroy(d.go);
             _dying.Clear();
         }

@@ -7,32 +7,51 @@ namespace DungeonGen.Unity
 {
     /// <summary>
     /// The model side of one avatar: drives its Animator from what the snapshots say (Speed from the drawn ground motion,
-    /// Attack/Cast triggers from casts it made, Hit from hits it took, Downed/Dead bools), turns it smoothly toward its
-    /// facing, draws a team-coloured ring under its feet and swaps to a ghost material while invisible.
+    /// Attack/Cast triggers from casts it made, Hit from hits it took, Downed/Dead bools, Channel while it loots or prays), turns
+    /// it smoothly toward its facing, draws a team-coloured ring under its feet and swaps to a ghost material while invisible.
+    /// A <see cref="Humanoid"/> model runs an <c>AnimationSetup</c> role controller: the ground velocity in the model's own frame
+    /// (MoveX, MoveZ, divided by the avatar's human scale) picks walk, run, strafe or back-pedal from a directional blend, LocoRate
+    /// speeds the cycle up past the run clip's own speed, actions play full body while standing and on the upper-body layer
+    /// (weighted by speed) while moving, so a swing on the move keeps the legs running. It never writes <c>Animator.speed</c>, which <c>HitFeel</c> owns.
     /// <see cref="ClientWorldView"/> adds it to every library prefab it instantiates; the greybox capsule has none.
     /// </summary>
     public sealed class AvatarVisual : MonoBehaviour
     {
         public static readonly int SpeedId = Animator.StringToHash("Speed"), AttackId = Animator.StringToHash("Attack"), CastId = Animator.StringToHash("Cast"),
             HitId = Animator.StringToHash("Hit"), DeadId = Animator.StringToHash("Dead"), DownedId = Animator.StringToHash("Downed");
+        public static readonly int MoveXId = Animator.StringToHash("MoveX"), MoveZId = Animator.StringToHash("MoveZ"), LocoRateId = Animator.StringToHash("LocoRate"),
+            VariantId = Animator.StringToHash("Variant"), ChannelId = Animator.StringToHash("Channel"), ChannelPrayId = Animator.StringToHash("ChannelPray"),
+            AttackUId = Animator.StringToHash("AttackU"), CastUId = Animator.StringToHash("CastU"), HitUId = Animator.StringToHash("HitU"),
+            MoveSpeedId = Animator.StringToHash("MoveSpeed");
+        /// <summary>Channel kinds drawn kneeling in prayer; every other channel (door, chest, corpse, key, hazard) is drawn as reaching out to work it.</summary>
+        public static readonly string[] PrayerChannels = { "shrine", "revive", "extract" };
 
         public Animator Animator;
         [Tooltip("Degrees per second the model turns toward its facing.")] public float TurnRate = 720f;
         [Tooltip("Seconds between two hit flinches.")] public float HitCooldown = 0.6f;
         public bool IsBoss;
+        [Tooltip("The Animator runs an AnimationSetup role controller (Humanoid, directional locomotion, action layers).")] public bool Humanoid;
+        [Tooltip("The forward run clip's own root speed in the avatar's human scale; past it the cycle plays faster.")] public float RunClipSpeed = 3.6f;
 
         /// <summary>The last trigger fired ("Attack", "Cast" or "Hit"), when (Time.time), and how many so far. For tests and debugging.</summary>
         public string LastTrigger { get; private set; }
         public float LastTriggerTime { get; private set; } = -1f;
         public int TriggerCount { get; private set; }
         public float Speed => _speed;
+        /// <summary>The ground velocity fed to the blend: model-local X (right) and Z (forward), in the avatar's human scale per second.</summary>
+        public Vector2 LocalMove => _move;
+        /// <summary>The channel this avatar is drawn working (a channel kind such as "chest" or "shrine"), or null.</summary>
+        public string Channel { get; private set; }
         public Renderer Ring { get; private set; }
 
         private Quaternion _targetRotation = Quaternion.identity;
         private bool _hasFacing;
         private Vector3 _lastPos;
         private bool _hasLast;
-        private float _speed, _lastHit = -10f;
+        private float _speed, _lastHit = -10f, _moving;
+        private Vector3 _velocity;
+        private Vector2 _move;
+        private int _attacks, _casts;
         private bool _invisible;
         private Material _ringMaterial;
         private readonly List<(Renderer r, Material[] normal, Material[] ghost)> _materials = new List<(Renderer, Material[], Material[])>();
@@ -144,14 +163,41 @@ namespace DungeonGen.Unity
             Fire(basic ? AttackId : CastId, basic ? "Attack" : "Cast");
         }
 
+        /// <summary>The channel this avatar is working (from its team's self snapshot), or null when it is not channelling.</summary>
+        public void SetChannel(string kind)
+        {
+            if (string.IsNullOrEmpty(kind)) kind = null;
+            if (kind == Channel) return;
+            Channel = kind;
+            if (!Humanoid || Animator == null || Animator.runtimeAnimatorController == null) return;
+            Animator.SetBool(ChannelId, kind != null);
+            Animator.SetBool(ChannelPrayId, kind != null && System.Array.IndexOf(PrayerChannels, kind) >= 0);
+        }
+
+        /// <summary>Is any layer playing (or blending into) a state with this tag: "Attack", "Cast", "Hit", "Death", "Channel", "Locomotion" or "Empty"?</summary>
+        public bool IsPlaying(string tag)
+        {
+            if (Animator == null || !Animator.isActiveAndEnabled || Animator.runtimeAnimatorController == null) return false;
+            for (int l = 0; l < Animator.layerCount; l++)
+            {
+                if (Animator.GetCurrentAnimatorStateInfo(l).IsTag(tag)) return true;
+                if (Animator.IsInTransition(l) && Animator.GetNextAnimatorStateInfo(l).IsTag(tag)) return true;
+            }
+            return false;
+        }
+
         /// <summary>This avatar was hit. Flinches at most once per <see cref="HitCooldown"/> and never over its own attack.</summary>
         public void OnHit()
         {
             if (Time.time - _lastHit < HitCooldown) return;
             if (Animator != null && Animator.isActiveAndEnabled)
             {
-                var st = Animator.GetCurrentAnimatorStateInfo(0);
-                if (st.IsName("Attack") || st.IsName("Cast") || st.IsName("Death")) return;
+                if (Humanoid) { if (IsPlaying("Attack") || IsPlaying("Cast") || IsPlaying("Death")) return; }
+                else
+                {
+                    var st = Animator.GetCurrentAnimatorStateInfo(0);
+                    if (st.IsName("Attack") || st.IsName("Cast") || st.IsName("Death")) return;
+                }
             }
             _lastHit = Time.time;
             Fire(HitId, "Hit");
@@ -161,9 +207,25 @@ namespace DungeonGen.Unity
         {
             LastTrigger = name; LastTriggerTime = Time.time; TriggerCount++;
             if (Animator == null || Animator.runtimeAnimatorController == null) return;
-            if (id != HitId) Animator.ResetTrigger(HitId);
-            Animator.SetTrigger(id);
+            if (!Humanoid)
+            {
+                if (id != HitId) Animator.ResetTrigger(HitId);
+                Animator.SetTrigger(id);
+                return;
+            }
+            // Two variants per kind, alternated, so a string of basic attacks is not one swing on repeat. The upper-body layer always
+            // takes the action (its weight follows speed); the base layer takes it full body only while standing, so a trigger it
+            // cannot use is never left pending to fire when the body stops.
+            if (id == AttackId) Animator.SetInteger(VariantId, _attacks++ & 1);
+            else if (id == CastId) Animator.SetInteger(VariantId, _casts++ & 1);
+            int upper = id == AttackId ? AttackUId : id == CastId ? CastUId : HitUId;
+            if (id != HitId) { Animator.ResetTrigger(HitId); Animator.ResetTrigger(HitUId); }
+            if (_move.magnitude <= MovingSpeed) Animator.SetTrigger(id);
+            Animator.SetTrigger(upper);
         }
+
+        /// <summary>Human-scale ground speed above which actions play on the upper body only (the base layer cuts back to Walk past it too).</summary>
+        public const float MovingSpeed = 0.6f;
 
         private void LateUpdate()
         {
@@ -171,13 +233,33 @@ namespace DungeonGen.Unity
             var p = transform.position; p.y = 0f;
             if (_hasLast && dt > 0f)
             {
-                float raw = Mathf.Min(10f, (p - _lastPos).magnitude / dt);
-                _speed = Mathf.Lerp(_speed, raw, 1f - Mathf.Exp(-dt * 10f));
-                if (_speed < 0.02f) _speed = 0f;
+                var raw = Vector3.ClampMagnitude((p - _lastPos) / dt, 10f);
+                _velocity = Vector3.Lerp(_velocity, raw, 1f - Mathf.Exp(-dt * 10f));
+                _speed = _velocity.magnitude;
+                if (_speed < 0.02f) { _speed = 0f; _velocity = Vector3.zero; }
             }
             _lastPos = p; _hasLast = true;
-            if (Animator != null && Animator.runtimeAnimatorController != null) Animator.SetFloat(SpeedId, _speed);
             if (_hasFacing) transform.rotation = Quaternion.RotateTowards(transform.rotation, _targetRotation, TurnRate * dt);
+            if (Animator == null || Animator.runtimeAnimatorController == null) return;
+            Animator.SetFloat(SpeedId, _speed);
+            if (Humanoid) DriveHumanoid(dt);
+        }
+
+        /// <summary>Directional locomotion in the model's frame, the cycle rate past the run clip, and the action layers' split between full and upper body.</summary>
+        private void DriveHumanoid(float dt)
+        {
+            var local = Quaternion.Inverse(transform.rotation) * _velocity;
+            float scale = Animator.humanScale * Mathf.Abs(Animator.transform.lossyScale.y);
+            if (scale < 0.01f) scale = 1f;
+            _move = new Vector2(local.x, local.z) / scale;
+            Animator.SetFloat(MoveXId, _move.x);
+            Animator.SetFloat(MoveZId, _move.y);
+            Animator.SetFloat(MoveSpeedId, _move.magnitude);
+            float run = Mathf.Max(0.5f, RunClipSpeed), m = _move.magnitude;
+            Animator.SetFloat(LocoRateId, m > run ? Mathf.Min(1.8f, m / run) : 1f);
+            // Standing still a swing uses the whole body (base layer); on the move only the upper body, over the running legs.
+            _moving = Mathf.MoveTowards(_moving, Mathf.InverseLerp(0.3f, MovingSpeed, m), dt * 6f);
+            if (Animator.layerCount >= 2) Animator.SetLayerWeight(1, _moving);
         }
 
         private void OnDestroy()
