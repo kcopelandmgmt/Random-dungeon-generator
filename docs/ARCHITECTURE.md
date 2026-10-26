@@ -87,3 +87,6 @@ round on Play (dev casting on, one ally bot, bot teams); `VfxAudition` is the ef
 * Generated assets → `Assets/Generated/<models|audio>/<name>/` in the Unity project with a `manifest.json`.
   Audio: `Assets/Generated/audio/<abilities|combat|world|ui|ambience|voice/announcer|voice/boss>/<slug>.mp3`, one
   `manifest.json` (slug, file, category, prompt, duration, loop). Made by `Tools/AssetGen/elevenlabs.py` (resumable).
+  Models: `Assets/Generated/models/<slug>/` with `<slug>.fbx`, `_basecolor.png`, `_thumb.png` (untextured preview), and for
+  humanoids `_rigged.fbx` plus `_anim_<walk|run|idle|attack|cast|hit|death>.fbx` (mobs lack cast and hit); `manifest.json` per
+  folder and `models/ledger.json` for credits. Made by `Tools/AssetGen/meshy.py` (`run|status|balance|library`, resumable, 4,500-credit ceiling).

@@ -48,7 +48,7 @@ Scripting Define `FISHNET` only once Fishnet is installed.
 |---------|----------|---------|--------|
 | Meshy text-to-3D | `POST/GET https://api.meshy.ai/openapi/v2/text-to-3d` (preview → refine), `GET /openapi/v1/balance` | `Tools/AssetGen/meshy.py` | 7 keys, 6,383 credits on 2026-10-25; ceiling 4,500 |
 | Meshy rigging | `POST/GET https://api.meshy.ai/openapi/v1/rigging` (rigged GLB/FBX, walk and run) | same | 5 per rig |
-| Meshy animation | `/openapi/v1/animations` (3 credits per action) | same | |
+| Meshy animation | `/openapi/v1/animations` (`action_id`; one task per action for one FBX each), `/openapi/v1/animations/library` (search action ids) | same | 1,085 credits used for all 38 models on 2026-10-26 |
 | ElevenLabs sound effects | `POST https://api.elevenlabs.io/v1/sound-generation` | `Tools/AssetGen/elevenlabs.py` | 84,600 characters on 2026-10-25; ceiling 60,000 |
 | ElevenLabs speech | `POST https://api.elevenlabs.io/v1/text-to-speech/{voice_id}` (announcer voice Daniel `onwK4e9ZLuTAKqWW03F9`, boss voice Kallixis `cPoqAvGWCPfCfyPMwe4z`, model `eleven_multilingual_v2`) | same | |
 | ElevenLabs music | `POST https://api.elevenlabs.io/v1/music` (three 60 s tracks: exploration, combat, boss) | same | ~3.8k characters used for all 90 files on 2026-10-26 |

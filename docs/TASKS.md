@@ -12,7 +12,7 @@ could not be verified headless (say why).
 
 | # | Task | Owner | Status | Verified | Notes |
 |---|------|-------|--------|----------|-------|
-| 1.1 | Meshy generation tool `Tools/AssetGen/meshy.py` and the first model batch (3 classes, 2 bosses rigged; 3 mobs, chest, vault door, shrine, key, pillar, floor and wall tiles) into `Assets/Generated/models/` | agent | doing | | |
+| 1.1 | Meshy generation tool `Tools/AssetGen/meshy.py` and the model batch into `Assets/Generated/models/` | agent | done | 38/38 downloaded, textures checked by eye | 6 heroes and 5 humanoid bosses rigged with walk, run, idle, attack, cast, hit, death; 5 humanoid mobs rigged with walk, run, idle, attack, death; 4 non-humanoid bosses, 3 mobs, 15 props/tiles as textured meshes. 1,085 credits (keys 4–7); keys 1–3 untouched. |
 | 1.2 | ElevenLabs tool `Tools/AssetGen/elevenlabs.py` and the first sound batch (ability casts/impacts per element, hits, doors, chest, shrine, extract, UI, announcer lines) into `Assets/Generated/audio/` | agent | done | 90 files, 0 failures | abilities 26, combat 19, world 14, ui 6, ambience 5 (incl. 3 music tracks of 60 s from `/v1/music`), announcer 11, boss taunts 9. About 3,773 characters spent (music is billed outside the per-clip figures). Not listened to. |
 | 1.3 | Automatic VFX assignment: editor method that fills `AbilityVfxLibrary` for all 55 abilities from the Piloto pack by shape and element, respecting audition yes-votes | agent | doing | | |
 | 1.4 | Unity test harness: `Assets/Tests/PlayMode` with tests for scene build, hosting a practice round, movement, casting, door open; runnable through `unity-batch.sh tests PlayMode` | agent | doing | | |
@@ -25,7 +25,7 @@ could not be verified headless (say why).
 
 | # | Task | Depends on | Status |
 |---|------|-----------|--------|
-| 2.1 | Bind generated models: character/mob/boss visuals with Animator (idle, walk, attack, cast, hit, death) driven by snapshots; props and tiles as builder prefabs; editor importer that makes prefabs and URP materials | 1.1 | todo |
+| 2.1 | Bind generated models: character/mob/boss visuals with Animator (idle, walk, attack, cast, hit, death) driven by snapshots; props and tiles as builder prefabs; editor importer that makes prefabs and URP materials | 1.1 | doing |
 | 2.2 | Game audio: audio library asset, ability/hit/world/UI sounds from effects and events, announcer, music/ambience, honours mute; `[GreyboxStep]` wiring | 1.2 | doing |
 | 2.3 | Combat readability: telegraph circles that fill to the landing time, world-space health bars with ally/enemy colour and class icon, hit flash | 1.3, 1.7 | todo |
 | 2.4 | Real UI in uGUI built from code: main menu (play, class and spec, settings with volume, quit), in-round HUD (health, resource, ability bar, channel, clock, souls, silver, announcements), pause menu, death recap and round summary screens, return to menu; profile saved to disk and settled after each round | 1.5, 1.6 | doing |
