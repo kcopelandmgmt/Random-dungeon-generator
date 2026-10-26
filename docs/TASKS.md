@@ -27,7 +27,8 @@ could not be verified headless (say why).
 |---|------|-------|--------|----------|
 | 3.1 | Release-ready offline mode: round host out of the dev-only practice assembly (`OfflineMatch`), pause pauses offline, menu audio, release and dev builds, `smoke-release` end-to-end run of the release build | agent | doing | |
 | 3.2 | Loot, inventory and vendor: choose items (intent fields), loot/inventory/roll panels in round, stash and equipment and vendor in the menu | agent | doing | |
-| 3.3 | Atmosphere: dark ambient, black background, fog, URP post-processing, torch/brazier lights, fog of war for unexplored rooms, ability icons | — | queued (after 2.1 lands: shares DungeonBuilder) | |
+| 3.3 | Atmosphere: dark ambient, black background, fog, URP post-processing, torch/brazier lights, fog of war for unexplored rooms, ability icons, plus 2.1b visual leftovers | agent | doing | |
+| 3.6 | Round balance: survivable, fun rounds measured in RoundLab (extraction 35–60%, mixed death causes, bosses stay home, team beats a room boss) with a regression test | agent | doing | |
 | 3.4 | Audio leftovers (2.2b) | — | queued | |
 | 3.5 | Fishnet multiplayer (2.6) | — | queued | |
 
@@ -35,7 +36,8 @@ could not be verified headless (say why).
 
 | # | Task | Depends on | Status |
 |---|------|-----------|--------|
-| 2.1 | Bind generated models: character/mob/boss visuals with Animator (idle, walk, attack, cast, hit, death) driven by snapshots; props and tiles as builder prefabs; editor importer that makes prefabs and URP materials | 1.1 | doing |
+| 2.1 | Bind generated models: character/mob/boss visuals with Animator (idle, walk, attack, cast, hit, death) driven by snapshots; props and tiles as builder prefabs; editor importer that makes prefabs and URP materials | 1.1 | done (playmode 21/21 incl. 3 visual tests; build-win + smoke pass, no magenta; 9 model screenshots checked) |
+| 2.1b | Found while binding: every boss had id 99 so only one boss existed per round (fixed by orchestrator, 103b199, `MultiBossTests`); bots then extract 1/72 → balance pass started. Visual leftovers: arch wall slab dominates, thin low wall stretched, spawn/pit markers still greybox, mob death animation rarely plays (avatar removed when the snapshot drops it), walk/run root motion unverified, `WorldBars` counts `TeamRing` in body bounds | 2.1 | balance: doing; visuals → 3.3 |
 | 2.2 | Game audio: audio library asset, ability/hit/world/UI sounds from effects and events, announcer, music/ambience, honours mute; `[GreyboxStep]` wiring | 1.2 | done (compile, playmode 13/13 incl. 6 audio tests; silent) |
 | 2.2b | Audio left unmapped: hazard and torch loops need positions in the snapshot/view; per-element impact sounds need the element on Hit effects; footsteps for other avatars | 2.2 | todo |
 | 2.3 | Combat readability: telegraph circles that fill to the landing time, world-space health bars with ally/enemy colour and class icon, hit flash | 1.3, 1.7 | done (compile; playmode 21/21 incl. 2 readability tests; `telegraph.png`, `bars.png` checked by eye) |
