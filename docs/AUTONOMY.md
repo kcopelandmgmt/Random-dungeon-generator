@@ -97,7 +97,9 @@ it) or is queued (next), and reads the Requests lane at each planning pass. Agen
 Meshy: three keys, ~660 credits each (about 1,980). Text-to-3D preview costs 20 (meshy-7.1) or 5
 (meshy-6-lite); refine (texture) 10; auto-rig 5; animation 3 per action. Hero assets (the three
 slice classes, the two slice bosses) use meshy-7.1 with rigging; props, mobs and tiles use
-meshy-6-lite. Hard ceiling: 1,500 credits for the whole program; the tool refuses past it.
+meshy-6-lite. Hard ceiling: 4,500 credits for the whole program (raised when the owner added keys); the tool refuses past it.
+Spent by the end of wave 5: 2,295 (models, rigs and animations; 69 ability icons; 35 item icons; four remade models), per
+`dungeongame/Assets/Generated/models/ledger.json`.
 
 ElevenLabs: ~85,000 characters. Sound effects via `/v1/sound-generation`, announcer lines via
 `/v1/text-to-speech/{voice_id}` (voice "Daniel - Steady Broadcaster" `onwK4e9ZLuTAKqWW03F9`,

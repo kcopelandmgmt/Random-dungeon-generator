@@ -80,11 +80,14 @@ Assemblies: `DungeonGen.Core` (no engine references), `DungeonGen.Unity`, `Dunge
 
 ## Status
 
-Playable. A Windows build runs from launch to round to settlement and back: menus, character
-creation, a dark top-down dungeon of generated models under warm torchlight with fog of war, 69
-abilities with effects and icons, mobs, nine bosses with telegraphed wind-ups, loot and inventory,
-group rolls, shrines, the mid-round event, extraction, a stash, equipment and a vendor, offline
-against bot teams or online over FishNet (host, join or dedicated server). How to play:
-`docs/PLAYING.md`. How it was built and how to keep building it: `docs/AUTONOMY.md`,
-`docs/ARCHITECTURE.md`, `docs/DEPENDENCIES.md`, `docs/TASKS.md` (including what is still open:
-NAT traversal and matchmaking, a profile backend, client prediction, a name).
+Playable. A Windows build (about 146 MB) runs from launch to round to settlement and back: menus with
+gamepad navigation, character creation, a tutorial, a dark top-down dungeon of generated models under
+warm torchlight with fog of war, characters animated with Humanoid clips from bought packs, 69
+abilities with effects and icons, hit feel (shake, hit-stop, stacked damage numbers), mobs, nine
+bosses with telegraphed wind-ups and a final boss a full team can beat, loot with rarity beams and
+painted item icons, inventory, group rolls, shrines, the mid-round event, extraction with beacons, a
+uGUI minimap and compass, a paper-doll stash, a vendor and a crafting bench, rebindable keys and
+graphics settings, offline against bot teams or online over FishNet (host with UPnP, join by name,
+dedicated server, client-side movement prediction). How to play: `docs/PLAYING.md`. How it was built
+and how to keep building it: `docs/AUTONOMY.md`, `docs/ARCHITECTURE.md`, `docs/DEPENDENCIES.md`,
+`docs/TASKS.md` (including what is still open: a relay or matchmaking service, a profile backend, a name).
