@@ -65,6 +65,15 @@ tool prints a dungeon without Unity: `cd Tools/AsciiPreview && dotnet run -- --t
    This is a hard rule: a task is not finished until the documents say so.
 5. Commit to the branch with a message that says what changed and why; push.
 
+## The project board
+
+The owner follows progress on a live board: https://claude.ai/artifact/FqHgTUa8t5MYf4PvsMTkPi
+(lanes: In progress, Up next, Done, Known gaps, plus Requests the owner adds). Its cards are
+documents in the board's database collection `cards` (fields `ref`, `title`, `detail`, `column`
+= doing|next|done|gap|request, `area`, `wave`, `verified`, `order`, `updatedAt`). The orchestrator
+updates it with the ArtifactData tool when a task starts (doing), finishes (done, with what verified
+it) or is queued (next), and reads the Requests lane at each planning pass. Agents do not write it.
+
 ## Rules for every agent
 
 * Touch only the files your brief names. Two agents never write the same file; if you need a change
