@@ -33,9 +33,11 @@ namespace DungeonGen.Unity
 
         private void Bar(Rect r, float frac, Color c, string label)
         {
-            GUI.color = new Color(0f, 0f, 0f, 0.6f); GUI.DrawTexture(r, _white);
-            GUI.color = c; GUI.DrawTexture(new Rect(r.x, r.y, r.width * Mathf.Clamp01(frac), r.height), _white);
-            GUI.color = Color.white; GUI.Label(r, label, new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter });
+            GUI.color = new Color(0.15f, 0.13f, 0.125f, 1f); GUI.DrawTexture(r, _white);   // an inset track that still reads when empty
+            float w = (r.width - 2f) * Mathf.Clamp01(frac);
+            GUI.color = c; GUI.DrawTexture(new Rect(r.x + 1f, r.y + 1f, w, r.height - 2f), _white);
+            GUI.color = new Color(1f, 1f, 1f, 0.14f); GUI.DrawTexture(new Rect(r.x + 1f, r.y + 1f, w, Mathf.Max(1f, (r.height - 2f) * 0.35f)), _white);   // a soft highlight along the top
+            GUI.color = Color.white; GUI.Label(r, label, new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontSize = 18 });
         }
 
         private void OnGUI()
@@ -55,7 +57,7 @@ namespace DungeonGen.Unity
                 bool locked = i == 4 && !self.UltimateArmed;
                 GUI.color = locked ? new Color(0.2f, 0.2f, 0.2f, 0.8f) : cd > 0f ? new Color(0.3f, 0.3f, 0.3f, 0.9f) : (i == 4 ? new Color(1f, 0.85f, 0.2f, 0.9f) : new Color(0.5f, 0.5f, 0.55f, 0.9f));
                 GUI.DrawTexture(r, _white); GUI.color = Color.white;
-                GUI.Label(r, locked ? "2 souls" : cd > 0f ? $"{cd:0.0}" : keys[i], new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter });
+                GUI.Label(r, locked ? "2 souls" : cd > 0f ? $"{cd:0.0}" : keys[i], new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontSize = 18 });
             }
             if (!string.IsNullOrEmpty(self.ChannelName)) Bar(new Rect(Screen.width / 2f - 120f, Screen.height / 2f + 60f, 240f, 16f), self.ChannelFraction, new Color(0.9f, 0.8f, 0.3f), self.ChannelName);
             if (self.DownedRemaining > 0f) GUI.Label(new Rect(Screen.width / 2f - 120f, Screen.height / 2f - 40f, 240f, 30f), $"DOWNED  {self.DownedRemaining:0}s", new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontSize = 20 });
@@ -64,8 +66,8 @@ namespace DungeonGen.Unity
                 var st = Bootstrap.State;
                 float remaining = Mathf.Max(0f, st.Descriptor.Rules.RoundSeconds - st.Time);
                 string clock = $"{(int)remaining / 60:0}:{(int)remaining % 60:00}" + (st.ExtractsOpen ? "  extracts open" : $"  extracts in {Mathf.Max(0f, st.Descriptor.Rules.ExtractsOpenAfterSeconds - st.Time):0}s") + (st.BossExitOpen ? "  EXIT OPEN" : "");
-                GUI.Label(new Rect(Screen.width - 340f, 44f, 330f, 24f), clock, new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleRight });
-                if (st.PlayerTeam.TryGetValue(World.LocalPlayerId, out _)) GUI.Label(new Rect(Screen.width - 340f, 68f, 330f, 24f), $"souls {st.SoulsOf(World.LocalPlayerId)}  silver {(st.PlayerSilver.TryGetValue(World.LocalPlayerId, out int sv) ? sv : 0)}", new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleRight });
+                GUI.Label(new Rect(Screen.width - 340f, 44f, 330f, 24f), clock, new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleRight, fontSize = 18 });
+                if (st.PlayerTeam.TryGetValue(World.LocalPlayerId, out _)) GUI.Label(new Rect(Screen.width - 340f, 68f, 330f, 24f), $"souls {st.SoulsOf(World.LocalPlayerId)}  silver {(st.PlayerSilver.TryGetValue(World.LocalPlayerId, out int sv) ? sv : 0)}", new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleRight, fontSize = 18 });
             }
             if (Time.time - _announcedAt < AnnouncementSeconds && !string.IsNullOrEmpty(_announcement))
                 GUI.Label(new Rect(Screen.width / 2f - 300f, 60f, 600f, 30f), _announcement, new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontSize = 18 });

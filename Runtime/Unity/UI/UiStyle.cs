@@ -37,12 +37,36 @@ namespace DungeonGen.Unity.UI
         public static readonly Color ButtonBg = new Color(0.120f, 0.100f, 0.100f, 0.95f);
         public static readonly Color ButtonHover = new Color(0.250f, 0.195f, 0.120f, 1f);
         public static readonly Color ButtonPressed = new Color(0.360f, 0.280f, 0.150f, 1f);
+        /// <summary>The inset of a bar: lighter than the panels around it so an empty bar still reads as a bar.</summary>
+        public static readonly Color BarTrack = new Color(0.150f, 0.130f, 0.125f, 1f);
         public static readonly Color Selected = new Color(0.300f, 0.230f, 0.120f, 0.95f);
+        /// <summary>Secondary text on a brown or dark card: lighter than <see cref="TextDim"/> so it keeps contrast on <see cref="Selected"/>.</summary>
+        public static readonly Color TextSoft = new Color(0.840f, 0.795f, 0.710f, 1f);
+        // A disabled button: dimmed text, no gold border, a darker face (see UiButtonState).
+        public static readonly Color TextDisabled = new Color(0.400f, 0.375f, 0.345f, 1f);
+        public static readonly Color FrameDisabled = new Color(0.300f, 0.270f, 0.240f, 0.45f);
+        public static readonly Color ButtonDisabled = new Color(0.075f, 0.068f, 0.068f, 0.80f);
+
+        /// <summary>
+        /// The type scale at the 1920x1080 reference. Every screen draws from these so no two screens pick their own size:
+        /// nothing is under <see cref="Small"/> except the HUD's slot captions (<see cref="Caption"/>).
+        /// </summary>
+        public static class Size
+        {
+            public const int Caption = 16;   // HUD slot captions only
+            public const int Small = 18;     // notes, hints, secondary lines
+            public const int Body = 20;      // running text, lists
+            public const int Label = 24;     // row labels, buttons
+            public const int Heading = 30;   // panel headings, big buttons
+            public const int Title = 40;     // screen titles, the clock
+            public const int Hero = 56;      // banners (DOWNED, YOU DIED)
+            public const int Display = 96;   // the game's name on the main menu
+        }
 
         private static Font _font;
         public static Font Font => _font != null ? _font : (_font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf"));
 
-        private static Sprite _white, _rounded, _frame, _vignette, _circle, _glow;
+        private static Sprite _white, _rounded, _frame, _vignette, _circle, _glow, _barGradient;
         /// <summary>A plain sprite (filled images need one to fill).</summary>
         public static Sprite White => _white != null ? _white : (_white = Sprite.Create(Texture2D.whiteTexture, new Rect(0, 0, 4, 4), new Vector2(0.5f, 0.5f), 100f));
         /// <summary>Rounded rectangle, 9-sliced.</summary>
@@ -54,6 +78,8 @@ namespace DungeonGen.Unity.UI
         /// <summary>A radial darkening for full-screen backdrops.</summary>
         /// <summary>A soft radial glow (white centre fading to nothing).</summary>
         public static Sprite Glow => _glow != null ? _glow : (_glow = MakeGlow(128));
+        /// <summary>A vertical shading, bright at the top and darker at the bottom (white tinted by the image colour): the body of a bar.</summary>
+        public static Sprite BarGradient => _barGradient != null ? _barGradient : (_barGradient = MakeBarGradient(32));
         public static Sprite Vignette => _vignette != null ? _vignette : (_vignette = MakeVignette(128));
 
         // ---------------- building blocks ----------------
@@ -103,7 +129,7 @@ namespace DungeonGen.Unity.UI
             return bg.rectTransform;
         }
 
-        public static Text Label(Transform parent, string name, string text, int size = 24, Color? color = null, TextAnchor align = TextAnchor.MiddleLeft, FontStyle style = FontStyle.Normal, bool shadow = true)
+        public static Text Label(Transform parent, string name, string text, int size = Size.Label, Color? color = null, TextAnchor align = TextAnchor.MiddleLeft, FontStyle style = FontStyle.Normal, bool shadow = true)
         {
             var rt = Node(parent, name);
             var t = rt.gameObject.AddComponent<Text>();
@@ -122,14 +148,14 @@ namespace DungeonGen.Unity.UI
             return img;
         }
 
-        public static Button MakeButton(Transform parent, string name, string label, Action onClick, int fontSize = 26)
+        public static Button MakeButton(Transform parent, string name, string label, Action onClick, int fontSize = Size.Label)
         {
             var bg = Img(parent, name, Color.white, Rounded);
             bg.raycastTarget = true;
             var b = bg.gameObject.AddComponent<UnityEngine.UI.Button>();
             b.targetGraphic = bg;
             var cb = b.colors;
-            cb.normalColor = ButtonBg; cb.highlightedColor = ButtonHover; cb.selectedColor = ButtonHover; cb.pressedColor = ButtonPressed; cb.disabledColor = new Color(0.08f, 0.07f, 0.07f, 0.7f);
+            cb.normalColor = ButtonBg; cb.highlightedColor = ButtonHover; cb.selectedColor = ButtonHover; cb.pressedColor = ButtonPressed; cb.disabledColor = ButtonDisabled;
             cb.colorMultiplier = 1f; cb.fadeDuration = 0f;   // instant: a fade from white shows as a pale button for a few frames
             b.colors = cb;
             var frame = Img(bg.transform, "Frame", GoldDim, Frame);
@@ -137,6 +163,7 @@ namespace DungeonGen.Unity.UI
             var t = Label(bg.transform, "Label", label, fontSize, TextMain, TextAnchor.MiddleCenter);
             t.rectTransform.Stretch(12f, 12f, 4f, 4f);
             bg.gameObject.AddComponent<UiButtonSound>();
+            bg.gameObject.AddComponent<UiButtonState>();   // dimmed text and no gold border while the button is not interactable
             MenuItem.Attach(b);   // gold selection outline for gamepad / keyboard navigation, and registration with the MenuNavigator
             if (onClick != null) b.onClick.AddListener(() => onClick());
             return b;
@@ -155,7 +182,7 @@ namespace DungeonGen.Unity.UI
             cb.normalColor = selected ? Selected : ButtonBg;
             b.colors = cb;
             var frame = b.transform.Find("Frame")?.GetComponent<Image>();
-            if (frame != null) frame.color = selected ? Gold : GoldDim;
+            if (frame != null) frame.color = !b.interactable ? FrameDisabled : selected ? Gold : GoldDim;
         }
 
         public static Slider MakeSlider(Transform parent, string name, float value, Action<float> onChanged)
@@ -182,7 +209,7 @@ namespace DungeonGen.Unity.UI
             return s;
         }
 
-        public static InputField MakeInput(Transform parent, string name, string placeholder, int fontSize = 28)
+        public static InputField MakeInput(Transform parent, string name, string placeholder, int fontSize = Size.Heading)
         {
             var bg = Img(parent, name, new Color(0f, 0f, 0f, 0.55f), Rounded);
             bg.raycastTarget = true;
@@ -302,6 +329,21 @@ namespace DungeonGen.Unity.UI
             return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
         }
 
+        private static Sprite MakeBarGradient(int height)
+        {
+            var tex = new Texture2D(4, height, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear, name = "ui-bar-gradient" };
+            var px = new Color32[4 * height];
+            for (int y = 0; y < height; y++)
+            {
+                float t = y / (float)(height - 1);                       // 0 bottom, 1 top
+                float shade = Mathf.Lerp(0.56f, 1.12f, t);               // a little over 1 near the top: a soft highlight once tinted
+                byte v = (byte)(Mathf.Clamp01(shade) * 255f);
+                for (int x = 0; x < 4; x++) px[y * 4 + x] = new Color32(v, v, v, 255);
+            }
+            tex.SetPixels32(px); tex.Apply(false, true);
+            return Sprite.Create(tex, new Rect(0, 0, 4, height), new Vector2(0.5f, 0.5f), 100f);
+        }
+
         private static Sprite MakeVignette(int size)
         {
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, name = "ui-vignette" };
@@ -316,6 +358,40 @@ namespace DungeonGen.Unity.UI
                 }
             tex.SetPixels32(px); tex.Apply(false, true);
             return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
+        }
+    }
+
+    /// <summary>
+    /// On every <see cref="UiStyle.MakeButton"/> button: while it is not interactable its label is dimmed, its border loses the gold and its
+    /// face goes dark, so a disabled button never looks like an enabled one. Reads <c>interactable</c> each frame (callers just assign it),
+    /// and gives the caller's label colour and border back when the button is enabled again.
+    /// </summary>
+    public sealed class UiButtonState : MonoBehaviour
+    {
+        private Button _button;
+        private Text _label;
+        private Image _frame;
+        private bool? _shownEnabled;
+        private Color _labelColour = UiStyle.TextMain;
+
+        private void Awake() { _button = GetComponent<Button>(); }
+        private void OnEnable() { _shownEnabled = null; Apply(); }
+        private void Update() => Apply();
+
+        private void Apply()
+        {
+            if (_button == null) return;
+            bool on = _button.IsInteractable();
+            if (_shownEnabled.HasValue && _shownEnabled.Value == on) return;
+            if (_label == null) _label = GetComponentInChildren<Text>(true);
+            if (_frame == null) { var f = transform.Find("Frame"); if (f != null) _frame = f.GetComponent<Image>(); }
+            if (_label != null)
+            {
+                if (!on) { if (_label.color != UiStyle.TextDisabled) _labelColour = _label.color; _label.color = UiStyle.TextDisabled; }   // remember what the caller chose
+                else if (_label.color == UiStyle.TextDisabled) _label.color = _labelColour;
+            }
+            if (_frame != null) _frame.color = on ? (_button.colors.normalColor == UiStyle.Selected ? UiStyle.Gold : UiStyle.GoldDim) : UiStyle.FrameDisabled;
+            _shownEnabled = on;
         }
     }
 }

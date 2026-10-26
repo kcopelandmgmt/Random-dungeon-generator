@@ -34,7 +34,7 @@ namespace DungeonGen.Core.Net
 
     /// <summary>
     /// What the death screen says. The killer by class and weapon spec, never by name (the same
-    /// rule as what you see on a living enemy), the last hits, and how long you lay downed.
+    /// rule as what you see on a living enemy) when it is a player, and by name when it is a monster or boss; the last hits, and how long you lay downed.
     /// </summary>
     public sealed class DeathRecap
     {
@@ -43,15 +43,28 @@ namespace DungeonGen.Core.Net
         public int Killer { get; private set; } = -1;
         public string KillerClass { get; private set; }
         public string KillerSpec { get; private set; }
+        /// <summary>The monster or boss that struck the last blow ("Skitterer", "Hollow Knight"); null for a player, the dungeon or the clock. A monster is named, unlike a player, because nothing about it is hidden from you.</summary>
+        public string KillerName { get; private set; }
+        /// <summary>Was the killer a player (set only when the killer id belongs to a seated player)?</summary>
+        public bool KillerIsPlayer { get; private set; }
         public bool KilledByTeammate { get; private set; }
         public bool Finished { get; private set; }
         public float DownedSeconds { get; private set; }
         public IReadOnlyList<Hit> LastHits { get; private set; } = Array.Empty<Hit>();
         public string Headline =>
-            Killer < 0 ? (Finished ? "Finished by the dungeon." : "Killed by the dungeon.") :
+            Killer < 0 ? Strings.Get(Finished ? "death.finished_by_dungeon" : "death.by_dungeon") :
+            !KillerIsPlayer ? string.Format(Strings.Get(Finished ? "death.finished_by_monster" : "death.by_monster"), WithArticle(KillerName)) :
             $"{(Finished ? "Finished" : "Killed")} by {(KilledByTeammate ? "your own " : "a ")}{KillerClass ?? "player"}{(KillerSpec != null ? " (" + KillerSpec + ")" : "")}.";
 
-        public static DeathRecap For(MatchState st, int victim, HitLog hits)
+        /// <summary>"the Skitterer", "The Sovereign Below" stays as it is; no name at all reads "a monster".</summary>
+        public static string WithArticle(string name) =>
+            string.IsNullOrEmpty(name) ? "a monster" : name.StartsWith("The ", StringComparison.Ordinal) ? name : "the " + name;
+
+        /// <summary>
+        /// The recap for <paramref name="victim"/>. <paramref name="monsterName"/> turns a combatant id into a monster's or boss's name for the
+        /// headline (the round state only knows players); without it a monster killer reads "a monster".
+        /// </summary>
+        public static DeathRecap For(MatchState st, int victim, HitLog hits, Func<int, string> monsterName = null)
         {
             var r = new DeathRecap { Victim = victim };
             MatchEvent? death = null, downed = null;
@@ -67,19 +80,21 @@ namespace DungeonGen.Core.Net
             if (downed != null && downed.Value.Time <= d.Time) r.DownedSeconds = d.Time - downed.Value.Time;
             if (d.B >= 0 && st.PlayerTeam.ContainsKey(d.B))
             {
+                r.KillerIsPlayer = true;
                 r.KillerClass = st.ClassOf(d.B)?.Name;
                 r.KilledByTeammate = st.PlayerTeam.TryGetValue(victim, out int vt) && st.PlayerTeam[d.B] == vt;
             }
             var last = hits?.LastHits(victim) ?? Array.Empty<Hit>();
             r.LastHits = last;
             r.KillerSpec = last.LastOrDefault(h => h.Attacker == d.B).AttackerSpec;
+            if (d.B >= 0 && !r.KillerIsPlayer) { r.KillerSpec = null; r.KillerName = monsterName?.Invoke(d.B); }   // "Mob" and "Boss" are the sim's spec tags, not something to show
             return r;
         }
 
         /// <summary>The recap on the wire (a remote client's death screen; the host builds it from its own hit log).</summary>
         public void Write(BinaryWriter w)
         {
-            w.Write(Victim); w.Write(Killer); w.Write(KillerClass ?? ""); w.Write(KillerSpec ?? ""); w.Write(KilledByTeammate); w.Write(Finished); w.Write(DownedSeconds);
+            w.Write(Victim); w.Write(Killer); w.Write(KillerClass ?? ""); w.Write(KillerSpec ?? ""); w.Write(KilledByTeammate); w.Write(Finished); w.Write(DownedSeconds); w.Write(KillerName ?? ""); w.Write(KillerIsPlayer);
             w.Write(LastHits.Count);
             foreach (var h in LastHits) { w.Write(h.Time); w.Write(h.Attacker); w.Write(h.AttackerSpec ?? ""); w.Write((byte)h.Type); w.Write(h.Amount); w.Write(h.Ability ?? ""); }
         }
@@ -88,6 +103,7 @@ namespace DungeonGen.Core.Net
         {
             string Opt(string s) => s.Length == 0 ? null : s;
             var d = new DeathRecap { Victim = r.ReadInt32(), Killer = r.ReadInt32(), KillerClass = Opt(r.ReadString()), KillerSpec = Opt(r.ReadString()), KilledByTeammate = r.ReadBoolean(), Finished = r.ReadBoolean(), DownedSeconds = r.ReadSingle() };
+            d.KillerName = Opt(r.ReadString()); d.KillerIsPlayer = r.ReadBoolean();
             int n = r.ReadInt32();
             var hits = new List<Hit>(n);
             for (int i = 0; i < n; i++) hits.Add(new Hit(r.ReadSingle(), r.ReadInt32(), Opt(r.ReadString()), (DamageType)r.ReadByte(), r.ReadSingle(), Opt(r.ReadString())));
@@ -196,7 +212,7 @@ namespace DungeonGen.Core.Net
             foreach (var kv in bag.Essences.OrderBy(kv => kv.Key, StringComparer.Ordinal)) res.SalvageEssences.Add((kv.Key, kv.Value));
             if (outcome == Profile.RoundOutcome.Died)
             {
-                res.Recap = DeathRecap.For(st, playerId, server.Sim?.Hits);
+                res.Recap = DeathRecap.For(st, playerId, server.Sim?.Hits, id => server.Sim?.Get(id)?.Name);
                 foreach (var h in res.Recap.LastHits)
                 {
                     var c = server.Sim?.Get(h.Attacker);

@@ -59,7 +59,7 @@ namespace DungeonGen.Unity.UI
             if (Server == null) Server = FindFirstObjectByType<ServerSimulation>();
             PendingShrineActions.Clear();
             _panel = UiStyle.Panel(transform, PanelName);
-            _panel.Place(new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(36f, 250f), new Vector2(Width, 200f));
+            _panel.Place(new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(36f, 276f), new Vector2(Width, 200f));   // clear of the vitals plate
             _panel.gameObject.SetActive(false);
         }
 
@@ -115,15 +115,15 @@ namespace DungeonGen.Unity.UI
                 c.SetParent(null, false);
                 Destroy(c.gameObject);
             }
-            var t = UiStyle.Label(_panel, "Title", "SHRINE", 30, UiStyle.Gold, TextAnchor.MiddleLeft, FontStyle.Bold);
+            var t = UiStyle.Label(_panel, "Title", "SHRINE", UiStyle.Size.Heading, UiStyle.Gold, TextAnchor.MiddleLeft, FontStyle.Bold);
             t.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(26f, -14f), new Vector2(240f, 40f));
-            var souls = UiStyle.Label(_panel, "ShrineSouls", $"Souls  <b>{o.Souls}</b>", 22, o.Souls > 0 ? UiStyle.Gold : UiStyle.TextDim, TextAnchor.MiddleRight);
+            var souls = UiStyle.Label(_panel, "ShrineSouls", $"Souls  <b>{o.Souls}</b>", UiStyle.Size.Label, o.Souls > 0 ? UiStyle.Gold : UiStyle.TextDim, TextAnchor.MiddleRight);
             souls.rectTransform.Place(new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-26f, -16f), new Vector2(240f, 36f));
             UiStyle.Rule(_panel, "Rule", Inner, -62f);
             float y = -72f;
             if (o.Refusal != null)
             {
-                var why = UiStyle.Label(_panel, "ShrineRefusal", Capital(o.Refusal) + ".", 20, UiStyle.Bad, TextAnchor.MiddleLeft);
+                var why = UiStyle.Label(_panel, "ShrineRefusal", Capital(o.Refusal) + ".", UiStyle.Size.Body, UiStyle.Bad, TextAnchor.MiddleLeft);
                 why.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(26f, y), new Vector2(Inner, 30f));
                 y -= 36f;
             }
@@ -146,34 +146,37 @@ namespace DungeonGen.Unity.UI
         private void Section(string title, ref float y)
         {
             y -= 6f;
-            var s = UiStyle.Label(_panel, "Section-" + title, title, 17, UiStyle.GoldDim, TextAnchor.MiddleLeft, FontStyle.Bold);
+            var s = UiStyle.Label(_panel, "Section-" + title, title, UiStyle.Size.Small, UiStyle.GoldDim, TextAnchor.MiddleLeft, FontStyle.Bold);
             s.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(26f, y), new Vector2(Inner, 24f));
             y -= 28f;
         }
 
         private void Note(string name, string text, ref float y)
         {
-            var n = UiStyle.Label(_panel, name, text, 18, UiStyle.TextFaint, TextAnchor.MiddleLeft);
-            n.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(26f, y), new Vector2(Inner, 26f));
-            y -= 30f;
+            var n = UiStyle.Label(_panel, name, text, UiStyle.Size.Small, UiStyle.TextDim, TextAnchor.UpperLeft);
+            n.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(26f, y), new Vector2(Inner, 48f));
+            y -= text.Length > 52 ? 54f : 30f;
         }
 
         /// <summary>One choice: its name, the price (or why not, in red), and a button that queues it when it can be had.</summary>
         private void Row(string name, string title, string price, ShrineChoice choice, string verb, System.Action queue, ref float y)
         {
-            var row = UiStyle.Node(_panel, name + "-Row");
-            row.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(26f, y), new Vector2(Inner, 52f));
-            var head = UiStyle.Label(row, name + "-Name", title, 21, choice.Available ? UiStyle.TextMain : UiStyle.TextDim, TextAnchor.MiddleLeft);
-            head.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), Vector2.zero, new Vector2(Inner - 150f, 28f));
             bool armed = choice.Action == ShrineAction.ArmUltimate && choice.Refusal == "already armed";
-            string sub = choice.Available || armed ? price : UiStyle.Colour(Capital(choice.Refusal), UiStyle.Bad) + UiStyle.Colour("  ·  " + price, UiStyle.TextFaint);
-            var note = UiStyle.Label(row, name + "-Note", sub, 16, UiStyle.TextDim, TextAnchor.MiddleLeft);
-            note.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, -27f), new Vector2(Inner - 150f, 24f));
-            var b = UiStyle.MakeButton(row, name, armed ? "Armed" : verb, () => { if (choice.Available) { queue(); UiSound.Play(UiSound.Confirm); } }, 19);
-            ((RectTransform)b.transform).Place(new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), Vector2.zero, new Vector2(136f, 42f));
-            b.interactable = choice.Available;
+            bool plain = choice.Available || armed;
+            // A choice that cannot be had says why on its own line, with the price under it, so nothing wraps into the next row.
+            string sub = plain ? price : UiStyle.Colour(Capital(choice.Refusal), UiStyle.Bad) + "\n" + UiStyle.Colour(price, UiStyle.TextDim);
+            float rowH = plain ? 62f : 88f;
+            var row = UiStyle.Node(_panel, name + "-Row");
+            row.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(26f, y), new Vector2(Inner, rowH - 6f));
+            var head = UiStyle.Label(row, name + "-Name", title, UiStyle.Size.Label, choice.Available ? UiStyle.TextMain : UiStyle.TextDim, TextAnchor.MiddleLeft);
+            head.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), Vector2.zero, new Vector2(Inner - 150f, 32f));
+            var note = UiStyle.Label(row, name + "-Note", sub, UiStyle.Size.Small, UiStyle.TextSoft, TextAnchor.UpperLeft);
+            note.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, -32f), new Vector2(Inner - 150f, plain ? 26f : 50f));
+            var b = UiStyle.MakeButton(row, name, armed ? "Armed" : verb, () => { if (choice.Available) { queue(); UiSound.Play(UiSound.Confirm); } }, UiStyle.Size.Body);
+            ((RectTransform)b.transform).Place(new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), Vector2.zero, new Vector2(136f, 46f));
+            b.interactable = choice.Available || armed;   // "Armed" is a state, not a refusal: it keeps its gold look (the click does nothing)
             if (armed) b.SetSelected(true);
-            y -= 58f;
+            y -= rowH;
         }
 
         private static string Capital(string s) => string.IsNullOrEmpty(s) ? s : char.ToUpperInvariant(s[0]) + s.Substring(1);

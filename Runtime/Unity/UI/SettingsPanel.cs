@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace DungeonGen.Unity.UI
@@ -56,6 +57,7 @@ namespace DungeonGen.Unity.UI
             hint.rectTransform.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 56f), new Vector2(300f, 28f));
 
             ui.ShowTab(tab);
+            ui.Built = true;   // from here on a tab change also moves the keyboard / gamepad focus onto the tab
             return p;
         }
 
@@ -67,6 +69,8 @@ namespace DungeonGen.Unity.UI
             public Text Message;
             public readonly Dictionary<string, Button> TabButtons = new Dictionary<string, Button>();
             public string Tab;
+            public bool Built;
+            private Image _tabMark;
             private readonly List<Action> _refresh = new List<Action>();
             private Action _resetTab;
 
@@ -76,7 +80,22 @@ namespace DungeonGen.Unity.UI
                 for (int i = Content.childCount - 1; i >= 0; i--) UnityEngine.Object.Destroy(Content.GetChild(i).gameObject);
                 _refresh.Clear(); _resetTab = null;
                 Message.text = "";
-                foreach (var kv in TabButtons) kv.Value.SetSelected(kv.Key == tab);
+                foreach (var kv in TabButtons)
+                {
+                    bool active = kv.Key == tab;
+                    kv.Value.SetSelected(active);
+                    var label = kv.Value.GetComponentInChildren<Text>(true);
+                    if (label != null) label.color = active ? UiStyle.Gold : UiStyle.TextDim;
+                    if (active)
+                    {
+                        // The active tab leads the hierarchy, so the menu navigator's "first control" is the tab you are on, not always Audio.
+                        kv.Value.transform.SetAsFirstSibling();
+                        if (_tabMark == null) _tabMark = UiStyle.Img(Panel, "TabMark", UiStyle.Gold, UiStyle.White);
+                        var rt = _tabMark.rectTransform; var tabRt = (RectTransform)kv.Value.transform;
+                        rt.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(tabRt.anchoredPosition.x, tabRt.anchoredPosition.y - tabRt.sizeDelta.y - 4f), new Vector2(tabRt.sizeDelta.x, 5f));
+                    }
+                }
+                if (Built && EventSystem.current != null && TabButtons.TryGetValue(tab, out var activeButton)) EventSystem.current.SetSelectedGameObject(activeButton.gameObject);
                 // Build into a fresh child: the old content is destroyed at the end of the frame.
                 var holder = UiStyle.Node(Content, "Tab-" + tab);
                 holder.Stretch();

@@ -22,6 +22,7 @@ namespace DungeonGen.Core
             ["hud.vault_locked"] = "Vault (locked)", ["hud.vault_open"] = "Vault (open)",
             ["hud.shrine"] = "Shrine", ["hud.spawn"] = "Spawn",
             ["death.by_dungeon"] = "Killed by the dungeon.", ["death.finished_by_dungeon"] = "Finished by the dungeon.",
+            ["death.by_monster"] = "Killed by {0}.", ["death.finished_by_monster"] = "Finished by {0}.",
             ["roll.need"] = "Need", ["roll.greed"] = "Greed", ["roll.pass"] = "Pass",
             ["event.elite"] = "Something old walks the halls, and it carries a relic.",
             ["event.vault"] = "A vault's lock has failed. It will not stay open long.",

@@ -7,9 +7,6 @@ using DungeonGen.Core.Net;
 using DungeonGen.Core.Profile;
 using UnityEngine;
 using UnityEngine.UI;
-#if DUNGEONGEN_INPUTSYSTEM
-using UnityEngine.InputSystem;
-#endif
 
 namespace DungeonGen.Unity.UI
 {
@@ -54,6 +51,8 @@ namespace DungeonGen.Unity.UI
         private readonly float[] _cdMax = new float[5];
         private int _lastCountdown = -1;
         private float _outAt = -1f; private bool _recapDismissed;
+        /// <summary>The round is over for the local player, or a summary or the pause menu is up: the in-round overlays (downed banner, channel bar, announcements) stand down.</summary>
+        private bool _hideRoundOverlays;
         private readonly List<MonoBehaviour> _silenced = new List<MonoBehaviour>();
         private bool _modal;
 
@@ -112,73 +111,76 @@ namespace DungeonGen.Unity.UI
         {
             _root = UiStyle.Node(transform, "HUD"); _root.Stretch();
 
-            // Vitals and abilities, bottom centre.
+            // Vitals and abilities, bottom centre: bars on top, then the five abilities and the two pockets, each with its caption under it.
             var bottom = UiStyle.Node(_root, "Bottom");
-            bottom.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 20f), new Vector2(840f, 220f));
-            var plate = UiStyle.Panel(bottom, "Plate", new Color(0.05f, 0.045f, 0.05f, 0.72f), true, false);
+            bottom.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 16f), new Vector2(860f, 244f));
+            var plate = UiStyle.Panel(bottom, "Plate", new Color(0.05f, 0.045f, 0.05f, 0.80f), true, false);
             plate.Stretch();
-            _health = new UiBar(bottom, "Health", new Vector2(780f, 30f), UiStyle.Health);
-            _health.Root.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -16f), new Vector2(780f, 30f));
-            _healthText = UiStyle.Label(_health.Root, "Label", "", 20, UiStyle.TextMain, TextAnchor.MiddleCenter, FontStyle.Bold);
+            _health = new UiBar(bottom, "Health", new Vector2(800f, 34f), UiStyle.Health) { TrailEnabled = true };
+            _health.Root.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -18f), new Vector2(800f, 34f));
+            _healthText = UiStyle.Label(_health.Root, "Label", "", UiStyle.Size.Label, UiStyle.TextMain, TextAnchor.MiddleCenter, FontStyle.Bold);
             _healthText.rectTransform.Stretch();
-            _resource = new UiBar(bottom, "Resource", new Vector2(780f, 12f), UiStyle.Resource);
-            _resource.Root.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -52f), new Vector2(780f, 12f));
+            _resource = new UiBar(bottom, "Resource", new Vector2(800f, 14f), UiStyle.Resource) { TrailEnabled = true };
+            _resource.Root.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -60f), new Vector2(800f, 14f));
             for (int i = 0; i < 5; i++)
             {
-                _slots[i] = MakeSlot(bottom, "Ability-" + Keys[i], Keys[i], 92f);
-                _slots[i].Root.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-310f + i * 104f, 42f), new Vector2(92f, 92f));
+                _slots[i] = MakeSlot(bottom, "Ability-" + Keys[i], Keys[i], 96f);
+                _slots[i].Root.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-315f + i * 108f, 56f), new Vector2(96f, 96f));
             }
             for (int i = 0; i < 2; i++)
             {
-                _pockets[i] = MakeSlot(bottom, "Pocket-" + (i + 1), (i + 1).ToString(), 64f);
-                _pockets[i].Root.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(242f + i * 80f, 56f), new Vector2(64f, 64f));
+                _pockets[i] = MakeSlot(bottom, "Pocket-" + (i + 1), (i + 1).ToString(), 68f);
+                _pockets[i].Root.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(249f + i * 80f, 56f), new Vector2(68f, 68f));
                 _pockets[i].Name.text = i == 0 ? "Potion" : "Antidote";
             }
 
-            // Round clock, top right.
+            // Round clock, top right: as wide as its longest line needs and no more.
             var clock = UiStyle.Panel(_root, "RoundPanel", null, true, false);
-            clock.Place(new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-24f, -24f), new Vector2(330f, 132f));
-            _clock = UiStyle.Label(clock, "Clock", "20:00", 46, UiStyle.TextMain, TextAnchor.MiddleRight, FontStyle.Bold);
-            _clock.rectTransform.Place(new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-22f, -8f), new Vector2(290f, 56f));
-            _extracts = UiStyle.Label(clock, "Extracts", "", 20, UiStyle.TextDim, TextAnchor.MiddleRight);
-            _extracts.rectTransform.Place(new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-22f, -64f), new Vector2(300f, 28f));
-            _purse = UiStyle.Label(clock, "Purse", "", 22, UiStyle.TextMain, TextAnchor.MiddleRight);
-            _purse.rectTransform.Place(new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-22f, -94f), new Vector2(300f, 30f));
+            clock.Place(new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-24f, -24f), new Vector2(300f, 118f));
+            _clock = UiStyle.Label(clock, "Clock", "20:00", UiStyle.Size.Title, UiStyle.TextMain, TextAnchor.MiddleRight, FontStyle.Bold);
+            _clock.rectTransform.Place(new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-18f, -6f), new Vector2(264f, 50f));
+            _extracts = UiStyle.Label(clock, "Extracts", "", UiStyle.Size.Body, UiStyle.TextSoft, TextAnchor.MiddleRight);
+            _extracts.rectTransform.Place(new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-18f, -56f), new Vector2(276f, 26f));
+            _extracts.horizontalOverflow = HorizontalWrapMode.Overflow;
+            _purse = UiStyle.Label(clock, "Purse", "", UiStyle.Size.Body, UiStyle.TextMain, TextAnchor.MiddleRight);
+            _purse.rectTransform.Place(new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-18f, -84f), new Vector2(276f, 26f));
+            _purse.horizontalOverflow = HorizontalWrapMode.Overflow;
 
             // Announcement banner, under the compass.
             _bannerPanel = UiStyle.Panel(_root, "Banner", new Color(0.05f, 0.04f, 0.04f, 0.78f), true, false);
             _bannerPanel.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -64f), new Vector2(900f, 58f));
-            _banner = UiStyle.Label(_bannerPanel, "Text", "", 28, UiStyle.Gold, TextAnchor.MiddleCenter, FontStyle.Bold);
+            _banner = UiStyle.Label(_bannerPanel, "Text", "", UiStyle.Size.Heading, UiStyle.Gold, TextAnchor.MiddleCenter, FontStyle.Bold);
             _banner.rectTransform.Stretch(16f, 16f, 0f, 0f);
 
             // Spawn countdown, centre.
-            _countdown = UiStyle.Label(_root, "Countdown", "", 40, UiStyle.Gold, TextAnchor.MiddleCenter, FontStyle.Bold);
+            _countdown = UiStyle.Label(_root, "Countdown", "", UiStyle.Size.Title, UiStyle.Gold, TextAnchor.MiddleCenter, FontStyle.Bold);
             _countdown.rectTransform.Place(new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 250f), new Vector2(900f, 60f));
 
             // Channel bar, under the character.
             _channelRoot = UiStyle.Node(_root, "Channel");
             _channelRoot.Place(new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, -150f), new Vector2(420f, 60f));
-            var chName = UiStyle.Label(_channelRoot, "Name", "", 22, UiStyle.TextMain, TextAnchor.MiddleCenter);
-            chName.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), Vector2.zero, new Vector2(420f, 30f));
-            _channel = new UiBar(_channelRoot, "Bar", new Vector2(420f, 18f), UiStyle.Channel);
-            _channel.Root.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), Vector2.zero, new Vector2(420f, 18f));
+            var chName = UiStyle.Label(_channelRoot, "Name", "", UiStyle.Size.Label, UiStyle.TextMain, TextAnchor.MiddleCenter);
+            chName.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), Vector2.zero, new Vector2(420f, 32f));
+            _channel = new UiBar(_channelRoot, "Bar", new Vector2(420f, 20f), UiStyle.Channel);
+            _channel.Root.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), Vector2.zero, new Vector2(420f, 20f));
 
-            // Downed.
+            // Downed: short enough to sit clear of the recap card on the left.
             _downedRoot = UiStyle.Node(_root, "Downed");
-            _downedRoot.Place(new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 220f), new Vector2(900f, 120f));
-            _downed = UiStyle.Label(_downedRoot, "Title", "DOWNED", 60, UiStyle.Bad, TextAnchor.MiddleCenter, FontStyle.Bold);
-            _downed.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), Vector2.zero, new Vector2(900f, 72f));
-            _downedSub = UiStyle.Label(_downedRoot, "Sub", "", 24, UiStyle.TextMain, TextAnchor.MiddleCenter);
-            _downedSub.rectTransform.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), Vector2.zero, new Vector2(900f, 36f));
+            _downedRoot.Place(new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 230f), new Vector2(520f, 112f));
+            _downed = UiStyle.Label(_downedRoot, "Title", "DOWNED", UiStyle.Size.Hero, UiStyle.Bad, TextAnchor.MiddleCenter, FontStyle.Bold);
+            _downed.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), Vector2.zero, new Vector2(520f, 66f));
+            _downedSub = UiStyle.Label(_downedRoot, "Sub", "", UiStyle.Size.Heading, UiStyle.TextMain, TextAnchor.MiddleCenter);
+            _downedSub.rectTransform.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), Vector2.zero, new Vector2(520f, 40f));
 
             // Death recap (built hidden).
             _recap = UiStyle.Panel(_root, "DeathRecapPanel");
             _recap.Place(new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(60f, 20f), new Vector2(620f, 470f));
-            _recapTitle = UiStyle.Label(_recap, "Title", "YOU DIED", 44, UiStyle.Bad, TextAnchor.MiddleLeft, FontStyle.Bold);
+            _recapTitle = UiStyle.Label(_recap, "Title", "YOU DIED", UiStyle.Size.Title, UiStyle.Bad, TextAnchor.MiddleLeft, FontStyle.Bold);
             _recapTitle.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(34f, -22f), new Vector2(560f, 56f));
             UiStyle.Rule(_recap, "Rule", 552f, -88f);
-            _recapBody = UiStyle.Label(_recap, "Body", "", 21, UiStyle.TextMain, TextAnchor.UpperLeft);
+            _recapBody = UiStyle.Label(_recap, "Body", "", UiStyle.Size.Body, UiStyle.TextMain, TextAnchor.UpperLeft);
             _recapBody.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(34f, -104f), new Vector2(556f, 270f));
+            _recapBody.lineSpacing = 1.1f;
             _recapButton = UiStyle.MakeButton(_recap, "ContinueButton", "Continue", OnRecapButton);
             ((RectTransform)_recapButton.transform).Place(new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-30f, 28f), new Vector2(260f, 60f));
             _recap.gameObject.SetActive(false);
@@ -202,15 +204,15 @@ namespace DungeonGen.Unity.UI
             s.Lock.rectTransform.Stretch(); s.Lock.enabled = false;
             s.Frame = UiStyle.Img(s.Root, "Frame", UiStyle.GoldDim, UiStyle.Frame);
             s.Frame.rectTransform.Stretch();
-            s.Key = UiStyle.Label(s.Root, "Key", key, size > 80f ? 17 : 15, UiStyle.Gold, TextAnchor.UpperLeft, FontStyle.Bold);
+            s.Key = UiStyle.Label(s.Root, "Key", key, size > 80f ? UiStyle.Size.Small : UiStyle.Size.Caption, UiStyle.Gold, TextAnchor.UpperLeft, FontStyle.Bold);
             s.Key.rectTransform.Stretch(7f, 4f, 3f, 4f);
             var keyShadow = s.Key.gameObject.AddComponent<Shadow>(); keyShadow.effectColor = new Color(0f, 0f, 0f, 0.9f); keyShadow.effectDistance = new Vector2(1.5f, -1.5f);   // readable over a bright icon
-            s.Seconds = UiStyle.Label(s.Root, "Seconds", "", size > 80f ? 30 : 22, UiStyle.TextMain, TextAnchor.MiddleCenter, FontStyle.Bold);
+            s.Seconds = UiStyle.Label(s.Root, "Seconds", "", size > 80f ? UiStyle.Size.Heading : UiStyle.Size.Label, UiStyle.TextMain, TextAnchor.MiddleCenter, FontStyle.Bold);
             s.Seconds.rectTransform.Stretch(2f, 2f, 10f, 2f);
-            s.Count = UiStyle.Label(s.Root, "Count", "", 18, UiStyle.TextMain, TextAnchor.LowerRight, FontStyle.Bold);
+            s.Count = UiStyle.Label(s.Root, "Count", "", UiStyle.Size.Body, UiStyle.TextMain, TextAnchor.LowerRight, FontStyle.Bold);
             s.Count.rectTransform.Stretch(4f, 7f, 4f, 4f);
-            s.Name = UiStyle.Label(s.Root, "Name", "", size > 80f ? 13 : 12, UiStyle.TextDim, TextAnchor.UpperCenter);
-            s.Name.rectTransform.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 1f), new Vector2(0f, -4f), new Vector2(size + 16f, 22f));
+            s.Name = UiStyle.Label(s.Root, "Name", "", UiStyle.Size.Caption, UiStyle.TextSoft, TextAnchor.UpperCenter);
+            s.Name.rectTransform.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 1f), new Vector2(0f, -6f), new Vector2(size + 24f, 24f));
             s.Name.horizontalOverflow = HorizontalWrapMode.Overflow;
             return s;
         }
@@ -221,18 +223,21 @@ namespace DungeonGen.Unity.UI
 
         private void Update()
         {
-            if (EscPressed()) TogglePause();
+            if (PausePressed()) TogglePause();
             if (Mirror != null && Host == null) LocalPlayerId = Mirror.PlayerId;
             var self = World != null ? World.Self : null;
             var st = Bootstrap != null ? Bootstrap.State : null;
             bool haveSelf = self.HasValue;
+            // Once the player's round is over (dead, extracted), or a summary or the pause menu is up, the in-round overlays stand down.
+            bool outOfRound = st != null && st.PlayerTeam.ContainsKey(LocalPlayerId) && RoundSettlement.OutcomeOf(st, LocalPlayerId) != null;
+            _hideRoundOverlays = outOfRound || SummaryVisible || Paused;
             _root.Find("Bottom").gameObject.SetActive(haveSelf && !SummaryVisible);
             if (haveSelf) DrawVitals(self.Value);
             DrawRound(st);
             DrawEnd(st, self);
             bool panelOpen = Paused || SummaryVisible || RecapVisible;
             _countdown.gameObject.SetActive(!panelOpen);
-            _bannerPanel.gameObject.SetActive(Time.time - _announcedAt < AnnouncementSeconds && !SummaryVisible && !Paused);
+            _bannerPanel.gameObject.SetActive(Time.time - _announcedAt < AnnouncementSeconds && !_hideRoundOverlays && !RecapVisible);
             UpdateModal();
         }
 
@@ -256,7 +261,7 @@ namespace DungeonGen.Unity.UI
                 bool locked = i == 4 && !s.UltimateArmed && !(Host?.Sim?.DevCasting ?? false);
                 slot.Lock.enabled = locked;
                 slot.Sweep.fillAmount = !locked && cd > 0f && _cdMax[i] > 0f ? cd / _cdMax[i] : 0f;
-                slot.Seconds.text = locked ? $"<size=15>{FightRules.SoulsToArmUltimate} souls\nat a shrine</size>" : cd > 0f ? (cd >= 10f ? cd.ToString("0") : cd.ToString("0.0")) : "";
+                slot.Seconds.text = locked ? $"<size=16>{FightRules.SoulsToArmUltimate} souls\nat a shrine</size>" : cd > 0f ? (cd >= 10f ? cd.ToString("0") : cd.ToString("0.0")) : "";
                 slot.Frame.color = i == 4 && !locked ? UiStyle.Gold : locked ? UiStyle.GoldFaint : UiStyle.GoldDim;
                 slot.Key.color = locked ? UiStyle.TextFaint : UiStyle.Gold;
             }
@@ -284,13 +289,14 @@ namespace DungeonGen.Unity.UI
                 slot.Seconds.text = cd > 0f ? cd.ToString("0") : "";
             }
 
-            bool channel = !string.IsNullOrEmpty(s.ChannelName);
+            bool channel = !string.IsNullOrEmpty(s.ChannelName) && !_hideRoundOverlays && !RecapVisible;   // never behind a recap or a summary card
             _channelRoot.gameObject.SetActive(channel);
             if (channel) { _channel.Set(s.ChannelFraction, null); _channelRoot.Find("Name").GetComponent<Text>().text = ChannelLabel(s.ChannelName); }
 
-            bool downed = s.DownedRemaining > 0f;
-            _downedRoot.gameObject.SetActive(downed && !SummaryVisible);
-            if (downed) _downedSub.text = $"Bleeding out in {Mathf.CeilToInt(s.DownedRemaining)} s. A teammate can revive you; a hit while down finishes you.";
+            // The bleed-out timer shows while you are down and nothing says it is over: not after death, not under a summary or the pause menu.
+            bool downed = s.DownedRemaining > 0f && !_hideRoundOverlays;
+            _downedRoot.gameObject.SetActive(downed);
+            if (downed) _downedSub.text = $"Bleeding out in {Mathf.CeilToInt(s.DownedRemaining)} s";
         }
 
         private static string ChannelLabel(string kind)
@@ -360,7 +366,7 @@ namespace DungeonGen.Unity.UI
             var st = Bootstrap.State;
             DeathRecap recap = null;
             var result = host == null ? Mirror?.Result : null;
-            if (dead) recap = GameFlow.Instance?.LastRecap ?? (host != null ? DeathRecap.For(st, LocalPlayerId, host.Sim?.Hits) : result?.Recap);
+            if (dead) recap = (host != null ? DeathRecap.For(st, LocalPlayerId, host.Sim?.Hits, MonsterName) : null) ?? GameFlow.Instance?.LastRecap ?? result?.Recap;   // built here so a monster killer is named
             var hits = recap?.LastHits ?? (host?.Sim != null ? host.Sim.Hits.LastHits(LocalPlayerId) : (IReadOnlyList<Hit>)System.Array.Empty<Hit>());
             bool clock = dead && (result != null ? result.DiedToClock : st.Ended && !st.Log.Any(e => (e.Kind == MatchEventKind.PlayerDied || e.Kind == MatchEventKind.PlayerFinished) && e.A == LocalPlayerId));
             _recapTitle.text = !dead ? "DOWNED" : clock ? "THE CLOCK RAN OUT" : "YOU DIED";
@@ -382,8 +388,8 @@ namespace DungeonGen.Unity.UI
                 for (int i = list.Count - 1; i >= 0; i--)
                 {
                     var h = list[i];
-                    string who = h.Attacker == LocalPlayerId ? "yourself" : h.AttackerSpec ?? (host == null && result != null && i < result.HitAttackers.Count ? result.HitAttackers[i] : AttackerName(h.Attacker));
-                    sb.Append($"{UiStyle.Colour(h.Amount.ToString("0"), UiStyle.Bad)} {h.Type}  ·  {Pretty(h.Ability)}  ·  {who}  {UiStyle.Colour($"{Mathf.Max(0f, now - h.Time):0.0} s ago", UiStyle.TextFaint)}\n");
+                    string who = HitSource(h, i, host == null && result != null && i < result.HitAttackers.Count ? result.HitAttackers[i] : null);
+                    sb.Append($"{UiStyle.Colour(h.Amount.ToString("0"), UiStyle.Bad)} {h.Type}  ·  {Pretty(h.Ability)}  ·  {who}  {UiStyle.Colour($"{Mathf.Max(0f, now - h.Time):0.0} s ago", UiStyle.TextDim)}\n");
                 }
             }
             else if (dead && !clock) sb.Append(UiStyle.Colour("No hits recorded.", UiStyle.TextDim));
@@ -398,10 +404,26 @@ namespace DungeonGen.Unity.UI
             return c.IsMob ? c.Name : c.Class?.Name ?? "a player";
         }
 
+        /// <summary>The monster's or boss's name for a combatant id (the host reads it off its sim); null for a player or an id the sim no longer has.</summary>
+        private string MonsterName(int id)
+        {
+            var c = Host?.Sim?.Get(id);
+            return c != null && c.IsMob ? c.Name : null;
+        }
+
+        /// <summary>Who dealt a hit, for the recap line: yourself, a monster or boss by its name (the sim tags them "Mob" and "Boss"), a player by weapon spec.</summary>
+        private string HitSource(Hit h, int index, string fromResult)
+        {
+            if (h.Attacker == LocalPlayerId) return "yourself";
+            if (h.AttackerSpec == "Mob" || h.AttackerSpec == "Boss") return MonsterName(h.Attacker) ?? fromResult ?? "a monster";
+            return h.AttackerSpec ?? fromResult ?? AttackerName(h.Attacker);
+        }
+
         private static string Pretty(string ability)
         {
             if (string.IsNullOrEmpty(ability)) return "a hit";
-            return AbilityBook.TryGet(ability, out var a) ? a.Name : ability;
+            if (AbilityBook.TryGet(ability, out var a)) return a.Name;
+            return char.ToUpperInvariant(ability[0]) + ability.Substring(1);   // a monster's own move ("crush"): not in the player's book
         }
 
         private void OnRecapButton()
@@ -454,15 +476,15 @@ namespace DungeonGen.Unity.UI
             {
                 _pause = UiStyle.Panel(_root, "PausePanel");
                 _pause.Place(new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(560f, 520f));
-                var t = UiStyle.Label(_pause, "Title", "PAUSED", 48, UiStyle.Gold, TextAnchor.MiddleCenter, FontStyle.Bold);
+                var t = UiStyle.Label(_pause, "Title", "PAUSED", UiStyle.Size.Title, UiStyle.Gold, TextAnchor.MiddleCenter, FontStyle.Bold);
                 t.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -30f), new Vector2(500f, 60f));
-                var sub = UiStyle.Label(_pause, "Sub", frozen ? "The dungeon waits for you." : "The dungeon does not wait: the round goes on.", 20, UiStyle.TextDim, TextAnchor.MiddleCenter, FontStyle.Italic);
+                var sub = UiStyle.Label(_pause, "Sub", frozen ? "The dungeon waits for you." : "The dungeon does not wait: the round goes on.", UiStyle.Size.Body, UiStyle.TextDim, TextAnchor.MiddleCenter, FontStyle.Italic);
                 sub.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -94f), new Vector2(500f, 30f));
                 UiStyle.Rule(_pause, "Rule", 420f, -126f);
                 PauseButton("ResumeButton", "Resume", -170f, TogglePause);
                 PauseButton("SettingsButton", "Settings", -256f, OpenPauseSettings);
                 PauseButton("LeaveButton", "Leave round", -342f, LeaveRound);
-                var warn = UiStyle.Label(_pause, "Warn", "Leaving counts as a death: what you carry is lost.", 19, UiStyle.Bad, TextAnchor.MiddleCenter);
+                var warn = UiStyle.Label(_pause, "Warn", "Leaving counts as a death: what you carry is lost.", UiStyle.Size.Body, UiStyle.Bad, TextAnchor.MiddleCenter);
                 warn.rectTransform.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 40f), new Vector2(500f, 30f));
             }
             else
@@ -475,7 +497,7 @@ namespace DungeonGen.Unity.UI
 
         private void PauseButton(string name, string label, float y, System.Action a)
         {
-            var b = UiStyle.MakeButton(_pause, name, label, a, 28);
+            var b = UiStyle.MakeButton(_pause, name, label, a, UiStyle.Size.Heading);
             ((RectTransform)b.transform).Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(380f, 68f));
         }
 
@@ -531,13 +553,13 @@ namespace DungeonGen.Unity.UI
             }
         }
 
-        private static bool EscPressed()
+        /// <summary>The Pause binding (Escape unless the player rebound it), read through <see cref="GameBindings"/>. Not while a key is being rebound, and not while the pause menu's own Settings card is open (there Back closes the card).</summary>
+        private bool PausePressed()
         {
 #if DUNGEONGEN_INPUTSYSTEM
-            var k = Keyboard.current;
-            return k != null && k.escapeKey.wasPressedThisFrame;
+            return !GameBindings.Capturing && _pauseSettings == null && GameBindings.WasPressedThisFrame(BindingAction.Pause);
 #else
-            return Input.GetKeyDown(KeyCode.Escape);
+            return _pauseSettings == null && Input.GetKeyDown(KeyCode.Escape);
 #endif
         }
     }
