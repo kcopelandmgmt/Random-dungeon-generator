@@ -45,3 +45,7 @@ the old particle baker (`AbilityIconBaker.Bake` still bakes everything that way)
 ## portrait_sheets.py
 
 Studio portraits of every class, boss and mob come from the PlayMode test `PortraitTests` (category Portraits; runs with `unity-batch.sh tests PlayMode`) into `dungeongame/Logs/portraits/<group>-<slug>.png`. `python -I Tools/AssetGen/portrait_sheets.py` lays them out as labelled sheets (`sheet-classes.png`, `sheet-bosses.png`, `sheet-mobs.png`). Needs Pillow.
+
+## gear_sheets.py
+
+The PlayMode test `GearShowcaseTests` (category Showcase) rolls items per dungeon tier through the real `LootRoller` (item level = room loot tier + the tier's offset, the room's source, the tier's unique multiplier), renders eight tooltip cards per tier (`ItemText.Tooltip` in the game's tooltip panel style) to `dungeongame/Logs/gear/tier<N>-<k>.png` with `drops.json` beside them, and captures the Stash & Equipment screen for a Warden in the starter kit and in a Tier III set (`paperdoll-starter.png`, `paperdoll-t3.png`). `python -I Tools/AssetGen/gear_sheets.py` lays the cards out as `sheet-tier1.png` to `sheet-tier3.png` with a title and the tier's item-level range. Needs Pillow.
