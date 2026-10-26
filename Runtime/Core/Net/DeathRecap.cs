@@ -382,6 +382,9 @@ namespace DungeonGen.Core.Net
                     case MatchEventKind.UltimateArmed: if (e.A == player) s.SoulsSpent += FightRules.SoulsToArmUltimate; break;
                 }
             }
+            // The tutorial's cleared packs pay souls by where the players stood at the time (TutorialScript.PackSoulRecipients); with no
+            // player kills or boss chests to count, what the player holds plus what they spent is what they earned.
+            if (st.Descriptor.Rules.IsTutorial) s.SoulsEarned = st.SoulsOf(player) + s.SoulsSpent;
             s.AccountXp = (s.Extracted ? Profile.AccountRules.XpPerExtraction : 0) + s.PlayerKills * Profile.AccountRules.XpPerPlayerKill + s.BossKills * Profile.AccountRules.XpPerBossKill + (s.FinalBossKill ? Profile.AccountRules.XpPerFinalBossKill : 0);
             return s;
         }

@@ -28,7 +28,7 @@ namespace DungeonGen.Unity.UI
             // A dim layer over the round, then the card.
             var dim = UiStyle.Img(parent, Name, new Color(0f, 0f, 0f, 0.62f));
             dim.rectTransform.Stretch(); dim.raycastTarget = true;
-            var p = UiStyle.Panel(dim.transform, "Card");
+            var p = UiStyle.Panel(dim.transform, "Card", new Color(UiStyle.PanelBg.r, UiStyle.PanelBg.g, UiStyle.PanelBg.b, 1f));   // opaque: nothing of the round shows through the figures
             p.Place(new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 10f), new Vector2(CardW, CardH));
 
             bool extracted = report != null ? report.Outcome == RoundOutcome.Extracted : s.Extracted;
@@ -40,7 +40,10 @@ namespace DungeonGen.Unity.UI
             title.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -24f), new Vector2(1000f, 72f));
             float t = st?.Time ?? 0f;
             string tier = DungeonGen.Core.DungeonTier.All.FirstOrDefault(x => x.Number == s.Tier)?.Name ?? $"Tier {s.Tier}";
-            var sub = UiStyle.Label(p, "Sub", extracted ? $"{tier}  ·  out after {UiStyle.Clock(t)}  ·  everything you carried out is yours"
+            bool tutorial = GameFlow.Instance != null && GameFlow.Instance.TutorialRound;
+            var sub = UiStyle.Label(p, "Sub", tutorial ? (extracted ? $"Tutorial complete in {UiStyle.Clock(t)}  ·  the practice gear stays behind; your stash was never at risk"
+                                                                 : $"Tutorial  ·  {UiStyle.Clock(t)}  ·  nothing of yours was at risk; try again from the menu")
+                                        : extracted ? $"{tier}  ·  out after {UiStyle.Clock(t)}  ·  everything you carried out is yours"
                                                          : $"{tier}  ·  {UiStyle.Clock(t)} into the round  ·  full loot: what you brought and found is gone", UiStyle.Size.Label, UiStyle.TextSoft, TextAnchor.MiddleCenter, FontStyle.Italic);
             sub.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -102f), new Vector2(1100f, 36f));
             UiStyle.Rule(p, "Rule", 1060f, -146f);
@@ -94,7 +97,7 @@ namespace DungeonGen.Unity.UI
                     new Section { Label = "Gained", Items = report.ItemsGained, Colour = UiStyle.Good, Limit = 4 },
                     new Section { Label = "Kept", Items = report.ItemsKept, Colour = UiStyle.TextMain, Limit = 3 },
                     new Section { Label = "Salvaged", Items = salvagedItems, Colour = UiStyle.Gold, Limit = 3, Foot = salvagedItems.Count > 0 ? "into " + Materials(report.MaterialsGained) : null },
-                    new Section { Label = extracted ? (unknownSalvage ? "Used up or left behind" : "Left behind") : "Lost", Items = lostForReal, Colour = extracted ? UiStyle.TextDim : UiStyle.Bad, Limit = 4 },
+                    new Section { Label = tutorial ? "Practice gear, not kept" : extracted ? (unknownSalvage ? "Used up or left behind" : "Left behind") : "Lost", Items = lostForReal, Colour = extracted ? UiStyle.TextDim : UiStyle.Bad, Limit = 4 },
                 };
                 var pockets = report.ConsumableDelta.OrderBy(k => k.Key, StringComparer.Ordinal).ToList();
                 int fixedLines = pockets.Count + (report.CharacterNaked ? 2 : 0) + (unknownSalvage ? 1 : 0);
