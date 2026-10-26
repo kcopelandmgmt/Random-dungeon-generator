@@ -84,7 +84,7 @@ namespace DungeonGen.Unity.UI
 
             _message = UiStyle.Label(_root, "Message", "", 24, UiStyle.Gold, TextAnchor.MiddleCenter);
             _message.rectTransform.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 12f), new Vector2(1300f, 36f));
-            var ver = UiStyle.Label(_root, "Version", "Development build · Practice rounds against bots", 18, UiStyle.TextFaint, TextAnchor.LowerRight);
+            var ver = UiStyle.Label(_root, "Version", (Debug.isDebugBuild ? "Development build · " : "") + "Offline rounds against bot teams · v" + Application.version, 18, UiStyle.TextFaint, TextAnchor.LowerRight);
             ver.rectTransform.Place(new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-24f, 14f), new Vector2(700f, 30f));
         }
 
