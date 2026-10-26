@@ -94,6 +94,26 @@ namespace DungeonGen.Core.Items
             return old;
         }
 
+        /// <summary>What <see cref="Equip"/> would take off to put this item on, without changing anything (null: a free slot). Same ring rule: first free ring, else the first ring.</summary>
+        public Item WouldDisplace(Item item)
+        {
+            if (item == null) return null;
+            switch (item.Base.Slot)
+            {
+                case ItemSlot.Weapon: return Weapon;
+                case ItemSlot.Head: return Head;
+                case ItemSlot.Chest: return Chest;
+                case ItemSlot.Hands: return Hands;
+                case ItemSlot.Legs: return Legs;
+                case ItemSlot.Feet: return Feet;
+                case ItemSlot.Amulet: return Amulet;
+                default: return Ring1 == null || Ring2 == null ? null : Ring1;
+            }
+        }
+
+        /// <summary>A copy holding the same item references (for previews: what would this swap do), never the same slots object.</summary>
+        public Equipment Clone() => new Equipment { Weapon = Weapon, Head = Head, Chest = Chest, Hands = Hands, Legs = Legs, Feet = Feet, Amulet = Amulet, Ring1 = Ring1, Ring2 = Ring2 };
+
         /// <summary>Take this exact item off, whichever slot holds it. False if it is not worn.</summary>
         public bool Remove(Item item)
         {

@@ -22,7 +22,18 @@ namespace DungeonGen.Core.Net
         public byte PingKind;
         /// <summary>Use a consumable now: 0 is none, otherwise 1 + the index into <see cref="DungeonGen.Core.Items.Consumable.All"/> (1 Health Potion, 2 Antidote). Appended last on the wire; one press, one use.</summary>
         public byte ConsumableSlot;
+        /// <summary>
+        /// Item choices, appended after <see cref="ConsumableSlot"/>; 0 means none for each id (no item or roll has id 0). One press, one use:
+        /// the server clears them after applying. <see cref="TakeItemId"/>: take this specific item in reach (chest, corpse or floor) instead of the
+        /// first one Space would take. <see cref="DropItemId"/>: put this carried item on the floor of the room you stand in. <see cref="RollItemId"/>
+        /// with <see cref="RollChoice"/> (a <see cref="DungeonGen.Core.Items.LootRollChoice"/>: 0 Need, 1 Greed, 2 Pass): answer that group roll.
+        /// On the wire the block is written only when one of them is set, so an intent without an item action is byte-for-byte the old format,
+        /// and an old payload (with or without the consumable byte) reads as "no item action".
+        /// </summary>
+        public int TakeItemId, DropItemId, RollItemId;
+        public byte RollChoice;
 
+        public bool AnyItemAction => TakeItemId != 0 || DropItemId != 0 || RollItemId != 0;
         public Vec2 Move => new Vec2(MoveX, MoveY);
         public Vec2 Aim => new Vec2(AimX, AimY);
         public bool AnyCast => Basic || Bolt || Zone || Mobility || Ultimate;
@@ -33,12 +44,16 @@ namespace DungeonGen.Core.Net
             byte flags = 0;
             if (Basic) flags |= 1; if (Bolt) flags |= 2; if (Zone) flags |= 4; if (Mobility) flags |= 8; if (Ultimate) flags |= 16; if (Interact) flags |= 32; if (Ping) flags |= 64;
             w.Write(flags); w.Write(PingKind); w.Write(ConsumableSlot);
+            if (AnyItemAction) { w.Write(TakeItemId); w.Write(DropItemId); w.Write(RollItemId); w.Write(RollChoice); }
         }
         public static PlayerIntent Read(BinaryReader r)
         {
             var i = new PlayerIntent { PlayerId = r.ReadInt32(), Tick = r.ReadUInt32(), MoveX = r.ReadSingle(), MoveY = r.ReadSingle(), AimX = r.ReadSingle(), AimY = r.ReadSingle() };
             byte f = r.ReadByte(); i.PingKind = r.ReadByte(); i.ConsumableSlot = r.ReadByte();
             i.Basic = (f & 1) != 0; i.Bolt = (f & 2) != 0; i.Zone = (f & 4) != 0; i.Mobility = (f & 8) != 0; i.Ultimate = (f & 16) != 0; i.Interact = (f & 32) != 0; i.Ping = (f & 64) != 0;
+            // The item block is optional: present only when the sender set an item action.
+            var bs = r.BaseStream;
+            if (bs.CanSeek && bs.Length - bs.Position >= ItemBlockLength) { i.TakeItemId = r.ReadInt32(); i.DropItemId = r.ReadInt32(); i.RollItemId = r.ReadInt32(); i.RollChoice = r.ReadByte(); }
             return i;
         }
         public byte[] ToBytes() { using var ms = new MemoryStream(); using (var w = new BinaryWriter(ms)) Write(w); return ms.ToArray(); }
@@ -49,6 +64,8 @@ namespace DungeonGen.Core.Net
             using var ms = new MemoryStream(b); using var r = new BinaryReader(ms); return Read(r);
         }
         private const int LegacyLength = 4 + 4 + 4 * 4 + 1 + 1;
+        /// <summary>Bytes of the optional item block: three ids and the roll choice.</summary>
+        public const int ItemBlockLength = 4 + 4 + 4 + 1;
     }
 
     /// <summary>Anything that produces intents for a player: the local input reader, a bot, a replay.</summary>

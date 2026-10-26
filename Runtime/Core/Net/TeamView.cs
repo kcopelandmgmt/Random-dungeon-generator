@@ -50,7 +50,11 @@ namespace DungeonGen.Core.Net
         public List<int> KnownHazards = new List<int>();
         public List<int> DisarmedHazards = new List<int>();
 
-        public static TeamView For(MatchState st, int team)
+        /// <summary>
+        /// The view for one team. <paramref name="itemLookup"/> (the host's <see cref="MatchServer.ItemById"/>) lets brought-in gear that was
+        /// dropped on a seen room's floor appear in <see cref="Items"/> like generated loot; without it only generated loot and the relic can.
+        /// </summary>
+        public static TeamView For(MatchState st, int team, Func<int, Items.Item> itemLookup = null)
         {
             var v = new TeamView { Team = team, Time = st.Time, Started = st.Started, Ended = st.Ended, DoorsOpen = st.DoorsOpen, ExtractsOpen = st.ExtractsOpen, BossExitOpen = st.BossExitOpen };
             var final = st.Layout.FinalBossRoom;
@@ -85,6 +89,14 @@ namespace DungeonGen.Core.Net
                 v.Items.Add(new ItemInfo { Id = LayoutIndex.EventLootId, Room = er, Level = relic.ItemLevel, Value = relic.Value, Rarity = (byte)relic.Rarity, Name = relic.Name });
                 v.FloorItems.Add(LayoutIndex.EventLootId);
             }
+            if (itemLookup != null)
+                foreach (var kv in st.FloorItems.Where(kv => !st.Index.Items.ContainsKey(kv.Key) && kv.Key != LayoutIndex.EventLootId && seen.Contains(kv.Value)).OrderBy(kv => kv.Key))
+                {
+                    var it = itemLookup(kv.Key);
+                    if (it == null) continue;
+                    v.Items.Add(new ItemInfo { Id = kv.Key, Room = kv.Value, Level = it.ItemLevel, Value = it.Value, Rarity = (byte)it.Rarity, Name = it.Name });
+                    v.FloorItems.Add(kv.Key);
+                }
             foreach (var kv in st.OpenRolls.Where(kv => kv.Value.Eligible.Any(members.Contains)).OrderBy(kv => kv.Key))
                 v.Rolls.Add(new Roll { Item = kv.Key, Opened = kv.Value.Opened, Eligible = kv.Value.Eligible.OrderBy(p => p).ToList(), Choices = kv.Value.Choices.OrderBy(c => c.Key).Select(c => (c.Key, (byte)c.Value)).ToList() });
             foreach (var kv in st.LootWinner.Where(kv => kv.Value >= 0 ? members.Contains(kv.Value) : st.Index.ItemRoom.TryGetValue(kv.Key, out int wr) && seen.Contains(wr)).OrderBy(kv => kv.Key))

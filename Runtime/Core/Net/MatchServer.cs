@@ -126,8 +126,10 @@ namespace DungeonGen.Core.Net
                 using (var ms = new MemoryStream()) { using (var w = new BinaryWriter(ms)) e.Write(w); bytes = ms.ToArray(); }
                 var audience = EventVisibility.Audience(e, State);
                 foreach (int team in Teams) if (audience == null || audience.Contains(team)) Wire.SendEventToTeam(team, bytes);
-                foreach (int team in Teams) Wire.SendViewToTeam(team, TeamView.For(State, team).ToBytes());
+                foreach (int team in Teams) Wire.SendViewToTeam(team, TeamView.For(State, team, ItemById).ToBytes());
             }
+            // A worn piece that changes hands is carried from then on (the paper doll is the profile's; in the round only the bag moves).
+            if (e.Kind == MatchEventKind.ItemDropped || e.Kind == MatchEventKind.ItemGiven || e.Kind == MatchEventKind.ItemTaken) _worn.Remove(e.A);
             EventRaised?.Invoke(e);
             if (e.Kind == MatchEventKind.PlayerDied || e.Kind == MatchEventKind.PlayerFinished) TrashOnDeath(e);
             return true;
@@ -167,6 +169,8 @@ namespace DungeonGen.Core.Net
         private readonly Dictionary<int, Dictionary<string, int>> _consumablesCarried = new Dictionary<int, Dictionary<string, int>>();
         private readonly Dictionary<int, List<(float time, string name)>> _consumableUses = new Dictionary<int, List<(float, string)>>();
         private int _nextBroughtId = MatchState.BroughtItemIdBase;
+        /// <summary>Brought-in ids that were worn at spawn and have not changed hands since.</summary>
+        private readonly HashSet<int> _worn = new HashSet<int>();
 
         /// <summary>
         /// Seat a player with what their character brings: the sheet from its gear, and every worn and
@@ -183,12 +187,14 @@ namespace DungeonGen.Core.Net
             var c = AddPlayer(playerId, team, loadout.Character.Class, loadout.Spec, loadout.Stats, accountLevel);
             if (c == null) return null;
             var ids = new List<int>();
+            int wornCount = loadout.Worn.Count;
             // Past anything already registered by hand, so a server-assigned id never collides.
             _nextBroughtId = Math.Max(_nextBroughtId, State.ItemValue.Keys.Where(k => k >= MatchState.BroughtItemIdBase).DefaultIfEmpty(MatchState.BroughtItemIdBase - 1).Max() + 1);
             foreach (var (id, item, registration) in loadout.Registrations(playerId, _nextBroughtId, Sim.Time))
             {
                 if (!Raise(registration)) throw new InvalidOperationException($"The state refused brought item {id} ({item.Name}): {RecentRejections.LastOrDefault()}");
                 _brought[id] = item; ids.Add(id);
+                if (ids.Count <= wornCount) _worn.Add(id);
                 _nextBroughtId = id + 1;
             }
             _broughtBy[playerId] = ids;
@@ -299,7 +305,14 @@ namespace DungeonGen.Core.Net
         }
 
         /// <summary>A client's intent for this tick. The transport has already matched the connection to the player id.</summary>
-        public void SetIntent(int playerId, PlayerIntent intent) { if (intent.PlayerId == playerId) _intents[playerId] = intent; }
+        public void SetIntent(int playerId, PlayerIntent intent)
+        {
+            if (intent.PlayerId != playerId) return;
+            // A one-press item choice not applied yet survives a newer intent that carries none (the client sends faster than some tick rates).
+            if (!intent.AnyItemAction && _intents.TryGetValue(playerId, out var pending) && pending.AnyItemAction)
+            { intent.TakeItemId = pending.TakeItemId; intent.DropItemId = pending.DropItemId; intent.RollItemId = pending.RollItemId; intent.RollChoice = pending.RollChoice; }
+            _intents[playerId] = intent;
+        }
 
         /// <summary>One server tick.</summary>
         public void Step(float dt)
@@ -379,6 +392,15 @@ namespace DungeonGen.Core.Net
                 var wanted = index < Consumable.All.Count ? Consumable.All[index] : null;
                 if (wanted != null && wanted.Name != Consumable.SalvageKitName) UseConsumable(playerId, wanted);
                 intent.ConsumableSlot = 0; _intents[playerId] = intent;   // one press, one use: a held intent must not drink again
+            }
+            if (intent.AnyItemAction)
+            {
+                // The player's choices go through the same validated events as Space does (ItemTaken, ItemDropped, LootRolled).
+                if (intent.RollItemId != 0) AnswerRoll(playerId, intent.RollItemId, (LootRollChoice)intent.RollChoice);
+                if (intent.TakeItemId != 0) TakeItem(playerId, intent.TakeItemId);
+                if (intent.DropItemId != 0) DropItem(playerId, intent.DropItemId);
+                intent.TakeItemId = intent.DropItemId = intent.RollItemId = 0; intent.RollChoice = 0;
+                _intents[playerId] = intent;   // one press, one action: a held intent must not repeat it
             }
             var aim = intent.Aim;
             if (intent.Move.Length > 0.05f && !_channels.ContainsKey(playerId)) Sim.Move(playerId, c.Position + intent.Move.Normalized * 10f, dt);
@@ -511,6 +533,139 @@ namespace DungeonGen.Core.Net
             if (gate || exit) { Start("extract", room, Descriptor.Rules.ExtractChannelSeconds, new MatchEvent(MatchEventKind.ExtractStarted, Sim.Time, playerId, room)); return "extract"; }
             return null;
         }
+
+        // ---------------- item choices (PlayerIntent.TakeItemId / DropItemId / RollItemId) ----------------
+
+        /// <summary>How close a corpse must be to work it, as Space uses.</summary>
+        public const float CorpseReach = 1.5f;
+
+        private int CellRoom(Combatant c) { var cell = c.Position.Cell; return Layout.InBounds(cell) ? Layout.RoomIdAt[cell.X, cell.Y] : -1; }
+
+        private bool CanHandle(int playerId, out Combatant c, out string why)
+        {
+            c = Sim?.Get(playerId); why = null;
+            if (c == null || c.Dead || !State.PlayersInside.Contains(playerId)) { why = "not in the round"; return false; }
+            if (c.Downed || State.Downed.ContainsKey(playerId)) { why = "downed"; return false; }
+            if (_channels.ContainsKey(playerId)) { why = "busy channelling"; return false; }
+            return true;
+        }
+
+        /// <summary>
+        /// Why this player cannot take this item where they stand right now, or null. The server's half of the check (reach: the
+        /// chest's room, the corpse within <see cref="CorpseReach"/>, the floor's room; not while channelling or downed); the state still
+        /// decides on the event itself (opened, untaken, the group roll, a teammate's win).
+        /// </summary>
+        public string TakeRefusal(int playerId, int itemId)
+        {
+            if (!CanHandle(playerId, out var c, out string why)) return why;
+            if (State.DestroyedItems.Contains(itemId)) return "destroyed";
+            if (State.ItemOwner.TryGetValue(itemId, out int owner)) return owner == playerId ? "already yours" : "someone holds it";
+            foreach (var kv in State.Corpses)
+            {
+                if (!kv.Value.Contains(itemId)) continue;
+                if (!State.OpenedCorpses.Contains(kv.Key)) return "the corpse is not opened";
+                var body = Sim.Get(kv.Key);
+                if (body == null || Vec2.Distance(body.Position, c.Position) > CorpseReach) return "not at that corpse";
+                return null;
+            }
+            int here = CellRoom(c);
+            if (State.FloorItems.TryGetValue(itemId, out int floorRoom)) return here == floorRoom ? null : "not in that room";
+            if (!State.Index.ItemRoom.TryGetValue(itemId, out int room)) return "no such item";
+            if (here != room) return "not in that room";
+            if (!State.VisibleItemsIn(room).Contains(itemId)) return State.OpenedContainers.Contains(room) ? "already taken" : "the chest is not opened";
+            if (State.OpenRolls.TryGetValue(itemId, out var roll) && roll.Eligible.Contains(playerId)) return "your group is rolling for it";
+            if (State.LootWinner.TryGetValue(itemId, out int won) && won >= 0 && won != playerId && State.PlayersInside.Contains(won) && TeamOf(won) == TeamOf(playerId)) return "a teammate won it";
+            return null;
+        }
+
+        /// <summary>Take this item (what <see cref="PlayerIntent.TakeItemId"/> does): an <see cref="MatchEventKind.ItemTaken"/> if the server's reach check passes; the state validates the rest.</summary>
+        public bool TakeItem(int playerId, int itemId) => TakeRefusal(playerId, itemId) == null && Raise(new MatchEvent(MatchEventKind.ItemTaken, Sim.Time, itemId, playerId));
+
+        /// <summary>Why this player cannot drop this item now, or null.</summary>
+        public string DropRefusal(int playerId, int itemId)
+        {
+            if (!CanHandle(playerId, out _, out string why)) return why;
+            if (!State.ItemOwner.TryGetValue(itemId, out int owner) || owner != playerId) return "not yours";
+            return null;
+        }
+
+        /// <summary>Drop a carried item on the floor of the room the player stands in (<see cref="PlayerIntent.DropItemId"/>): an <see cref="MatchEventKind.ItemDropped"/>.</summary>
+        public bool DropItem(int playerId, int itemId) => DropRefusal(playerId, itemId) == null && Raise(new MatchEvent(MatchEventKind.ItemDropped, Sim.Time, itemId, playerId));
+
+        /// <summary>Why this player cannot answer this roll, or null.</summary>
+        public string RollRefusal(int playerId, int itemId, LootRollChoice choice)
+        {
+            if (!State.OpenRolls.TryGetValue(itemId, out var roll)) return "no roll open";
+            if (!roll.Eligible.Contains(playerId) || !State.PlayersInside.Contains(playerId)) return "not in this roll";
+            if (roll.Choices.ContainsKey(playerId)) return "already answered";
+            if ((byte)choice > (byte)LootRollChoice.Pass) return "no such choice";
+            return null;
+        }
+
+        /// <summary>Answer a group roll (<see cref="PlayerIntent.RollItemId"/> + <see cref="PlayerIntent.RollChoice"/>): a <see cref="MatchEventKind.LootRolled"/>; eligibility was fixed when the chest opened.</summary>
+        public bool AnswerRoll(int playerId, int itemId, LootRollChoice choice) => RollRefusal(playerId, itemId, choice) == null && Raise(new MatchEvent(MatchEventKind.LootRolled, Sim.Time, itemId, playerId, (int)choice));
+
+        /// <summary>
+        /// Everything one player's item panels may show (<see cref="PlayerItems"/>): items in reach with the reason any cannot be taken,
+        /// what they hold (worn marked) and its weight against their carry capacity, and the rolls they are in with the seconds left.
+        /// </summary>
+        public PlayerItems ItemsFor(int playerId)
+        {
+            var v = new PlayerItems { PlayerId = playerId };
+            var c = Sim?.Get(playerId);
+            if (c == null) return v;
+            v.Interaction = c.Dead ? null : InteractionAvailable(playerId);
+            v.Room = CellRoom(c);
+            void Add(int id, LootSourceKind src)
+            {
+                var item = ItemById(id);
+                if (item == null) return;
+                v.Here.Add(new LootChoice
+                {
+                    ItemId = id, Item = item, Source = src, InRoll = State.OpenRolls.ContainsKey(id),
+                    Winner = State.LootWinner.TryGetValue(id, out int w) ? w : -1, Refusal = TakeRefusal(playerId, id),
+                });
+            }
+            if (!c.Dead)
+            {
+                var corpse = Sim.Combatants.Values.Where(o => o.Dead && !o.IsMob && State.OpenedCorpses.Contains(o.Id) && State.Corpses.ContainsKey(o.Id) && Vec2.Distance(o.Position, c.Position) <= CorpseReach)
+                    .OrderBy(o => Vec2.Distance(o.Position, c.Position)).FirstOrDefault();
+                if (corpse != null) { v.Corpse = corpse.Id; foreach (int id in State.Corpses[corpse.Id].OrderBy(i => i)) Add(id, LootSourceKind.Corpse); }
+                if (v.Room >= 0)
+                {
+                    foreach (int id in State.VisibleItemsIn(v.Room).OrderBy(i => i)) Add(id, LootSourceKind.Chest);
+                    foreach (var kv in State.FloorItems.Where(kv => kv.Value == v.Room).OrderBy(kv => kv.Key)) Add(kv.Key, LootSourceKind.Floor);
+                }
+            }
+            float load = 0f;
+            foreach (var kv in State.ItemOwner.Where(kv => kv.Value == playerId).OrderBy(kv => _worn.Contains(kv.Key) ? 0 : 1).ThenBy(kv => kv.Key))
+            {
+                var item = ItemById(kv.Key);
+                v.Carried.Add(new CarriedItem { ItemId = kv.Key, Item = item, Worn = _worn.Contains(kv.Key) });
+                load += item?.WeightKg ?? 0f;
+            }
+            foreach (var kv in PocketsOf(playerId)) load += (Consumable.ByName(kv.Key)?.WeightKg ?? 0f) * kv.Value;
+            v.LoadKg = load; v.CapacityKg = c.Stats?.CarryKg ?? 0f;
+            var cls = State.ClassOf(playerId);
+            foreach (var kv in State.OpenRolls.Where(kv => kv.Value.Eligible.Contains(playerId)).OrderBy(kv => kv.Key))
+            {
+                var item = ItemById(kv.Key);
+                v.Rolls.Add(new RollPrompt
+                {
+                    ItemId = kv.Key, Item = item, SecondsLeft = Math.Max(0f, LootRollRules.RollSeconds - (Sim.Time - kv.Value.Opened)),
+                    Answered = kv.Value.Choices.TryGetValue(playerId, out var ch) ? ch : (LootRollChoice?)null,
+                    Eligible = kv.Value.Eligible.Count, Answers = kv.Value.Choices.Count, OnClass = item != null && LootRollRules.FitsClass(cls, item.Base),
+                });
+            }
+            return v;
+        }
+
+        /// <summary>The worn ids (brought in worn, still held, never handed off) as an <see cref="Equipment"/> for previews: what a tooltip compares against.</summary>
+        public Equipment WornBy(int playerId) =>
+            EquipPreview.FromWorn(State.ItemOwner.Where(kv => kv.Value == playerId && _worn.Contains(kv.Key)).OrderBy(kv => kv.Key).Select(kv => ItemById(kv.Key)));
+
+        /// <summary>True if this id was brought in worn by its holder and has not changed hands since.</summary>
+        public bool IsWorn(int itemId) => _worn.Contains(itemId);
 
         /// <summary>Resolve any group roll that has all its answers or ran out of time.</summary>
         private void ResolveRolls()
