@@ -135,6 +135,27 @@ namespace DungeonGen.Core.Combat
         public CastRecord(float time, int caster, int casterTeam, string abilityId, Vec2 from, Vec2 aim, Vec2 end, int[] targets) { Time = time; Caster = caster; CasterTeam = casterTeam; AbilityId = abilityId; From = from; Aim = aim; End = end; Targets = targets; }
     }
 
+    /// <summary>How a channel's danger is drawn: where the circle sits and how big it is. The rules in the brains decide what actually lands; this only mirrors them for the telegraph.</summary>
+    public static class TelegraphShapes
+    {
+        /// <summary>Base name (before ':'), the target id if the channel names one, the danger radius in cells, and whether the circle follows the target rather than the caster.</summary>
+        public static (string name, int target, float radius, bool onTarget) For(string channel)
+        {
+            if (string.IsNullOrEmpty(channel)) return (null, -1, 0f, false);
+            int colon = channel.IndexOf(':');
+            string name = colon < 0 ? channel : channel.Substring(0, colon);
+            int target = colon >= 0 && int.TryParse(channel.Substring(colon + 1), out int t) ? t : -1;
+            switch (name)
+            {
+                case "crush": return (name, target, 1.2f, true);       // a ring under the marked player; step out of reach (3 cells) to dodge
+                case "groundslam": return (name, -1, 3f, false);       // everyone within 3 cells of the boss
+                case "dirge": return (name, -1, 1.5f, false);          // a heal channel: interrupt it
+                case "overdrive": return (name, -1, 2f, false);
+                default: return (name, target, 1.5f, target >= 0);
+            }
+        }
+    }
+
     /// <summary>A zone on the ground that ticks once a second until it ends.</summary>
     public sealed class Zone
     {

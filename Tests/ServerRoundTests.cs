@@ -221,5 +221,25 @@ namespace DungeonGen.Tests
             Assert.True(server.Sim.Cast(1, "Sharpshooter.bolt", b.Position).Ok);            // another spec's ability, for the effects audition
             Assert.Equal(4, server.Sim.Casts.Count);
         }
+            [Fact]
+        public void ABossWindUpReachesTheSnapshotAsATelegraphUntilItLands()
+        {
+            var server = Seated();
+            var idle = new PlayerIntent { PlayerId = 1 };
+            for (int i = 0; i < 220; i++) { server.SetIntent(1, idle); server.Step(0.05f); }
+            var me = server.Sim.Get(1);
+            var boss = server.Sim.Combatants.Values.First(c => c.IsMob);
+            boss.Position = me.Position + new Vec2(2f, 0f);                                  // in sight
+            boss.StartChannel("crush:1", 3f, server.Sim.Time);
+            var snap = server.SnapshotForTeam(0);
+            var tg = Assert.Single(snap.Effects, e => e.Kind == EffectKind.Telegraph);
+            Assert.Equal("crush", tg.Ability);
+            Assert.Equal(1, tg.Target);
+            Assert.Equal(me.Position.X, tg.X2, 3);                                           // the circle sits under the marked player
+            Assert.True(tg.Until > snap.Time && tg.Amount > 0f);
+            Assert.Equal(EffectKind.Telegraph, TeamSnapshot.FromBytes(snap.ToBytes()).Effects.Single(e => e.Kind == EffectKind.Telegraph).Kind);
+            boss.ChannelName = null; boss.ChannelUntil = -1f;
+            Assert.DoesNotContain(server.SnapshotForTeam(0).Effects, e => e.Kind == EffectKind.Telegraph);
+        }
     }
 }

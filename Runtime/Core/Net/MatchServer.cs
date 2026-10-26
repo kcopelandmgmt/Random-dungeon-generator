@@ -430,6 +430,15 @@ namespace DungeonGen.Core.Net
                     snap.Effects.Add(new EffectSnapshot { Kind = e.Kind == FightEventKind.Heal ? EffectKind.Heal : EffectKind.Hit, Source = e.Source, Target = e.Target, Ability = e.Detail ?? "", X = t.Position.X, Y = t.Position.Y, X2 = t.Position.X, Y2 = t.Position.Y, Amount = e.Amount });
             }
             _hitCursor[team] = Sim.Events.Count;
+            // Wind-ups of anything this team can see: the danger circle and when it lands.
+            foreach (var c in Sim.Combatants.Values)
+            {
+                if (!c.Channelling || !shown.Contains(c.Id)) continue;
+                var (name, targetId, radius, onTarget) = TelegraphShapes.For(c.ChannelName);
+                var at = c.Position;
+                if (onTarget) { var t = targetId >= 0 ? Sim.Get(targetId) : null; if (t != null) at = t.Position; }
+                snap.Effects.Add(new EffectSnapshot { Kind = EffectKind.Telegraph, Source = c.Id, Target = targetId, Ability = name, X = c.Position.X, Y = c.Position.Y, X2 = at.X, Y2 = at.Y, Amount = radius, Until = c.ChannelUntil });
+            }
             foreach (var z in Sim.Zones)
                 if (z.CasterTeam == team || Sees(z.Centre))
                     snap.Effects.Add(new EffectSnapshot { Kind = EffectKind.Zone, Source = z.Caster, Target = -1, Ability = z.Ability.Id, X = z.Centre.X, Y = z.Centre.Y, X2 = z.Centre.X, Y2 = z.Centre.Y, Amount = z.Ability.Size, Until = z.Until });

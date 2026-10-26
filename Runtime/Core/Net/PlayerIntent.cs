@@ -80,11 +80,14 @@ namespace DungeonGen.Core.Net
         }
     }
 
-    public enum EffectKind : byte { Cast, Hit, Heal, Zone }
+    /// <summary>Appended only: the byte values travel on the wire.</summary>
+    public enum EffectKind : byte { Cast, Hit, Heal, Zone, Telegraph }
 
     /// <summary>
     /// Something to draw this tick. Cast: Source cast Ability from (X, Y) to (X2, Y2); Amount is how many it touched. Hit and Heal: Source did Amount
     /// to Target standing at (X, Y); Ability is the hit's label. Zone: Ability's zone centred at (X, Y) with radius Amount, until sim time Until; sent every tick it lives.
+    /// Telegraph: Source is winding up Ability (a boss or mob channel such as "crush" or "groundslam"); the danger is a circle of radius Amount cells centred at
+    /// (X2, Y2) (the target's position for a targeted wind-up, the caster's for a slam); it lands at sim time Until. Sent every tick while the wind-up lasts.
     /// Casts and hits are sent once, in the next snapshot after they happened; a dropped snapshot drops them, which is fine for a visual.
     /// </summary>
     public struct EffectSnapshot
