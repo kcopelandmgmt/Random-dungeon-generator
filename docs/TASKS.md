@@ -26,7 +26,7 @@ could not be verified headless (say why).
 | # | Task | Owner | Status | Verified |
 |---|------|-------|--------|----------|
 | 4.1 | Shrines and leaving: corpse keeps items after a resurrection; shrine use is a ~2 s channel at the altar broken by damage; no shrine shop (rules, bots, panel); Leave from pause shows the summary first | agent | doing | |
-| 4.2 | Level look: corridors 4 cells wide; tall walls that fade when they hide a character | agent | doing | |
+| 4.2 | Level look: corridors 4 cells wide; tall walls that fade when they hide a character | agent | done | core 300; in a sandbox copy: playmode 37/37 (3 new `WallFadeTests`), build-win + smoke-release. Real-project rebuild, PlayMode and builds owed once 4.1 compiles. Sims (fixed seeds): extraction 49.6% → 53.1%, round 9.9 → 11.0 min, PvP share 63% → 69%, rejected 0. |
 | 4.3 | Painted ability icons generated with Meshy text-to-image for all abilities | agent | doing | |
 
 ## Wave 3 (started 2026-10-26)

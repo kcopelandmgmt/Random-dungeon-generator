@@ -47,8 +47,9 @@ hand. Windows is pinned to Direct3D 11 (D3D12 crashed the player at shutdown, ex
 writes screenshots to `dungeongame\Logs\player-shots` and its log to `dungeongame\Logs\player.log`;
 look at the screenshots with the Read tool.
 
-The core suite needs no Unity: `cd Tests && dotnet test` (about 40 s, ~275 tests). The console
+The core suite needs no Unity: `cd Tests && dotnet test` (about 50 s, ~300 tests). The console
 tool prints a dungeon without Unity: `cd Tools/AsciiPreview && dotnet run -- --teams 4 --seed 7`.
+`--sim round` seeds from the clock: pass `--seed N` (and keep it fixed) for before/after comparisons.
 
 ## Verification, in order, after every task
 

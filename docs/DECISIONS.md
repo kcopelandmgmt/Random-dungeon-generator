@@ -19,7 +19,7 @@ Asked after the autonomous build; these override anything built before them.
 7. **Leaving a round from the pause menu shows the death summary first**, then the menu.
 8. **Rounds should average about 10 minutes.** Confirmed as built.
 9. **Corridors are 4 cells wide (8 m)**, still narrowing to one cell at each door.
-10. **Walls are full height and fade when they hide a character** (the camera's view of any player,
+10. **Walls are full height (3 m) and fade (to 20% opacity in 0.15 s) when they hide a character** (the camera's view of any player,
     mob or boss is never blocked), replacing the lowered 1.5 m blocks.
 11. **Fog of war: explored but out of sight is dimmed and greyed.** Confirmed.
 12. **Ability icons are painted fantasy icons**, generated per ability, replacing effect snapshots.
