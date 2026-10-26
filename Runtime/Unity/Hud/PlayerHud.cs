@@ -19,8 +19,12 @@ namespace DungeonGen.Unity
         private string _announcement; private float _announcedAt = -100f;
         private static Texture2D _white;
 
+        private IMatchTransport _transport;
+
         public void Attach(IMatchTransport transport)
         {
+            if (transport == null || ReferenceEquals(transport, _transport)) return;   // attached twice (SendMessage reaches every component on the object): once is enough
+            _transport = transport;
             transport.EventReceived += bytes =>
             {
                 using var ms = new System.IO.MemoryStream(bytes); using var r = new System.IO.BinaryReader(ms);

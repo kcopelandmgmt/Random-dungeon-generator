@@ -38,6 +38,7 @@ namespace DungeonGen.Unity
 
         public void Attach(IMatchTransport transport)
         {
+            if (transport == null || ReferenceEquals(transport, _transport)) return;   // attached twice (SendMessage reaches every component on the object): once is enough
             _transport = transport;
             transport.DescriptorReceived += OnDescriptorBytes;
             transport.EventReceived += OnEventBytes;

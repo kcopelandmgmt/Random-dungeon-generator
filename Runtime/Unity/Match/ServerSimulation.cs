@@ -30,8 +30,12 @@ namespace DungeonGen.Unity
 
         private float _accum;
 
+        private IMatchTransport _transport;
+
         public void Attach(IMatchTransport transport)
         {
+            if (transport == null || ReferenceEquals(transport, _transport)) return;   // attached twice (SendMessage reaches every component on the object): once is enough
+            _transport = transport;
             transport.IntentReceived += (player, bytes) => Server?.SetIntent(player, PlayerIntent.FromBytes(bytes));
         }
 
