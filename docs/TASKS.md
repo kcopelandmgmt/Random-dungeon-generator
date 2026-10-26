@@ -21,6 +21,16 @@ could not be verified headless (say why).
 | 1.8 | Greybox setup steps: `[GreyboxStep]` hook so features wire themselves into the scene from their own files; `GreyboxRebuild.Run` rebuilds SampleScene headless | orchestrator | done | compile | Fixed `??` on a Unity component lookup in the setup |
 | 1.5 | Player build: `Editor/PlayerBuild.cs` (Windows, development), `-mute` and `-minimized` flags honoured at startup, `unity-batch.sh build-win` | agent | done | build, smoke (exit 0: 30 s, 24 casts ok, 0 exceptions) | Build 382 MB with URP shaders always included (stripping crashed the first player). Follow-ups: avatar capsules rendered magenta (fixed by orchestrator: explicit URP material); audition panel showed in players (sent to 1.3); one 2.7 s frame in the smoke run, cause unknown; `smoke` moved out of the Unity lock (orchestrator). |
 
+## Wave 3 (started 2026-10-26)
+
+| # | Task | Owner | Status | Verified |
+|---|------|-------|--------|----------|
+| 3.1 | Release-ready offline mode: round host out of the dev-only practice assembly (`OfflineMatch`), pause pauses offline, menu audio, release and dev builds, `smoke-release` end-to-end run of the release build | agent | doing | |
+| 3.2 | Loot, inventory and vendor: choose items (intent fields), loot/inventory/roll panels in round, stash and equipment and vendor in the menu | agent | doing | |
+| 3.3 | Atmosphere: dark ambient, black background, fog, URP post-processing, torch/brazier lights, fog of war for unexplored rooms, ability icons | — | queued (after 2.1 lands: shares DungeonBuilder) | |
+| 3.4 | Audio leftovers (2.2b) | — | queued | |
+| 3.5 | Fishnet multiplayer (2.6) | — | queued | |
+
 ## Wave 2 (queued; starts as wave 1 lands)
 
 | # | Task | Depends on | Status |
