@@ -60,7 +60,8 @@ namespace DungeonGen.Unity.Editor
                 var urpData = System.Type.GetType("UnityEngine.Rendering.Universal.UniversalAdditionalCameraData, Unity.RenderPipelines.Universal.Runtime");
                 if (urpData != null) camGo.AddComponent(urpData);
             }
-            var rig = camGo.GetComponent<TopDownCamera>() ?? camGo.AddComponent<TopDownCamera>();
+            var rig = camGo.GetComponent<TopDownCamera>();
+            if (rig == null) rig = camGo.AddComponent<TopDownCamera>();   // not ??: Unity's fake-null components defeat it in the editor
             rig.Camera = cam;
             if (Object.FindFirstObjectByType<Light>() == null) { var light = new GameObject("Sun").AddComponent<Light>(); light.type = LightType.Directional; light.transform.rotation = Quaternion.Euler(55f, 30f, 0f); }
 
@@ -82,6 +83,12 @@ namespace DungeonGen.Unity.Editor
                 compass.LocalPlayer = null; minimap.LocalPlayer = null;
             }
             else Debug.LogWarning("Dungeon Gen: the Input System package is not installed, so no LocalPlayerController was added. Install com.unity.inputsystem and run this menu again.");
+
+            GreyboxSteps.RunAll(new GreyboxContext
+            {
+                Root = root, Builder = builder, Bootstrap = bootstrap, Server = server, World = world, Hud = hud, Compass = compass, MiniMap = minimap,
+                Effects = effects, Camera = rig, Practice = practice, Controller = controllerType != null ? root.GetComponent(controllerType) as MonoBehaviour : null,
+            });
 
             Selection.activeGameObject = root;
             Debug.Log("Dungeon Gen: greybox scene ready. Press Play and click 'Host practice round'.");
