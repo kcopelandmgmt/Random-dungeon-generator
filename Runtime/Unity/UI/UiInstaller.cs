@@ -20,6 +20,7 @@ namespace DungeonGen.Unity.UI
             UiStyle.MakeCanvas(go, 10);
             var hud = go.AddComponent<GameHud>();
             hud.World = world; hud.Bootstrap = bootstrap; hud.Server = server;
+            ItemPanels.Install(go, world, bootstrap, server);   // loot, inventory (I), group rolls, item tooltips
             var es = UiStyle.EnsureEventSystem();
             if (parent != null && es.transform.parent == null && es.gameObject.scene == go.scene) es.transform.SetParent(parent, false);
             return hud;

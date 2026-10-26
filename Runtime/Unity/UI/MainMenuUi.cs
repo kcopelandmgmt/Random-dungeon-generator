@@ -18,6 +18,7 @@ namespace DungeonGen.Unity.UI
     public sealed class MainMenuUi : MonoBehaviour
     {
         public const string Main = "Main", Characters = "Characters", Create = "Create", Prepare = "Prepare", Settings = "Settings", Loading = "Loading";
+        public const string StashScreenName = "Stash", VendorScreenName = "Vendor";
 
         public string Current { get; private set; }
 
@@ -103,6 +104,8 @@ namespace DungeonGen.Unity.UI
                 case Prepare: BuildPrepare(); break;
                 case Settings: SettingsPanel.Build(_screen, () => ShowScreen(Main)); break;
                 case Loading: BuildLoading(); break;
+                case StashScreenName: StashScreen.Build(_screen, _flow, () => ShowScreen(Main), () => ShowScreen(StashScreenName), () => ShowScreen(VendorScreenName)); break;
+                case VendorScreenName: VendorScreen.Build(_screen, _flow, () => ShowScreen(Main), () => ShowScreen(VendorScreenName), () => ShowScreen(StashScreenName)); break;
                 default: Current = Main; BuildMain(); break;
             }
             _message.text = _flow?.Message ?? "";
@@ -135,8 +138,10 @@ namespace DungeonGen.Unity.UI
             var play = Btn(_screen, "PlayButton", has ? "Play" : "Create your first character", () => ShowScreen(has ? Prepare : Create), col, new Vector2(0f, 1f), new Vector2(150f, y), new Vector2(460f, 76f), 32);
             play.GetComponent<UiButtonSound>().ClickKey = UiSound.Confirm;
             Btn(_screen, "CharactersButton", "Characters", () => ShowScreen(_flow.HasProfile ? Characters : Create), col, new Vector2(0f, 1f), new Vector2(150f, y - 96f), new Vector2(460f, 68f));
-            Btn(_screen, "SettingsButton", "Settings", () => ShowScreen(Settings), col, new Vector2(0f, 1f), new Vector2(150f, y - 180f), new Vector2(460f, 68f));
-            Btn(_screen, "QuitButton", "Quit", Quit, col, new Vector2(0f, 1f), new Vector2(150f, y - 264f), new Vector2(460f, 68f));
+            Btn(_screen, "StashButton", "Stash & Equipment", () => ShowScreen(StashScreenName), col, new Vector2(0f, 1f), new Vector2(150f, y - 180f), new Vector2(460f, 68f)).interactable = has;
+            Btn(_screen, "VendorButton", "Vendor", () => ShowScreen(VendorScreenName), col, new Vector2(0f, 1f), new Vector2(150f, y - 264f), new Vector2(460f, 68f)).interactable = has;
+            Btn(_screen, "SettingsButton", "Settings", () => ShowScreen(Settings), col, new Vector2(0f, 1f), new Vector2(150f, y - 348f), new Vector2(460f, 68f));
+            Btn(_screen, "QuitButton", "Quit", Quit, col, new Vector2(0f, 1f), new Vector2(150f, y - 432f), new Vector2(460f, 68f));
             BuildAccountCard(_screen);
         }
 

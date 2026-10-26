@@ -122,6 +122,7 @@ namespace DungeonGen.Unity
             intent.Basic = _basicQueued || _basic.IsPressed(); intent.Bolt = _boltQueued; intent.Zone = _zoneQueued; intent.Mobility = _mobilityQueued; intent.Ultimate = _ultQueued;
             intent.Interact = _interact.IsPressed(); intent.Ping = _pingQueued; intent.PingKind = (byte)PingKind.Look;
             intent.ConsumableSlot = _consumableQueued;
+            PendingItemActions.ApplyTo(ref intent);   // item choices clicked in the UI ride this intent
             _basicQueued = _boltQueued = _zoneQueued = _mobilityQueued = _ultQueued = _pingQueued = false; _consumableQueued = 0;
             return true;
         }
