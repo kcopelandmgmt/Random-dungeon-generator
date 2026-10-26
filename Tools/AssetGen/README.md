@@ -20,3 +20,11 @@ Files per folder: `<slug>.fbx`, `<slug>_basecolor.png`, `<slug>_thumb.png`, `<sl
 * Resumable: rerun the same command; finished steps are skipped, unfinished tasks are polled again. A failed step is
   retried once; `--reset-failed` grants fresh attempts.
 * Edit prompts, polycounts and animation action ids in the `ASSETS` list at the top of the file.
+
+## elevenlabs.py
+
+`python -I Tools/AssetGen/elevenlabs.py` generates all sound effects, announcer/boss speech and music into
+`dungeongame/Assets/Generated/audio/<category>/<slug>.mp3` with `manifest.json` beside them (slug, file,
+category, prompt, duration, loop, credits). Resumable (skips slugs already present), retries 429/5xx, stops
+before the 60,000-character ceiling. `--no-music` makes 30 s looping ambient beds instead of music tracks.
+Key: `ELEVENLABS_API_KEY` in `.secrets/keys.env`.
