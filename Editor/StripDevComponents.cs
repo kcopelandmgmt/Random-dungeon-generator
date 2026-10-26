@@ -18,7 +18,9 @@ namespace DungeonGen.Unity.Editor
 
         public void OnProcessScene(Scene scene, BuildReport report)
         {
-            if (!BuildPipeline.isBuildingPlayer || EditorUserBuildSettings.development) return;
+            // The build's own options decide, not the editor's Build Settings checkbox: PlayerBuild passes Development explicitly.
+            if (!BuildPipeline.isBuildingPlayer || report == null) return;
+            if ((report.summary.options & BuildOptions.Development) != 0) return;
             int removed = 0;
             foreach (var root in scene.GetRootGameObjects())
                 foreach (var c in root.GetComponentsInChildren<MonoBehaviour>(true))

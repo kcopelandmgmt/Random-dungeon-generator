@@ -3,6 +3,25 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-26 · Balance pass: arenas, squads, realised damage — BUILT
+
+1. **A boss fights only what stands in its room or the corridor at its door.** A chaser follows its
+   quarry for 8 s and 10 cells, never into a spawn room. Adds stay in the arena.
+2. **Enrage and mechanic timers run from the start of the fight**, not the round.
+3. **A boss resets 10 s after its arena empties**, as packs do (health, phase, enrage, adds, lava);
+   one that cannot walk home is put back after 6 s. Without it a team could wear a boss down by
+   stepping in and out.
+4. **Boss health is tuned on realised party damage** (`CombatBaseline.FightUptime` 0.55: a trio lands
+   about 55% of its sheet damage). Solos and baseline-gear duos still lose most of the time.
+5. **A mob counts as 0.5 player-equivalents per danger point** (packs were dying in seconds).
+6. **Only the telegraphed Ground Slam leaves lava**; the Colossus's crowd slam does not.
+7. **Bots commit to a boss only as a gathered trio above 70% health**, walk around any boss they have
+   not committed to, spread around a boss (full friendly fire), heal between fights, retreat when
+   losing, and drink potions.
+
+Measured with 4 teams of 3 over 24 seeds per tier: extraction 2% → 43–45%, boss downs outside their
+arena 49–53 → 0, items carried out 7–12 → ~200 per batch, rejected events 0.
+
 ## 2026-10-26 · Carrying and salvage in the round — BUILT
 
 1. **Overload slows movement** (half speed at double load, `CarryRules.MoveSpeedFactor`) through a
