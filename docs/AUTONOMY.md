@@ -31,7 +31,15 @@ bash Tools/Build/unity-batch.sh method DungeonGen.Unity.Editor.GreyboxSceneSetup
 bash Tools/Build/unity-batch.sh import "D:/Unity Assets/Some_Pack.unitypackage"
 bash Tools/Build/unity-batch.sh tests EditMode                # Unity Test Framework, results in Logs/tests-EditMode.xml
 bash Tools/Build/unity-batch.sh tests PlayMode
+bash Tools/Build/unity-batch.sh build-win                    # development player → dungeongame\Builds\Win\DungeonGame.exe
+bash Tools/Build/unity-batch.sh smoke                        # run it muted and minimised with -autotest; prints smoke-result.json; no lane needed
 ```
+
+The player's settings and its always-included shaders are set by `Editor/PlayerBuild.cs`, never by
+hand. Anything that calls `Shader.Find` at runtime must have that shader in
+`PlayerBuild.IncludeShaders`, or the player strips it and renders magenta or crashes. The smoke run
+writes screenshots to `dungeongame\Logs\player-shots` and its log to `dungeongame\Logs\player.log`;
+look at the screenshots with the Read tool.
 
 The core suite needs no Unity: `cd Tests && dotnet test` (about 30 s, 200+ tests). The console
 tool prints a dungeon without Unity: `cd Tools/AsciiPreview && dotnet run -- --teams 4 --seed 7`.
@@ -41,6 +49,7 @@ tool prints a dungeon without Unity: `cd Tools/AsciiPreview && dotnet run -- --t
 1. `cd Tests && dotnet test` if anything under `Runtime/Core` changed. Must pass. Never skip.
 2. `bash Tools/Build/unity-batch.sh compile`. Zero errors.
 3. `bash Tools/Build/unity-batch.sh tests PlayMode` when the Unity layer or the scene changed.
+   At the end of each wave: `build-win` then `smoke`, and look at the screenshots.
 4. Update `TASKS.md` (what was done, what was verified, what is left), and `ARCHITECTURE.md` /
    `DEPENDENCIES.md` if a file, assembly, asset folder or external dependency was added or removed.
    This is a hard rule: a task is not finished until the documents say so.

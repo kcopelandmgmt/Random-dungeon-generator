@@ -3,6 +3,21 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-26 · Settlement: what a finished round does to the profile — BUILT (`RoundSettlement`)
+
+1. **The profile does not change until the round settles.** Gear brought in still shows on the
+   profile while the round runs, so the host must not seat the same account in a second round
+   before the first is settled.
+2. **Items carried from the stash count toward gear score** (the tier wall checks worn and carried)
+   and are lost on death like worn gear.
+3. **Starter gear is lost on death like anything else** and can be claimed again for free
+   (`SettlementReport.CharacterNaked` tells the screen to offer it).
+4. **Consumables in the pockets are lost at every death**, including one before a resurrection.
+5. **Account XP is paid on death too.** Silver only on extraction.
+6. **A disconnect past the 60 s window settles as a death.** Anyone still inside at round end
+   settles as dead.
+7. **A round settles once per profile**, keyed by the match id; the key is saved with the profile.
+
 ## 2026-10-24 · Camera: Albion's angle, zoom and aspect rule — BUILT (`TopDownCamera`)
 
 Amends the 2026-10-22 presentation entry after the first greybox session in Unity. Albion Online's

@@ -17,6 +17,17 @@ mkdir -p "$LOGS"
 LOCK="$LOGS/.claude-unity-lane.lock"   # Logs/, not Temp/: Temp only exists while Unity runs
 cmd="${1:-compile}"; shift || true
 
+# The player smoke test needs no editor and no lane: run it before the lock.
+if [ "$cmd" = "smoke" ]; then
+    exe="$PROJECT_POSIX/Builds/Win/DungeonGame.exe"; rm -f "$PROJECT_POSIX/Builds/Win/smoke-result.json"
+    [ -f "$exe" ] || { echo "unity-batch: no player at $exe; run build-win first" >&2; exit 2; }
+    "$exe" -mute -minimized -autotest -shots "$PROJECT/Logs/player-shots" -logFile "$PROJECT/Logs/player.log" & pid=$!
+    for _ in $(seq 1 120); do kill -0 $pid 2>/dev/null || break; sleep 1; done
+    if kill -0 $pid 2>/dev/null; then echo "unity-batch: smoke test hung; killing the player" >&2; kill -9 $pid 2>/dev/null; taskkill //F //PID $pid >/dev/null 2>&1; code=1; else wait $pid; code=$?; fi
+    cat "$PROJECT_POSIX/Builds/Win/smoke-result.json" 2>/dev/null || { echo "unity-batch: no smoke-result.json written (log: $PROJECT/Logs/player.log)"; code=1; }
+    echo "unity-batch: smoke finished with exit $code"; exit $code
+fi
+
 # Wait for the lane. The editor's own lock file means a GUI editor or another batch run is open.
 waited=0
 while true; do
@@ -56,14 +67,6 @@ case "$cmd" in
     exit $code ;;
   build-win)
     "$UNITY" -batchmode -nographics -quit -projectPath "$PROJECT" -executeMethod DungeonGen.Unity.Editor.PlayerBuild.Windows -logFile "$log" ;;
-  smoke)
-    exe="$PROJECT_POSIX/Builds/Win/DungeonGame.exe"; rm -f "$PROJECT_POSIX/Builds/Win/smoke-result.json"
-    [ -f "$exe" ] || { echo "unity-batch: no player at $exe; run build-win first" >&2; exit 2; }
-    "$exe" -mute -minimized -autotest -shots "$PROJECT/Logs/player-shots" -logFile "$PROJECT/Logs/player.log" & pid=$!
-    for _ in $(seq 1 120); do kill -0 $pid 2>/dev/null || break; sleep 1; done
-    if kill -0 $pid 2>/dev/null; then echo "unity-batch: smoke test hung; killing the player" >&2; kill -9 $pid 2>/dev/null; taskkill //F //PID $pid >/dev/null 2>&1; code=1; else wait $pid; code=$?; fi
-    cat "$PROJECT_POSIX/Builds/Win/smoke-result.json" 2>/dev/null || { echo "unity-batch: no smoke-result.json written (log: $PROJECT/Logs/player.log)"; code=1; }
-    echo "unity-batch: smoke finished with exit $code"; exit $code ;;
   *) echo "unknown command $cmd" >&2; exit 2 ;;
 esac
 code=$?

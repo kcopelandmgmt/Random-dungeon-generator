@@ -28,7 +28,7 @@ input ──intent──► MatchServer (core) ──snapshot/view/event──�
 | `DungeonGen.Unity.Editor` | `Editor` | Core, Unity, Practice | Menu items: Build Greybox Scene; player builds. |
 
 Tests and tools (not Unity assemblies): `Tests` (xUnit over Core), `Tools/AsciiPreview` (console
-tool over Core), `Tools/UnityStubs` (compiles the Unity layer against a stub engine without Unity),
+tool over Core), `Tools/UnityStubs` (retired 2026-10-26: the real headless Unity compile replaced it and the stub no longer covers the APIs in use),
 `Tools/AssetGen` (Meshy and ElevenLabs generation), `Tools/Build` (the Unity lane script).
 
 ## Runtime/Core, by folder
@@ -40,7 +40,7 @@ tool over Core), `Tools/UnityStubs` (compiles the Unity layer against a stub eng
 | `Combat/` | `FightSim` (resolution: targets, damage, statuses, downed, zones, casts, dev casting), `Abilities` (`AbilityBook`, `AbilityDefinition`), `Brains` (mob and boss controllers, `EncounterDirector`), `BossArchetype`/`BossInstance`/`BossAffix`, `MobArchetype`, `ClassArchetype`, `WeaponSpec`, `ElementKit`, `PlayerStats`/`StatFormulas`/`Attributes`/`Resistances`/`StatusEffect`/`DamageType`, `FightRules`, `MovementRules`, `CombatBaseline`, `EncounterTuner`, `FightLab` (headless fight harness). |
 | `Items/` | `ItemBase`, `Item`, `Affix`, `LegendaryAffix`, `LootRoller`/`LootRoll`, `Equipment`, `Durability`, `Crafting`, `Consumable`, `CarryRules`, `GearScore`. |
 | `Net/` | `MatchServer` (the authoritative tick: intents in, events, views and snapshots out), `MatchState` (every validated event and its rules), `MatchDescriptor` (what crosses the wire once), `TeamView` (what a team may know), `PlayerIntent` (intent, `AvatarSnapshot`, `SelfSnapshot`, `EffectSnapshot`, `TeamSnapshot`), `RoundClock`, `RoundBot`/`RoundLab` (bots and headless rounds), `Matchmaker`, `Announcer`, `DeathRecap`, `DungeonEvent` (mid-round events), `LayoutIndex`, `LayoutFingerprint`, `SettingsCodec`, `StableHash`, `TeamPing`. |
-| `Profile/` | `PlayerProfile`, `AccountRules`, `Inventory`, `Vendor`, `Season`, `Mutator`, `Report`. |
+| `Profile/` | `PlayerProfile`, `AccountRules`, `Inventory`, `Vendor`, `Season`, `Mutator`, `Report`; the meta loop: `ProfileCodec` (versioned binary save, items by stable keys, `ProfileFormatException` on unknown keys), `Loadout` (sheet, brought items and consumables for a character, no profile change), `RoundSettlement` (after extract or death: extraction keeps, full loot loses, silver, XP, wear, consumables; idempotent per round key saved in the profile). `MatchServer.AddPlayerWithLoadout` checks the tier wall and registers brought items (ids from 100000); `MatchServer.ItemById` maps any item id to its `Item` on the host. |
 
 ## Runtime/Unity, by file
 
@@ -57,11 +57,13 @@ tool over Core), `Tools/UnityStubs` (compiles the Unity layer against a stub eng
 | `Hud/PlayerHud`, `CompassHud`, `MiniMapHud` | Greybox OnGUI HUDs drawn from snapshots and HUD models. |
 | `Vfx/AbilityVfxLibrary`, `Vfx/AbilityEffects` | Prefab per ability and role; the effects layer that draws casts, projectiles, impacts, zones and floating numbers from `EffectSnapshot`s. |
 | `PlayerClassDefinition`, `DungeonGizmos` | Designer asset and scene-view overlay. |
+| `Boot/LaunchFlags` | Command-line flags read before the first scene: `-mute` (silences audio all session), `-minimized` (minimises the Windows player), `-autotest`, `-shots <dir>`. `LaunchFlags.Has/Value` for any code. |
 
 `Runtime/Unity.Input/LocalPlayerController` turns input into intents and feeds the camera's aim
 and zoom and the minimap's full-map hold. `Runtime/Unity.Practice/PracticeMode` hosts a practice
 round on Play (dev casting on, one ally bot, bot teams); `VfxAudition` is the effect chooser.
-`Editor/GreyboxSceneSetup` assembles the scene on the template's Main Camera.
+`AutoSmokeTest` (practice, dev builds) runs a 30 s scripted round when `-autotest` is given: walks, casts every ability of several specs, holds Interact, writes `smoke-result.json` and screenshots, and exits 0 or 1.
+`Editor/GreyboxSceneSetup` assembles the scene on the template's Main Camera and then runs every `[GreyboxStep]` method (`Editor/GreyboxStepAttribute.cs`); `GreyboxRebuild.Run` rebuilds and saves SampleScene headless. `Editor/PlayerBuild.Windows` builds the development player with its settings and always-included shaders set from code.
 
 ## Data flow in a round
 
@@ -83,3 +85,5 @@ round on Play (dev casting on, one ally bot, bot teams); `VfxAudition` is the ef
 * Anything that reads a key or a mouse → `Runtime/Unity.Input`.
 * Dev conveniences → `Runtime/Unity.Practice`.
 * Generated assets → `Assets/Generated/<models|audio>/<name>/` in the Unity project with a `manifest.json`.
+  Audio: `Assets/Generated/audio/<abilities|combat|world|ui|ambience|voice/announcer|voice/boss>/<slug>.mp3`, one
+  `manifest.json` (slug, file, category, prompt, duration, loop). Made by `Tools/AssetGen/elevenlabs.py` (resumable).

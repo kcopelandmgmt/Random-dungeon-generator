@@ -50,7 +50,8 @@ Scripting Define `FISHNET` only once Fishnet is installed.
 | Meshy rigging | `POST/GET https://api.meshy.ai/openapi/v1/rigging` (rigged GLB/FBX, walk and run) | same | 5 per rig |
 | Meshy animation | `/openapi/v1/animations` (3 credits per action) | same | |
 | ElevenLabs sound effects | `POST https://api.elevenlabs.io/v1/sound-generation` | `Tools/AssetGen/elevenlabs.py` | 84,600 characters on 2026-10-25; ceiling 60,000 |
-| ElevenLabs speech | `POST https://api.elevenlabs.io/v1/text-to-speech/{voice_id}` (voice `onwK4e9ZLuTAKqWW03F9`, model `eleven_multilingual_v2`) | same | |
+| ElevenLabs speech | `POST https://api.elevenlabs.io/v1/text-to-speech/{voice_id}` (announcer voice Daniel `onwK4e9ZLuTAKqWW03F9`, boss voice Kallixis `cPoqAvGWCPfCfyPMwe4z`, model `eleven_multilingual_v2`) | same | |
+| ElevenLabs music | `POST https://api.elevenlabs.io/v1/music` (three 60 s tracks: exploration, combat, boss) | same | ~3.8k characters used for all 90 files on 2026-10-26 |
 | GitHub | `kcopelandmgmt/Random-dungeon-generator`, branch `claude/practical-wright-h5g0so` | git push | |
 
 ## Tools on the machine
