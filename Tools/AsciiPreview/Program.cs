@@ -256,6 +256,11 @@ if (Environment.GetEnvironmentVariable("BOTLOG") == "1") DungeonGen.Core.Net.Rou
                                 sv.Ticked += srv => { if (done || srv.Elapsed < at) return; done = true; foreach (var b in srv.BotBrains) if (b is DungeonGen.Core.Net.RoundBot rb) Console.WriteLine("DUMP " + rb.Describe(srv)); };
                             }));
                         foreach (var r in reports) { Console.WriteLine(r); foreach (var rej in r.Rejections.Take(5)) Console.WriteLine("    " + rej); }
+                        {
+                            var withEvent = reports.Where(r => r.EventKind != DungeonGen.Core.Net.DungeonEventKind.None).ToList();
+                            string Line(DungeonGen.Core.Net.DungeonEventKind k) { var g = withEvent.Where(r => r.EventKind == k).ToList(); return $"{k} {g.Count} rounds, {g.Count(r => r.EventEngaged)} engaged, {g.Count(r => r.EventDone)} seen through" + (k == DungeonGen.Core.Net.DungeonEventKind.RoamingElite ? $" ({g.Count(r => r.RelicTaken)} relics taken)" : ""); }
+                            Console.WriteLine($"EVENTS: {withEvent.Count} of {reports.Count} rounds had one: {Line(DungeonGen.Core.Net.DungeonEventKind.RoamingElite)}; {Line(DungeonGen.Core.Net.DungeonEventKind.VaultUnsealed)}; {Line(DungeonGen.Core.Net.DungeonEventKind.CheapShrine)}");
+                        }
                         int players = reports.Sum(r => r.Players);
                         Console.WriteLine($"extracted {reports.Sum(r => r.Extracted)}/{players} ({100f * reports.Sum(r => r.Extracted) / Math.Max(1, players):0}%), died {reports.Sum(r => r.Died)}, still inside at the end {reports.Sum(r => r.StillInside)}, player kills {reports.Sum(r => r.PlayerKills)}, bosses {reports.Sum(r => r.BossKills)}, final bosses {reports.Count(r => r.FinalBossKilled)}, items out {reports.Sum(r => r.ItemsExtracted)}, souls {reports.Sum(r => r.Souls)}, rejected events {reports.Sum(r => r.Rejected)}, mean round {reports.Average(r => r.Seconds):0} s");
                         {

@@ -465,6 +465,128 @@ namespace DungeonGen.Core.Combat
         public bool Thorned => _thorned;
     }
 
+    /// <summary>The roaming elite of the mid-round event (2026-10-26 "Mid-round events on the server"): one extra mob that walks the dungeon from the minute the event starts.</summary>
+    public static class EliteRules
+    {
+        /// <summary>Combatant id. Below the pack ids (500+), above the boss block (91..99) and its adds, away from bots (900+).</summary>
+        public const int CombatantId = 490;
+        /// <summary>Tier multiplier on a Revenant Champion's health and DPS: a trio at full health wins, a duo or a hurt squad does not.</summary>
+        public const float PowerMultiplier = 8f;
+        /// <summary>Cells at which it notices a player it can see, and how far a quarry may get before it is given up.</summary>
+        public const float SightCells = 9f, GiveUpCells = 14f;
+        /// <summary>Seconds it stands in a room before walking on.</summary>
+        public const float RoamPauseSeconds = 5f;
+        public static readonly MobArchetype Archetype = new MobArchetype("Revenant Champion", new DamageProfile((DamageType.Physical, 0.7f), (DamageType.Shadow, 0.3f)), DamageType.Physical, DamageType.Fire, 0.45f, 0.25f,
+            "Roams the dungeon from the middle of the round and carries a relic; it fights anyone it sees and never enters a spawn room.");
+    }
+
+    /// <summary>
+    /// The roaming elite's mind. Out of a fight it walks room to room (never a spawn, extract, vault or boss room,
+    /// the next room picked from the match seed, resting a few seconds in each); a player it sees is chased and
+    /// fought until they die, get away or reach a spawn room. It walks its own route and shoulders shut doors open:
+    /// <see cref="PendingDoor"/> names the door in its way and the server raises the event that opens it.
+    /// Every other action goes through the simulator like any mob's.
+    /// </summary>
+    public sealed class EliteController
+    {
+        public Combatant Mob { get; }
+        /// <summary>The room it stands in, or last stood in.</summary>
+        public int RoomId { get; private set; }
+        public MobState State { get; private set; } = MobState.Idle;
+        /// <summary>Rooms walked into since it appeared.</summary>
+        public int RoomsEntered { get; private set; }
+        /// <summary>The shut door cell right in front of it, or null. The server opens it (<see cref="MatchEventKind.DoorOpened"/>) and the walk goes on.</summary>
+        public GridPoint? PendingDoor { get; private set; }
+        private readonly DungeonLayout _layout;
+        private readonly DungeonRandom _rng;
+        private int _goal = -1, _previous = -1, _target = -1;
+        private float _pause, _stuck, _repath;
+        private List<GridPoint> _path; private GridPoint _pathTo;
+
+        public EliteController(Combatant mob, int room, DungeonLayout layout, DungeonRandom rng) { Mob = mob; RoomId = room; _layout = layout; _rng = rng; }
+
+        private int RoomAt(Vec2 p) => _layout.InBounds(p.Cell) ? _layout.RoomIdAt[p.Cell.X, p.Cell.Y] : -1;
+        private bool Safe(int room) => room >= 0 && _layout.Rooms[room].Type == RoomType.Spawn;   // players are never hunted in their own spawn
+        private bool MayRoamTo(int room) { var t = _layout.Rooms[room].Type; return t != RoomType.Spawn && t != RoomType.Extract && t != RoomType.Vault && !_layout.Rooms[room].IsBossRoom; }
+
+        /// <summary>Walk toward a cell along a route that ignores shut doors; stop at one and let <see cref="PendingDoor"/> ask for it to be opened.</summary>
+        private void Walk(FightSim sim, GridPoint to, float dt)
+        {
+            PendingDoor = null;
+            _repath -= dt;
+            if (_path == null || _path.Count == 0 || _pathTo != to || _repath <= 0f)
+            {
+                _path = GridPath.Find(_layout, Mob.Position.Cell, to); _pathTo = to; _repath = 1f;
+                if (_path == null) { _stuck += dt; return; }
+            }
+            while (_path.Count > 1 && Vec2.Distance(Vec2.Of(_path[0]), Mob.Position) < 0.5f) _path.RemoveAt(0);
+            var next = _path.Count > 1 ? _path[1] : _path[0];
+            if (_path.Count > 1 && Vec2.Distance(Vec2.Of(_path[0]), Mob.Position) >= 0.5f) next = _path[0];
+            if (sim.ClosedDoors.Contains(next)) { PendingDoor = next; return; }
+            var before = Mob.Position;
+            sim.Move(Mob.Id, Vec2.Of(next), dt);
+            if (Vec2.Distance(before, Mob.Position) < 0.005f) _stuck += dt; else _stuck = 0f;
+        }
+
+        public void Step(FightSim sim, float dt)
+        {
+            PendingDoor = null;
+            if (Mob.Dead) { State = MobState.Dead; return; }
+            int here = RoomAt(Mob.Position);
+            if (here >= 0 && here != RoomId) { _previous = RoomId; RoomId = here; RoomsEntered++; }
+            if (!Mob.CanAct) return;
+            // Quarry: keep the one we have while they are in reach and outside a spawn; else the nearest visible player.
+            Combatant target = _target >= 0 ? sim.Get(_target) : null;
+            if (target != null && (!target.Alive || target.Has(BuffKind.Invisible) || Safe(RoomAt(target.Position)) || Vec2.Distance(target.Position, Mob.Position) > EliteRules.GiveUpCells)) target = null;
+            if (target == null)
+            {
+                target = sim.Combatants.Values.Where(o => !o.IsMob && o.Alive && !o.Has(BuffKind.Invisible) && Vec2.Distance(o.Position, Mob.Position) <= EliteRules.SightCells && !Safe(RoomAt(o.Position)) && sim.CanSee(Mob.Position, o.Position))
+                    .OrderBy(o => Vec2.Distance(o.Position, Mob.Position)).ThenBy(o => o.Id).FirstOrDefault();
+            }
+            _target = target?.Id ?? -1;
+            if (target != null)
+            {
+                _goal = -1; _pause = 0f;
+                var basic = AbilityBook.Get("Mob.basic");
+                float dist = Vec2.Distance(Mob.Position, target.Position);
+                if (dist <= basic.RangeCells + 0.3f && sim.CanSee(Mob.Position, target.Position)) { State = MobState.Attack; sim.Cast(Mob.Id, basic.Id, target.Position); }
+                else { State = MobState.Chase; Walk(sim, target.Position.Cell, dt); }
+                return;
+            }
+            // Roam.
+            if (_pause > 0f) { _pause -= dt; State = MobState.Idle; return; }
+            if (_goal >= 0 && (Vec2.Distance(Mob.Position, Vec2.Of(_layout.Rooms[_goal].Center)) < 1.2f || _stuck > 3f))
+            {
+                if (_stuck > 3f) _previous = _goal;   // a way that does not open: try elsewhere
+                _goal = -1; _stuck = 0f; _pause = EliteRules.RoamPauseSeconds; State = MobState.Idle; return;
+            }
+            if (_goal < 0)
+            {
+                // The nearest rooms it may stay in (walking through an extract room if that is the only way), not the one it just left unless there is no other.
+                var seen = new HashSet<int> { RoomId }; var frontier = new List<int> { RoomId }; var options = new List<int>();
+                while (options.Count == 0 && frontier.Count > 0)
+                {
+                    var nextRing = new List<int>();
+                    foreach (int r in frontier)
+                        foreach (int n in _layout.Rooms[r].Neighbours.OrderBy(x => x))
+                        {
+                            if (!seen.Add(n)) continue;
+                            var t = _layout.Rooms[n].Type;
+                            if (t == RoomType.Spawn || t == RoomType.Vault || _layout.Rooms[n].IsBossRoom) continue;
+                            if (MayRoamTo(n)) options.Add(n); else nextRing.Add(n);
+                        }
+                    frontier = nextRing;
+                }
+                var fresh = options.Where(n => n != _previous).ToList();
+                if (fresh.Count > 0) options = fresh;
+                if (options.Count == 0) { _pause = EliteRules.RoamPauseSeconds; State = MobState.Idle; _previous = -1; return; }
+                _goal = _rng.Pick(options);
+            }
+            State = MobState.Return;
+            Walk(sim, _layout.Rooms[_goal].Center, dt);
+        }
+    }
+
     /// <summary>
     /// Runs a room's encounter: stations the pack and the boss from the layout, steps every brain each
     /// tick, keeps brood adds following the Matron's mark, and hands the simulator's deaths to the match

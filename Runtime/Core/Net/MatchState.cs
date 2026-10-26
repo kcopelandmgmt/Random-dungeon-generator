@@ -58,6 +58,7 @@ namespace DungeonGen.Core.Net
         EventStarted,      // kind (DungeonEventKind), roomId: the round's one mid-round event begins; announced to everyone
         EventEnded,        // kind: a timed event's window closed
         EliteKilled,       // roomId, byTeam: the roaming elite fell; its relic (LayoutIndex.EventLootId) is on the floor of that room for anyone standing there
+        EliteMoved,        // roomId: the roaming elite walked into another room (server truth for EliteKilled's room; no team is told, the room tells you)
     }
 
     /// <summary>
@@ -216,6 +217,8 @@ namespace DungeonGen.Core.Net
         public float EventStartedAt { get; private set; } = -1f;
         public bool EventOver { get; private set; }
         public bool EliteDead { get; private set; }
+        /// <summary>Server truth: the room the roaming elite is in now (starts as <see cref="EventRoom"/>, where it appeared). Never sent: <see cref="EventRoom"/> is all a client knows.</summary>
+        public int EliteRoom { get; private set; } = -1;
         public bool EventOpen => ActiveEvent != DungeonEventKind.None && !EventOver;
         /// <summary>What a resurrection costs right now: the rules' price, or one soul at the event shrine while that event is open.</summary>
         public int ResurrectionCostAt(int shrineRoom) => EventOpen && ActiveEvent == DungeonEventKind.CheapShrine && shrineRoom == EventRoom ? 1 : Descriptor.Rules.ResurrectionCost;
@@ -650,6 +653,12 @@ namespace DungeonGen.Core.Net
                     }
                 case MatchEventKind.DoorOpened:
                     {
+                        if (e.B == Combat.EliteRules.CombatantId)
+                        {   // the roaming elite shoulders a shut door open: no channel, no reach, only while it walks
+                            if (ActiveEvent != DungeonEventKind.RoamingElite || EventOver) { rejection = "no elite walks"; return false; }
+                            if (!Index.Doors.TryGetValue(e.A, out var ed) || !ClosedDoors.Contains(ed.cell)) { rejection = "already open"; return false; }
+                            ClosedDoors.Remove(ed.cell); break;
+                        }
                         if (!CanReachDoor(e.B, e.A, out string why)) { rejection = why; return false; }
                         var cell = Index.Doors[e.A].cell;
                         if (!ClosedDoors.Contains(cell)) { rejection = "already open"; return false; }
@@ -681,16 +690,20 @@ namespace DungeonGen.Core.Net
                         if (ActiveEvent != DungeonEventKind.None) { rejection = "one event per round"; return false; }
                         if (e.A <= 0 || e.A > (int)DungeonEventKind.CheapShrine) { rejection = "no such event"; return false; }
                         if (e.B < 0 || e.B >= Layout.Rooms.Count) { rejection = "no such room"; return false; }
-                        ActiveEvent = (DungeonEventKind)e.A; EventRoom = e.B; EventStartedAt = e.Time; break;
+                        ActiveEvent = (DungeonEventKind)e.A; EventRoom = e.B; EventStartedAt = e.Time; EliteRoom = e.B; break;
                     }
                 case MatchEventKind.EventEnded:
                     if (ActiveEvent == DungeonEventKind.None || EventOver) { rejection = "no event open"; return false; }
                     if (ActiveEvent == DungeonEventKind.RoamingElite) { rejection = "the elite leaves only by dying"; return false; }
                     EventOver = true; break;
+                case MatchEventKind.EliteMoved:
+                    if (ActiveEvent != DungeonEventKind.RoamingElite || EventOver) { rejection = "no elite walks"; return false; }
+                    if (e.A < 0 || e.A >= Layout.Rooms.Count) { rejection = "no such room"; return false; }
+                    EliteRoom = e.A; break;
                 case MatchEventKind.EliteKilled:
                     {
                         if (ActiveEvent != DungeonEventKind.RoamingElite || EventOver) { rejection = "no elite walks"; return false; }
-                        if (e.A != EventRoom) { rejection = "the elite is not there"; return false; }
+                        if (e.A != EliteRoom) { rejection = "the elite is not there"; return false; }
                         EliteDead = true; EventOver = true;
                         if (Layout.EventLoot != null) FloorItems[LayoutIndex.EventLootId] = e.A;   // the relic hits the floor for anyone standing there
                         break;

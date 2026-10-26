@@ -14,6 +14,9 @@ namespace DungeonGen.Core.Net
         private bool _started, _doors, _extracts, _ended, _eventStarted, _eventEnded;
         public RoundClock(MatchRules rules, DungeonEventPlan plan = null) { _rules = rules; _event = plan ?? DungeonEventPlan.None; }
 
+        /// <summary>The round's planned mid-round event (public: it comes from the seed), or the none plan.</summary>
+        public DungeonEventPlan Plan => _event;
+
         public IEnumerable<MatchEvent> Tick(float elapsedSeconds)
         {
             if (!_started && elapsedSeconds >= 0f) { _started = true; yield return new MatchEvent(MatchEventKind.RoundStarted, 0f); }

@@ -56,6 +56,8 @@ namespace DungeonGen.Core.Net
         public uint Tick { get; private set; }
         public float Elapsed { get; private set; }
         public bool Running { get; private set; }
+        /// <summary>The roaming elite while the mid-round event has one on the floor (null before it appears and after it falls). Server only.</summary>
+        public EliteController Elite { get; private set; }
         public bool Ended => State.Ended;
         public IServerWire Wire { get; set; }
         /// <summary>Every accepted event, after the state applied it. The Unity layer opens the exit gate from here.</summary>
@@ -387,6 +389,7 @@ namespace DungeonGen.Core.Net
                 if (want.HasValue) _intents[bot.PlayerId] = want.Value; else _intents.Remove(bot.PlayerId);
             }
             foreach (var kv in _intents.ToList()) Apply(kv.Key, kv.Value, dt);
+            Elite?.Step(Sim, dt);
             Director.Step(dt);
 
             // The simulator's deaths become match events first, stamped when they happened, so the log never runs backwards.
@@ -401,6 +404,7 @@ namespace DungeonGen.Core.Net
             _eventCursor = Sim.Events.Count;
             // The clock's events, stamped no earlier than the simulator's time.
             foreach (var e in Clock.Tick(Elapsed)) Raise(new MatchEvent(e.Kind, Math.Max(e.Time, Sim.Time), e.A, e.B, e.C));
+            MidRoundEvent();
             // A disconnect past its window is a death like any other (2026-10-22 "Technical and production" #10; 2026-10-26 settlement #6): the corpse, souls and loot follow.
             if (!State.Ended)
                 foreach (int gone in State.ReconnectExpired(Sim.Time))
@@ -531,6 +535,53 @@ namespace DungeonGen.Core.Net
             Resolve(playerId, c, true);
         }
 
+        /// <summary>True while <paramref name="room"/> is the vault the mid-round event unsealed and its minute is open: anyone in it may open the lock without the key.</summary>
+        public bool VaultUnsealedAt(int room) => State.EventOpen && State.ActiveEvent == DungeonEventKind.VaultUnsealed && State.EventRoom == room && Sim != null && Sim.Time < Clock.Plan.EndsAt;
+
+        /// <summary>
+        /// The server's half of the mid-round event (<see cref="DungeonEventPlan"/>): the clock raises EventStarted and EventEnded, this puts the roaming elite
+        /// on the floor when its event starts, tells the state which room it walks into (<see cref="MatchEventKind.EliteMoved"/>), and raises
+        /// <see cref="MatchEventKind.EliteKilled"/> when it falls: the state drops the relic on that room's floor. The unsealed vault and the cheap shrine need
+        /// nothing here: their windows live in the state and Space reads them.
+        /// </summary>
+        private void MidRoundEvent()
+        {
+            if (State.ActiveEvent != DungeonEventKind.RoamingElite || State.EventOver) return;
+            if (Elite == null && !_eliteSpawned)
+            {
+                _eliteSpawned = true;
+                var room = Layout.Rooms[State.EventRoom];
+                var pos = Vec2.Of(room.Center);
+                var mob = Sim.Add(Combatant.Mob(EliteRules.CombatantId, EncounterDirector.MobTeam, EliteRules.Archetype, EliteRules.PowerMultiplier, Director.Baseline, pos));
+                Elite = new EliteController(mob, room.Id, Layout, new DungeonRandom(Descriptor.Seed).Fork(11));
+                return;
+            }
+            if (Elite == null) return;
+            if (Elite.RoomId != State.EliteRoom) Raise(new MatchEvent(MatchEventKind.EliteMoved, Sim.Time, Elite.RoomId));
+            // The elite shoulders open the shut door in its way (the state lets this one mob do it; the door stays open behind it).
+            if (Elite.PendingDoor.HasValue && !Elite.Mob.Dead)
+            {
+                var cell = Elite.PendingDoor.Value;
+                var door = State.Index.Doors.Where(kv => kv.Value.cell == cell).Select(kv => kv.Key).FirstOrDefault();
+                if (door != 0 && Vec2.Distance(Vec2.Of(cell), Elite.Mob.Position) <= 1.6f) Raise(new MatchEvent(MatchEventKind.DoorOpened, Sim.Time, door, EliteRules.CombatantId));
+            }
+            if (Elite.Mob.Dead)
+            {
+                int killer = -1, killerTeam = -1;
+                for (int i = Sim.Events.Count - 1; i >= 0; i--)
+                {
+                    var fe = Sim.Events[i];
+                    if (fe.Kind == FightEventKind.Died && fe.Target == EliteRules.CombatantId) { killer = fe.Source; break; }
+                }
+                var by = killer >= 0 ? Sim.Get(killer) : null;
+                if (by != null && !by.IsMob) killerTeam = by.Team;
+                Raise(new MatchEvent(MatchEventKind.EliteKilled, Sim.Time, Elite.RoomId, killerTeam));
+                Elite = null;
+                return;
+            }
+        }
+        private bool _eliteSpawned;
+
         /// <summary>The interaction priority list. With act=false only names what would happen.</summary>
         private string Resolve(int playerId, Combatant c, bool act)
         {
@@ -572,8 +623,8 @@ namespace DungeonGen.Core.Net
             // 5. A key lying here (a boss's key only once the boss is down).
             var key = layout.Keys.FirstOrDefault(k => k.HolderRoomId == room && !State.KeyHolder.ContainsKey(k.KeyId) && !State.DestroyedKeys.Contains(k.KeyId) && (!k.DroppedByBoss || State.DeadBosses.Contains(room)));
             if (key != null) { Start("key", key.KeyId, FightRules.KeyPickupSeconds, new MatchEvent(MatchEventKind.LootStarted, Sim.Time, playerId, room, 2)); return "key"; }
-            // 6. The vault door, if you hold its key.
-            if (r.Type == RoomType.Vault && !State.OpenVaults.Contains(room) && layout.Keys.Any(k => k.VaultRoomId == room && State.KeyHolder.TryGetValue(k.KeyId, out int holder) && holder == playerId))
+            // 6. The vault door, if you hold its key, or while the mid-round event has its lock failed.
+            if (r.Type == RoomType.Vault && !State.OpenVaults.Contains(room) && (VaultUnsealedAt(room) || layout.Keys.Any(k => k.VaultRoomId == room && State.KeyHolder.TryGetValue(k.KeyId, out int holder) && holder == playerId)))
             { if (!act || Raise(new MatchEvent(MatchEventKind.VaultOpened, Sim.Time, room, playerId))) return "vault"; }
             // 7. The chest: open it, then take or roll. A boss room's chest waits for the boss.
             if ((r.Loot.Count > 0 || r.Silver > 0) && (!r.IsBossRoom || State.DeadBosses.Contains(room)) && (r.Type != RoomType.Vault || State.OpenVaults.Contains(room)))

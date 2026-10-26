@@ -46,6 +46,10 @@ namespace DungeonGen.Core.Net
         public float EngageRatio = 1.7f, BusyRatio = 1.3f, CorneredCells = 3f;
         /// <summary>Potions each member must still hold to walk into a room boss (one for the fight itself).</summary>
         public int BossPotionsEach = 1;
+        /// <summary>Average health (potions counted; nobody under half) the squad needs before it goes for the roaming elite, and the seconds of round that must remain for the clock alone not to send it out while an event is on.</summary>
+        public float EliteReadyHealth = 0.85f, EventGraceSeconds = 240f;
+        /// <summary>Potions the whole squad must still hold between them before it goes for the roaming elite.</summary>
+        public int ElitePotionsTogether = 2;
     }
 
     /// <summary>
@@ -189,6 +193,7 @@ namespace DungeonGen.Core.Net
                 var bossFoe = Squad.EngagedBoss >= 0 ? server.Director.Bosses.FirstOrDefault(b => b.RoomId == Squad.EngagedBoss && !b.Boss.Dead) : null;
                 var squadIds = mates.Select(m => m.Id).OrderBy(i => i).ToList();
                 if (bossFoe != null && inSight.Contains(bossFoe.Boss)) { _did = "boss"; PartyAct(sim, c, bossFoe.Boss, Math.Max(0, squadIds.IndexOf(PlayerId)), Math.Max(1, squadIds.Count), dt); }
+                else if (server.Elite != null && !server.Elite.Mob.Dead && inSight.Contains(server.Elite.Mob) && mates.Count(m => m.Alive) >= 2) { _did = "elite"; PartyAct(sim, c, server.Elite.Mob, Math.Max(0, squadIds.IndexOf(PlayerId)), Math.Max(1, squadIds.Count), dt); }   // the elite is fought as a party fights a boss: a slot each round it
                 else { _did = "fight"; SimpleBrain.Act(sim, c, dt); }
                 _path = null;
                 return drink == 0 ? (PlayerIntent?)null : new PlayerIntent { PlayerId = PlayerId, ConsumableSlot = drink, AimX = c.Position.X + c.Facing.X, AimY = c.Position.Y + c.Facing.Y };
@@ -250,6 +255,7 @@ namespace DungeonGen.Core.Net
                 if (!IsExtract(server, room) || !Squad.Leaving) { Squad.Visited.Add(room); Squad.GoalRoom = -1; }
                 else return Idle(PlayerId);   // waiting at the gate for the extracts to open
             }
+            { int ev = EventTargetRoom(server); if (ev >= 0 && Squad.GoalRoom != ev && !Squad.Leaving && Squad.EngagedBoss < 0) Squad.GoalRoom = -1; }   // the event will not wait: drop the walk to the next chest
             if (Squad.GoalRoom < 0 || !StillWorth(server, Squad.GoalRoom)) { int before = Squad.GoalRoom; Squad.GoalRoom = PickGoal(server, room); if (DebugLog != null && Squad.GoalRoom != before && !Squad.Resting) DebugLog($"   T{Squad.Team} {sim.Time:0}s goal {Squad.GoalRoom} {(Squad.GoalRoom >= 0 ? layout.Rooms[Squad.GoalRoom].Type.ToString() : "-")} (from room {room}, leaving {Squad.Leaving})"); }
             if (Squad.GoalRoom < 0) return Idle(PlayerId);
             if (Squad.Resting && Squad.GoalRoom == RestRoom(server) && room == Squad.GoalRoom) { _did = "rest"; _path = null; return Idle(PlayerId); }
@@ -412,6 +418,86 @@ namespace DungeonGen.Core.Net
 
         private bool IsExtract(MatchServer s, int room) => s.Layout.Rooms[room].Type == RoomType.Extract || (s.Layout.Rooms[room].Type == RoomType.FinalBoss && s.State.BossExitOpen);
 
+        // ---------------- the mid-round event ----------------
+
+        /// <summary>Seconds a bot allows per room of walking when it races the unsealed vault's minute.</summary>
+        public const float EventSecondsPerRoom = 5.5f;
+
+        /// <summary>Doors-and-corridors hops between two rooms (breadth-first over the room graph), or int.MaxValue.</summary>
+        private static int RoomsAway(DungeonLayout layout, int from, int to)
+        {
+            if (from < 0 || to < 0) return int.MaxValue;
+            var dist = new Dictionary<int, int> { [from] = 0 };
+            var q = new Queue<int>(); q.Enqueue(from);
+            while (q.Count > 0)
+            {
+                int r = q.Dequeue();
+                if (r == to) return dist[r];
+                foreach (int n in layout.Rooms[r].Neighbours) if (!dist.ContainsKey(n)) { dist[n] = dist[r] + 1; q.Enqueue(n); }
+            }
+            return int.MaxValue;
+        }
+
+        /// <summary>The relic of a fallen elite, lying on a floor nobody has taken it from: its room, or -1.</summary>
+        private static int RelicRoom(MatchServer server)
+        {
+            var st = server.State;
+            if (!st.EliteDead || st.Layout.EventLoot == null) return -1;
+            int id = LayoutIndex.EventLootId;
+            return st.FloorItems.TryGetValue(id, out int room) && !st.ItemOwner.ContainsKey(id) && !st.DestroyedItems.Contains(id) ? room : -1;
+        }
+
+        /// <summary>Whole, healthy (counting the potions it will drink) and stocked: the squad the roaming elite is a fair fight for.</summary>
+        private bool EliteFit(MatchServer server)
+        {
+            var mates = Mates(server); var standing = mates.Where(m => m.Alive).ToList();
+            if (standing.Count < 3 || mates.Count != standing.Count) return false;
+            int potions = 0; float hp = 0f;
+            foreach (var m in standing)
+            {
+                server.PocketsOf(m.Id).TryGetValue(Consumable.HealthPotionName, out int pots); potions += pots;
+                if (m.Health < m.MaxHealth * 0.5f) return false;
+                hp += Math.Min(1f, m.Health / m.MaxHealth + PotionHealth(server, m));
+            }
+            return potions >= Squad.ElitePotionsTogether && hp / standing.Count >= Squad.EliteReadyHealth;
+        }
+
+        /// <summary>The room the mid-round event wants this squad in right now, or -1: a fallen elite's relic, the unsealed vault (lock failed, not yet opened, near enough to reach in its minute), or a live elite a fit squad can take.</summary>
+        private int EventTargetRoom(MatchServer server)
+        {
+            var st = server.State;
+            int relic = RelicRoom(server);
+            if (relic >= 0) return Squad.Avoid.TryGetValue(relic, out float until) && server.Sim.Time < until ? -1 : relic;
+            if (!st.EventOpen) return -1;
+            if (st.ActiveEvent == DungeonEventKind.VaultUnsealed)
+            {
+                int room = st.EventRoom; var mates = Mates(server);
+                if (mates.Count == 0 || Squad.Visited.Contains(room) || !server.VaultUnsealedAt(room) || st.OpenVaults.Contains(room)) return -1;
+                float left = server.Clock.Plan.EndsAt - server.Sim.Time;
+                return left > 5f && RoomsAway(server.Layout, server.RoomOf(mates[0].Id), room) * EventSecondsPerRoom <= left ? room : -1;
+            }
+            if (st.ActiveEvent == DungeonEventKind.RoamingElite && server.Elite != null && EliteFit(server)) return st.EliteRoom;
+            return -1;
+        }
+
+        private bool EventRoom(MatchServer server, int room) => room >= 0 && EventTargetRoom(server) == room;
+
+
+        /// <summary>Should the clock alone send this squad out? Not while an event it is fit for is on and enough of the round is left to walk out afterwards.</summary>
+        private bool HoldForEvent(MatchServer server)
+        {
+            if (server.Clock.SecondsRemaining(server.Elapsed) <= Squad.EventGraceSeconds) return false;
+            var plan = server.Clock.Plan; var st = server.State;
+            if (RelicRoom(server) >= 0) return Mates(server).Any(m => m.Alive);
+            switch (plan.Kind)
+            {
+                case DungeonEventKind.RoamingElite: return !st.EliteDead && EliteFit(server);
+                case DungeonEventKind.VaultUnsealed: return server.Sim.Time < plan.EndsAt && Mates(server).Count(m => m.Alive) >= 3 && RoomsAway(server.Layout, server.RoomOf(Mates(server)[0].Id), plan.RoomId) * EventSecondsPerRoom <= plan.EndsAt - Math.Min(server.Sim.Time, plan.AtSeconds);
+                default: return false;
+            }
+        }
+
+
         /// <summary>The squad's load against its capacity: true when the bags are nearly full (<see cref="BotSquad.BagsFullFraction"/>), so the next piece costs speed.</summary>
         private bool BagsFull(MatchServer server, Combatant me)
         {
@@ -437,7 +523,7 @@ namespace DungeonGen.Core.Net
             int carried = state.ItemOwner.Count(kv => members.Contains(kv.Value));
             // Enough: the bags are nearly full or the squad holds as many pieces as it set out for. Time spent after that is risk.
             if (carried > 0 && (carried >= Squad.ItemsWanted || BagsFull(server, c))) { Squad.Leaving = true; DebugLog?.Invoke($"T{Squad.Team} leaves at {server.Sim.Time:0}: full, carrying {carried}"); return; }
-            if (server.Clock.SecondsRemaining(server.Elapsed) <= Squad.LeaveWithSecondsLeft) { Squad.Leaving = true; DebugLog?.Invoke($"T{Squad.Team} leaves at {server.Sim.Time:0}: time"); return; }
+            if (server.Clock.SecondsRemaining(server.Elapsed) <= Squad.LeaveWithSecondsLeft && !HoldForEvent(server)) { Squad.Leaving = true; DebugLog?.Invoke($"T{Squad.Team} leaves at {server.Sim.Time:0}: time"); return; }
             // A squad that has lost someone, or is worn down beyond what its potions will mend, takes what it has out.
             var mates = Mates(server); var standing = mates.Where(m => m.Alive).ToList();
             bool weak = mates.Count < members.Count(m => !state.ExtractedPlayers.Contains(m)) || standing.Count == 0 || standing.Average(m => Math.Min(1f, m.Health / m.MaxHealth + PotionHealth(server, m))) < Squad.LeaveBelowHealth;
@@ -476,6 +562,7 @@ namespace DungeonGen.Core.Net
         private bool Worth(MatchServer server, int room)
         {
             var state = server.State; var layout = server.Layout; var r = layout.Rooms[room];
+            if (EventRoom(server, room)) return true;
             if (Squad.Visited.Contains(room)) return false;
             if (r.Type == RoomType.Spawn) return false;
             if (Squad.Avoid.TryGetValue(room, out float until) && server.Sim.Time < until) return false;
@@ -559,6 +646,7 @@ namespace DungeonGen.Core.Net
                 return gates?.Id ?? -1;
             }
             var pick = layout.Rooms.Where(r => dist.ContainsKey(r.Id) && Worth(server, r.Id))
+                .OrderBy(r => EventRoom(server, r.Id) ? 0 : 1)                                                                 // the mid-round event first: it will not wait
                 .OrderBy(r => r.Type == RoomType.FinalBoss ? 2 : r.IsBossRoom && !server.State.DeadBosses.Contains(r.Id) ? 1 : 0)      // ordinary rooms, then bosses, the final boss last
                 .ThenBy(r => !Ours(server, r.Id, dist[r.Id]) ? 1 : 0)                                                          // our own side first: the rooms between two spawns are where squads collide
                 .ThenBy(r => dist[r.Id]).ThenBy(r => r.Id).FirstOrDefault();

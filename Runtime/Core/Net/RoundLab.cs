@@ -17,8 +17,11 @@ namespace DungeonGen.Core.Net
         /// <summary>When each death in <see cref="DeathCauses"/> happened (round seconds), same order.</summary>
         public List<float> DeathTimes = new List<float>();
         public int EventCount;
+        /// <summary>The round's mid-round event (none when the dungeon has none), whether any bot engaged it (hit the elite, opened the unsealed vault, resurrected at the cheap shrine), and whether it was seen through (elite killed, vault opened in its minute, relic taken).</summary>
+        public DungeonEventKind EventKind; public bool EventEngaged, EventDone, RelicTaken; public float EliteKilledAt = -1f; public int EliteKilledByTeam = -1;
         public override string ToString() =>
-            $"seed {Seed,5}: {Seconds,6:0}s  out {Extracted}/{Players}  dead {Died}  inside {StillInside}  pk {PlayerKills}  bosses {BossKills}{(FinalBossKilled ? "+final" : "")}  items {ItemsExtracted}  value {ValueExtracted}  looted {RoomsLooted}  souls {Souls}  events {EventCount}  rejected {Rejected}";
+            $"seed {Seed,5}: {Seconds,6:0}s  out {Extracted}/{Players}  dead {Died}  inside {StillInside}  pk {PlayerKills}  bosses {BossKills}{(FinalBossKilled ? "+final" : "")}  items {ItemsExtracted}  value {ValueExtracted}  looted {RoomsLooted}  souls {Souls}  events {EventCount}  rejected {Rejected}{EventText()}";
+        public string EventText() => EventKind == DungeonEventKind.None ? "" : "  event " + EventKind + " engaged " + EventEngaged + " done " + EventDone + (EliteKilledAt >= 0 ? " killed " + EliteKilledAt.ToString("0") + "s by T" + EliteKilledByTeam + " relic " + (RelicTaken ? "taken" : "left") : "");
     }
 
     /// <summary>
@@ -61,6 +64,7 @@ namespace DungeonGen.Core.Net
             report.RoomsLooted = st.OpenedContainers.Count;
             report.Rejected = server.RejectedCount; report.Rejections = server.RecentRejections.ToList();
             report.EventCount = st.Log.Count;
+            ReportEvent(server, report);
             foreach (var e in st.Log)
             {
                 if (e.Kind != MatchEventKind.PlayerDied && e.Kind != MatchEventKind.PlayerFinished) continue;
@@ -79,6 +83,28 @@ namespace DungeonGen.Core.Net
                 report.PlayerKills += s.PlayerKills; report.ItemsExtracted += s.ItemsExtracted; report.ValueExtracted += s.ExtractedValue; report.Souls += s.SoulsEarned;
             }
             return report;
+        }
+
+        private static void ReportEvent(MatchServer server, RoundReport report)
+        {
+            var st = server.State; var plan = server.Clock.Plan;
+            report.EventKind = st.ActiveEvent;
+            if (st.ActiveEvent == DungeonEventKind.None) return;
+            switch (st.ActiveEvent)
+            {
+                case DungeonEventKind.RoamingElite:
+                    report.EventEngaged = server.Sim.Events.Any(e => e.Kind == FightEventKind.Hit && e.Target == EliteRules.CombatantId && e.Source >= 0 && server.Sim.Get(e.Source) is Combatant c && !c.IsMob);
+                    var killed = st.Log.FirstOrDefault(e => e.Kind == MatchEventKind.EliteKilled);
+                    if (killed.Kind == MatchEventKind.EliteKilled) { report.EventDone = true; report.EliteKilledAt = killed.Time; report.EliteKilledByTeam = killed.B; }
+                    report.RelicTaken = st.Log.Any(e => e.Kind == MatchEventKind.ItemTaken && e.A == LayoutIndex.EventLootId);
+                    break;
+                case DungeonEventKind.VaultUnsealed:
+                    report.EventDone = report.EventEngaged = st.Log.Any(e => e.Kind == MatchEventKind.VaultOpened && e.A == st.EventRoom && e.Time <= plan.EndsAt + 0.5f);
+                    break;
+                case DungeonEventKind.CheapShrine:
+                    report.EventDone = report.EventEngaged = st.Log.Any(e => e.Kind == MatchEventKind.PlayerResurrected && e.Time >= plan.AtSeconds && e.Time <= plan.EndsAt + 0.5f);
+                    break;
+            }
         }
 
         /// <summary>Boss combatants count down from <see cref="EncounterDirector.FirstBossId"/>; their adds are numbered id × 100 + n.</summary>
