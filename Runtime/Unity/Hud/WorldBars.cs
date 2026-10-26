@@ -56,7 +56,7 @@ namespace DungeonGen.Unity
         private sealed class Num
         {
             public GameObject Go; public RectTransform Rt; public CanvasRenderer R; public Mesh M;
-            public float Born, Life, Lift, DriftX, Dir; public Vector3 Anchor; public int Size, Slot, Target, FontVersion; public bool Crit; public string Text; public Color Colour, Outline;
+            public float Born, Life, Lift, DriftX, Dir; public Vector3 Anchor; public int Size, Slot, Target, FontVersion, Count = 1; public bool Crit; public string Text; public Color Colour, Outline;
         }
 
         private sealed class AvatarCache { public GameObject Go; public Renderer[] Rends = new Renderer[0]; public float RefreshAt; }
@@ -334,7 +334,14 @@ namespace DungeonGen.Unity
             string text;
             Color col;
             bool crit = kind.Crit && !kind.Blocked, ult = kind.Ultimate && !kind.Blocked;
-            if (kind.Blocked && !heal) { text = "Blocked"; col = BlockedColour; crit = false; ult = false; }
+            if (kind.Blocked && !heal)
+            {
+                // A shield soaking a flurry says so once: "Blocked ×3" on the number already rising, not a column of the same word.
+                foreach (var o in _nums)
+                    if (o.Target == e.Target && o.Text.StartsWith("Blocked", System.StringComparison.Ordinal) && Time.time - o.Born < BlockedMergeSeconds)
+                    { o.Count++; o.Text = "Blocked ×" + o.Count; BuildNumber(o); return; }
+                text = "Blocked"; col = BlockedColour; crit = false; ult = false;
+            }
             else
             {
                 int shown = Mathf.Max(1, Mathf.RoundToInt(amount));
@@ -359,7 +366,7 @@ namespace DungeonGen.Unity
             int slot = 0;
             foreach (var o in _nums) if (o.Target == e.Target && Time.time - o.Born < 0.8f) slot++;
             _near.Clear();
-            foreach (var o in _nums) if (o.Target == e.Target) _near.Add(o);
+            foreach (var o in _nums) if (o.Target == e.Target || (o.Anchor - anchor).sqrMagnitude < SharedColumnRadius * SharedColumnRadius) _near.Add(o);   // a swarm on one spot shares one column
             _near.Sort((x, y) => NumberHeight(x).CompareTo(NumberHeight(y)));
             float lift = 0f;
             foreach (var o in _near)
@@ -387,7 +394,7 @@ namespace DungeonGen.Unity
             n.Born = Time.time; n.Life = (crit || ult) ? CritNumberSeconds : NumberSeconds;
             n.Anchor = anchor; n.Size = px; n.Slot = slot; n.Target = e.Target; n.Crit = crit || ult; n.Text = text; n.Colour = col;
             n.Outline = (crit || ult) ? new Color(0.22f, 0.1f, 0f, 0.95f) : new Color(0f, 0f, 0f, 0.92f);
-            n.Lift = lift; n.DriftX = drift; n.Dir = ((e.Target + NumbersSpawned) & 1) == 0 ? 1f : -1f;
+            n.Count = 1; n.Lift = lift; n.DriftX = drift; n.Dir = ((e.Target + NumbersSpawned) & 1) == 0 ? 1f : -1f;
             BuildNumber(n);
             n.Go.SetActive(true);
             _nums.Add(n);
@@ -396,6 +403,8 @@ namespace DungeonGen.Unity
             if (_recentNumbers.Count > 64) _recentNumbers.RemoveAt(0);
         }
 
+        private const float BlockedMergeSeconds = 0.6f;   // blocks on one target this close together share one label
+        private const float SharedColumnRadius = 1.2f;    // world metres: targets this close stack their numbers together
         private const float RiseSpeed = 58f;     // screen pixels per second at 900p, for every number
         private readonly List<Num> _near = new List<Num>();
 
