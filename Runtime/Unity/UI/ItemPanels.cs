@@ -177,7 +177,7 @@ namespace DungeonGen.Unity.UI
                 string note = c.CanTake ? null : c.Refusal;
                 ItemRow(_loot, "Loot-" + c.ItemId, c.Item, y, 548f, "Take-" + c.ItemId, label, c.CanTake, () => { PendingItemActions.Take(c.ItemId); UiSound.Play(UiSound.Click); }, note,
                     c.Source == LootSourceKind.Corpse ? "corpse" : c.Source == LootSourceKind.Floor ? "floor" : null, host);
-                y -= 82f; shown++;
+                y -= 90f; shown++;
             }
             if (v.Here.Count > shown)
             {
@@ -202,7 +202,7 @@ namespace DungeonGen.Unity.UI
             Clear(_inv);
             var t = UiStyle.Label(_inv, "Title", "INVENTORY", 30, UiStyle.Gold, TextAnchor.MiddleLeft, FontStyle.Bold);
             t.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(26f, -14f), new Vector2(300f, 40f));
-            var key = UiStyle.Label(_inv, "Key", "I to close", 17, UiStyle.TextDim, TextAnchor.MiddleRight);
+            var key = UiStyle.Label(_inv, "Key", $"{InventoryKeyName()} to close", 18, UiStyle.TextDim, TextAnchor.MiddleRight);
             key.rectTransform.Place(new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-24f, -18f), new Vector2(200f, 32f));
 
             // Load against capacity.
@@ -219,8 +219,9 @@ namespace DungeonGen.Unity.UI
             {
                 if (shown == MaxInventoryRows) break;
                 var cc = c;
-                ItemRow(_inv, "Inv-" + cc.ItemId, cc.Item, y, 568f, "Drop-" + cc.ItemId, "Drop", true, () => { PendingItemActions.Drop(cc.ItemId); UiSound.Play(UiSound.Click); }, null, cc.Worn ? "worn" : null, host, worn, compact: true);
-                if (CanSalvage(host, cc.ItemId))
+                bool salvage = CanSalvage(host, cc.ItemId);
+                ItemRow(_inv, "Inv-" + cc.ItemId, cc.Item, y, 568f, "Drop-" + cc.ItemId, "Drop", true, () => { PendingItemActions.Drop(cc.ItemId); UiSound.Play(UiSound.Click); }, null, cc.Worn ? "worn" : null, host, worn, compact: true, reserve: salvage ? 262f : 140f);
+                if (salvage)
                 {
                     // A Salvage Kit in the pockets: break the item down here; the materials come home only if you do.
                     var row = _inv.Find("Inv-" + cc.ItemId);
@@ -230,7 +231,7 @@ namespace DungeonGen.Unity.UI
                         ((RectTransform)sb.transform).Place(new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-136f, 0f), new Vector2(110f, 40f));
                     }
                 }
-                y -= 60f; shown++;
+                y -= 64f; shown++;
             }
             if (v.Carried.Count == 0)
             {
@@ -265,22 +266,28 @@ namespace DungeonGen.Unity.UI
                 var rr = r;
                 bool answered = rr.Answered.HasValue;
                 var card = UiStyle.Panel(_rolls, "RollPrompt-" + rr.ItemId);
-                float h = answered ? 92f : 168f;
+                float h = answered ? 146f : 172f;
                 card.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(680f, h));
                 Hover(card, rr.ItemId);
-                var head = UiStyle.Label(card, "Head", UiStyle.Colour("GROUP ROLL", UiStyle.GoldDim) + "   " + $"<b>{ItemText.Name(rr.Item)}</b>", 24, UiStyle.TextMain, TextAnchor.MiddleLeft);
-                head.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(24f, -10f), new Vector2(520f, 34f));
+                var icon = ItemIconTile.Icon(card, "ItemIcon", rr.Item, 64f);
+                icon.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(20f, -12f), new Vector2(64f, 64f));
+                var tag = UiStyle.Label(card, "Tag", "GROUP ROLL", 18, UiStyle.GoldDim, TextAnchor.MiddleLeft, FontStyle.Bold);
+                tag.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(98f, -8f), new Vector2(200f, 22f));
+                var head = UiStyle.Label(card, "Head", $"<b>{ItemText.Name(rr.Item)}</b>", 24, UiStyle.TextMain, TextAnchor.MiddleLeft);
+                head.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(98f, -28f), new Vector2(440f, 30f));
+                OneLine(head, 18);
                 var secs = UiStyle.Label(card, "Seconds", "", 22, UiStyle.TextMain, TextAnchor.MiddleRight, FontStyle.Bold);
                 secs.rectTransform.Place(new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-24f, -10f), new Vector2(110f, 34f));
-                var sub = UiStyle.Label(card, "Sub", ItemText.Line(rr.Item) + "   " + UiStyle.Colour(rr.OnClass ? $"fits your class: Need +{LootRollRules.OnClassNeedBonus}" : "off-class for you", rr.OnClass ? UiStyle.Good : UiStyle.TextFaint), 17, UiStyle.TextDim, TextAnchor.MiddleLeft);
-                sub.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(24f, -44f), new Vector2(632f, 26f));
+                var sub = UiStyle.Label(card, "Sub", ItemText.Line(rr.Item) + "   " + UiStyle.Colour(rr.OnClass ? $"fits your class: Need +{LootRollRules.OnClassNeedBonus}" : "off-class for you", rr.OnClass ? UiStyle.Good : UiStyle.TextFaint), 18, UiStyle.TextDim, TextAnchor.MiddleLeft);
+                sub.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(98f, -58f), new Vector2(560f, 24f));
+                OneLine(sub, 18);
                 var bar = new UiBar(card, "Countdown", new Vector2(632f, 8f), UiStyle.Gold);
                 bar.Root.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 14f), new Vector2(632f, 8f));
                 _rollBars[rr.ItemId] = (bar, secs, rr.SecondsLeft);
                 if (answered)
                 {
                     var st = UiStyle.Label(card, "Answered", $"You chose {UiStyle.Colour(rr.Answered.ToString(), UiStyle.Gold)}  ·  {rr.Answers} of {rr.Eligible} answered", 19, UiStyle.TextMain, TextAnchor.MiddleLeft);
-                    st.rectTransform.Place(new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(24f, 26f), new Vector2(600f, 28f));
+                    st.rectTransform.Place(new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(98f, 30f), new Vector2(560f, 28f));
                 }
                 else
                 {
@@ -289,7 +296,7 @@ namespace DungeonGen.Unity.UI
                     {
                         var choice = (LootRollChoice)i;
                         var b = UiStyle.MakeButton(card, labels[i] + "-" + rr.ItemId, labels[i], () => { PendingItemActions.Roll(rr.ItemId, choice); UiSound.Play(UiSound.Click); }, 24);
-                        ((RectTransform)b.transform).Place(new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(24f + i * 214f, 32f), new Vector2(200f, 52f));
+                        ((RectTransform)b.transform).Place(new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(24f + i * 214f, 30f), new Vector2(200f, 52f));
                         if (i == 0) b.SetSelected(rr.OnClass);
                     }
                 }
@@ -299,27 +306,31 @@ namespace DungeonGen.Unity.UI
 
         // ---------------- rows and the tooltip ----------------
 
-        private void ItemRow(RectTransform parent, string name, Item item, float y, float width, string buttonName, string buttonLabel, bool canClick, System.Action onClick, string note, string tag, MatchServer host, Equipment worn = null, bool compact = false)
+        private void ItemRow(RectTransform parent, string name, Item item, float y, float width, string buttonName, string buttonLabel, bool canClick, System.Action onClick, string note, string tag, MatchServer host, Equipment worn = null, bool compact = false, float reserve = 140f)
         {
-            float h = compact ? 56f : 76f;
+            float h = compact ? 58f : 84f;
             var row = UiStyle.Img(parent, name, new Color(1f, 1f, 1f, 0.035f), UiStyle.Rounded);
             row.raycastTarget = true;
             row.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(width, h));
-            var stripe = UiStyle.Img(row.transform, "Rarity", item != null ? ItemText.Colour(item.Rarity) : UiStyle.TextFaint);
-            stripe.rectTransform.Place(new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(4f, 0f), new Vector2(4f, h - 14f));
-            string nameLine = $"<b>{ItemText.Name(item)}</b>" + (tag != null ? "  " + UiStyle.Colour(tag, tag == "worn" ? UiStyle.Gold : UiStyle.TextFaint) : "");
-            var n = UiStyle.Label(row.transform, "Name", nameLine, compact ? 19 : 21, UiStyle.TextMain, TextAnchor.UpperLeft);
-            n.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(18f, -5f), new Vector2(width - 160f, 26f));
-            n.horizontalOverflow = HorizontalWrapMode.Overflow;
-            string second = ItemText.Line(item);
-            var l = UiStyle.Label(row.transform, "Line", UiStyle.Colour(second, UiStyle.TextDim), 16, UiStyle.TextMain, TextAnchor.UpperLeft);
-            l.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(18f, compact ? -30f : -31f), new Vector2(width - 160f, 22f));
+            // The painted icon in a rarity frame (ItemIconTile), then the text beside it.
+            float iconSize = h - 12f;
+            var icon = ItemIconTile.Icon(row.transform, "ItemIcon", item, iconSize, !compact);
+            icon.Place(new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(6f, 0f), new Vector2(iconSize, iconSize));
+            float tx = 6f + iconSize + 12f, tw = width - tx - reserve;
+            // The name keeps to one line clear of the buttons (shrinking to 18, then cut at a word); the tag leads the second line.
+            var n = UiStyle.Label(row.transform, "Name", $"<b>{ItemText.Name(item)}</b>", compact ? 20 : 21, UiStyle.TextMain, TextAnchor.UpperLeft);
+            n.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(tx, compact ? -4f : -5f), new Vector2(tw, 26f));
+            OneLine(n, 18);
+            string second = (tag != null ? UiStyle.Colour(tag, tag == "worn" ? UiStyle.Gold : UiStyle.TextFaint) + UiStyle.Colour("  ·  ", UiStyle.TextFaint) : "") + UiStyle.Colour(ItemText.Line(item), UiStyle.TextDim);
+            var l = UiStyle.Label(row.transform, "Line", second, 18, UiStyle.TextMain, TextAnchor.UpperLeft);
+            l.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(tx, compact ? -29f : -30f), new Vector2(tw, 24f));
+            OneLine(l, 18);
             if (!compact)
             {
                 string aff = note != null ? UiStyle.Colour(note, UiStyle.Bad) : UiStyle.Colour(ItemText.KeyAffixes(item), new Color(0.62f, 0.75f, 1f));
-                var a = UiStyle.Label(row.transform, "Affixes", aff, 15, UiStyle.TextMain, TextAnchor.UpperLeft);
-                a.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(18f, -52f), new Vector2(width - 160f, 22f));
-                a.horizontalOverflow = HorizontalWrapMode.Overflow;
+                var a = UiStyle.Label(row.transform, "Affixes", aff, 18, UiStyle.TextMain, TextAnchor.UpperLeft);
+                a.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(tx, -52f), new Vector2(tw, 24f));
+                OneLine(a, 18);
             }
             var b = UiStyle.MakeButton(row.transform, buttonName, buttonLabel, onClick, 21);
             ((RectTransform)b.transform).Place(new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-10f, 0f), new Vector2(118f, compact ? 40f : 46f));
@@ -406,11 +417,27 @@ namespace DungeonGen.Unity.UI
             }
         }
 
+        /// <summary>Keep a label to its box: one line, shrinking down to <paramref name="min"/>, then cut at a word.</summary>
+        private static void OneLine(Text t, int min)
+        {
+            t.horizontalOverflow = HorizontalWrapMode.Wrap; t.verticalOverflow = VerticalWrapMode.Truncate;
+            t.resizeTextForBestFit = t.fontSize > min; t.resizeTextMinSize = min; t.resizeTextMaxSize = t.fontSize;
+        }
+
+        private static string InventoryKeyName()
+        {
+#if DUNGEONGEN_INPUTSYSTEM
+            return GameBindings.DisplayName(BindingAction.Inventory);
+#else
+            return "I";
+#endif
+        }
+
+        /// <summary>The inventory key, through the rebindable table (Settings, Controls).</summary>
         private static bool IKeyPressed()
         {
 #if DUNGEONGEN_INPUTSYSTEM
-            var k = Keyboard.current;
-            return k != null && k.iKey.wasPressedThisFrame;
+            return GameBindings.WasPressedThisFrame(BindingAction.Inventory);
 #else
             return Input.GetKeyDown(KeyCode.I);
 #endif
