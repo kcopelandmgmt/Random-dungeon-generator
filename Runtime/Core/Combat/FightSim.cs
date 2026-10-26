@@ -23,27 +23,27 @@ namespace DungeonGen.Core.Combat
         public int Team { get; }
         public bool IsMob { get; }
         public string Name { get; }
-        public string Spec { get; }
+        public string Spec { get; private set; }
         public ClassArchetype Class { get; }
-        public PlayerStats Stats { get; }
+        public PlayerStats Stats { get; private set; }
         public Vec2 Position { get; set; }
         public Vec2 Facing { get; set; } = new Vec2(0f, 1f);
-        public float MaxHealth { get; }
+        public float MaxHealth { get; private set; }
         public float Health { get; set; }
-        public float Dps { get; }
-        public float AttackSpeed { get; }
-        public float CritChance { get; }
-        public float ArmourRating { get; }
-        public Resistances Resistances { get; }
-        public DamageProfile AttackProfile { get; }
-        public StatusEffectDefinition OnHit { get; }
-        public float Lifesteal { get; }
-        public float Thorns { get; }
-        public DamageType ThornsType { get; }
-        public float MoveSpeed { get; }
-        public float RegenMultiplier { get; }
-        public ResourceKind Resource { get; }
-        public float ResourceMax { get; }
+        public float Dps { get; private set; }
+        public float AttackSpeed { get; private set; }
+        public float CritChance { get; private set; }
+        public float ArmourRating { get; private set; }
+        public Resistances Resistances { get; private set; }
+        public DamageProfile AttackProfile { get; private set; }
+        public StatusEffectDefinition OnHit { get; private set; }
+        public float Lifesteal { get; private set; }
+        public float Thorns { get; private set; }
+        public DamageType ThornsType { get; private set; }
+        public float MoveSpeed { get; private set; }
+        public float RegenMultiplier { get; private set; }
+        public ResourceKind Resource { get; private set; }
+        public float ResourceMax { get; private set; }
         public float ResourceNow { get; set; }
         public StatusTracker Status { get; } = new StatusTracker();
         public Dictionary<string, float> CooldownUntil { get; } = new Dictionary<string, float>();
@@ -61,6 +61,8 @@ namespace DungeonGen.Core.Combat
         public float DamageScale { get; set; } = 1f;
         public float AttackSpeedScale { get; set; } = 1f;
         public float MoveSpeedScale { get; set; } = 1f;
+        /// <summary>Overload slow-down from carry weight (<see cref="DungeonGen.Core.Items.CarryRules.MoveSpeedFactor"/>), set by the server whenever the carried set changes. Its own factor, multiplied with every other speed modifier.</summary>
+        public float CarrySpeedScale { get; set; } = 1f;
         /// <summary>Floats or burns: traps, vents, pits and lava do nothing to it.</summary>
         public bool HazardImmune { get; set; }
         /// <summary>Passes closed doors and bodies (the Lantern Wraith's Drift).</summary>
@@ -94,6 +96,21 @@ namespace DungeonGen.Core.Combat
         {
             string spec = specOverride ?? s.SpecName;
             return new Combatant(id, team, false, $"{s.Class.Name} {id}", spec, s.Class, s, s.Health, s.Dps, s.AttackSpeed, s.CritChance, s.ArmourRating, s.Resistances, s.AttackProfile, s.OnHitEffect, s.Lifesteal, s.Thorns, s.ThornsType, s.MoveSpeed, s.RegenMultiplier, s.Resource, s.ResourcePool, pos);
+        }
+
+        /// <summary>
+        /// Swap in a new character sheet mid-round (a worn piece left the player): every derived number follows the sheet, current health keeps its
+        /// fraction of the new maximum, and the current resource is clamped to the new pool. Buffs, statuses and cooldowns stay. Players only.
+        /// </summary>
+        public void ApplyStats(PlayerStats s, string spec)
+        {
+            if (IsMob || s == null) return;
+            float fraction = MaxHealth > 0f ? Health / MaxHealth : 1f;
+            Stats = s; Spec = spec ?? Spec; MaxHealth = s.Health; Dps = s.Dps; AttackSpeed = s.AttackSpeed; CritChance = s.CritChance; ArmourRating = s.ArmourRating;
+            Resistances = s.Resistances; AttackProfile = s.AttackProfile; OnHit = s.OnHitEffect; Lifesteal = s.Lifesteal; Thorns = s.Thorns; ThornsType = s.ThornsType;
+            MoveSpeed = s.MoveSpeed; RegenMultiplier = s.RegenMultiplier; Resource = s.Resource; ResourceMax = s.ResourcePool;
+            Health = Math.Min(MaxHealth, MaxHealth * fraction);
+            ResourceNow = Math.Min(ResourceNow, ResourceMax);
         }
 
         public static Combatant Mob(int id, int team, MobArchetype m, float tierMultiplier, CombatBaseline b, Vec2 pos) =>
@@ -664,7 +681,7 @@ namespace DungeonGen.Core.Combat
             var c = Get(id);
             if (c == null || !c.CanMove) return;
             if (c.Channelling) return;   // a wind-up roots you
-            float speed = MovementRules.BaseSpeedMps / CellMetres * c.MoveSpeed * c.MoveSpeedScale * (1f - c.Status.SlowFraction) * (c.Has(BuffKind.Invisible) ? 0.6f : 1f);
+            float speed = MovementRules.BaseSpeedMps / CellMetres * c.MoveSpeed * c.MoveSpeedScale * c.CarrySpeedScale * (1f - c.Status.SlowFraction) * (c.Has(BuffKind.Invisible) ? 0.6f : 1f);
             var dir = (toward - c.Position);
             float dist = Math.Min(dir.Length, speed * dt);
             if (dist < 1e-4f) return;

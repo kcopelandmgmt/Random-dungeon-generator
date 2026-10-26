@@ -29,6 +29,8 @@ namespace DungeonGen.Core.Profile
         public long XpDelta;
         /// <summary>Consumable name → change to the bank (negative: used or lost; positive: bought at a shrine and walked out).</summary>
         public Dictionary<string, int> ConsumableDelta = new Dictionary<string, int>();
+        /// <summary>Materials broken down from carried items with a Salvage Kit in the round and walked out with: added to the profile's materials. Empty on a death.</summary>
+        public MaterialBag MaterialsGained = new MaterialBag();
         public int LevelBefore, LevelAfter;
         public RoundSummary Summary;
         /// <summary>True when the character has nothing on: the screen should offer the free starter kit (<see cref="Vendor.ClaimStarterKit"/>).</summary>
@@ -46,6 +48,8 @@ namespace DungeonGen.Core.Profile
         public IReadOnlyDictionary<string, int> ConsumablesCarried;
         /// <summary>Every consumable used, with the round time it was used at.</summary>
         public IReadOnlyList<(float time, string name)> ConsumableUses;
+        /// <summary>Materials the player salvaged in the round and still held (<see cref="MatchServer.MaterialsSalvagedBy"/>). Credited on extraction only.</summary>
+        public MaterialBag SalvagedMaterials;
         /// <summary>Kill-XP memory to apply and update. Defaults to the profile's own (<see cref="PlayerProfile.KillXp"/>, saved with it).</summary>
         public KillXpTracker KillXp;
         /// <summary>Which account stood behind a player id, so a victim can be paid for once a day (2026-10-26 audit #8). Null or a null answer: that kill is paid in full and not remembered.</summary>
@@ -99,7 +103,7 @@ namespace DungeonGen.Core.Profile
             return Settle(profile, character, server.State, playerId, server.ItemById, new SettlementOptions
             {
                 RoundKey = roundKey, DamageTaken = taken, DamageDealt = dealt,
-                ConsumablesCarried = server.ConsumablesCarriedBy(playerId), ConsumableUses = server.ConsumableUsesBy(playerId),
+                ConsumablesCarried = server.ConsumablesCarriedBy(playerId), ConsumableUses = server.ConsumableUsesBy(playerId), SalvagedMaterials = server.MaterialsSalvagedBy(playerId),
                 AccountOf = accountOf, WhenUtc = whenUtc, KillXp = killXp,
             });
         }
@@ -165,6 +169,9 @@ namespace DungeonGen.Core.Profile
             {
                 profile.Silver += silver; report.SilverDelta = silver;
             }
+
+            // Materials from Salvage Kits: only what was walked out with (a death loses them like the pockets).
+            if (outcome == RoundOutcome.Extracted && options.SalvagedMaterials != null) { report.MaterialsGained.Add(options.SalvagedMaterials); profile.Materials.Add(options.SalvagedMaterials); }
 
             // Consumables.
             var carried = options.ConsumablesCarried ?? new Dictionary<string, int>();

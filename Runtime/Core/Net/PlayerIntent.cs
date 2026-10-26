@@ -32,8 +32,14 @@ namespace DungeonGen.Core.Net
         /// </summary>
         public int TakeItemId, DropItemId, RollItemId;
         public byte RollChoice;
+        /// <summary>
+        /// Break this carried item down with a Salvage Kit from your pockets (<see cref="MatchServer.SalvageItem"/>): the kit is spent, the item destroyed,
+        /// its materials credited if you extract. Appended after the item block, 4 bytes written only when set (the older block before it is then written too,
+        /// with zeros), so every older payload reads as "no salvage". One press, one use.
+        /// </summary>
+        public int SalvageItemId;
 
-        public bool AnyItemAction => TakeItemId != 0 || DropItemId != 0 || RollItemId != 0;
+        public bool AnyItemAction => TakeItemId != 0 || DropItemId != 0 || RollItemId != 0 || SalvageItemId != 0;
         public Vec2 Move => new Vec2(MoveX, MoveY);
         public Vec2 Aim => new Vec2(AimX, AimY);
         public bool AnyCast => Basic || Bolt || Zone || Mobility || Ultimate;
@@ -44,7 +50,7 @@ namespace DungeonGen.Core.Net
             byte flags = 0;
             if (Basic) flags |= 1; if (Bolt) flags |= 2; if (Zone) flags |= 4; if (Mobility) flags |= 8; if (Ultimate) flags |= 16; if (Interact) flags |= 32; if (Ping) flags |= 64;
             w.Write(flags); w.Write(PingKind); w.Write(ConsumableSlot);
-            if (AnyItemAction) { w.Write(TakeItemId); w.Write(DropItemId); w.Write(RollItemId); w.Write(RollChoice); }
+            if (AnyItemAction) { w.Write(TakeItemId); w.Write(DropItemId); w.Write(RollItemId); w.Write(RollChoice); if (SalvageItemId != 0) w.Write(SalvageItemId); }
         }
         public static PlayerIntent Read(BinaryReader r)
         {
@@ -53,7 +59,7 @@ namespace DungeonGen.Core.Net
             i.Basic = (f & 1) != 0; i.Bolt = (f & 2) != 0; i.Zone = (f & 4) != 0; i.Mobility = (f & 8) != 0; i.Ultimate = (f & 16) != 0; i.Interact = (f & 32) != 0; i.Ping = (f & 64) != 0;
             // The item block is optional: present only when the sender set an item action.
             var bs = r.BaseStream;
-            if (bs.CanSeek && bs.Length - bs.Position >= ItemBlockLength) { i.TakeItemId = r.ReadInt32(); i.DropItemId = r.ReadInt32(); i.RollItemId = r.ReadInt32(); i.RollChoice = r.ReadByte(); }
+            if (bs.CanSeek && bs.Length - bs.Position >= ItemBlockLength) { i.TakeItemId = r.ReadInt32(); i.DropItemId = r.ReadInt32(); i.RollItemId = r.ReadInt32(); i.RollChoice = r.ReadByte(); if (bs.Length - bs.Position >= 4) i.SalvageItemId = r.ReadInt32(); }
             return i;
         }
         public byte[] ToBytes() { using var ms = new MemoryStream(); using (var w = new BinaryWriter(ms)) Write(w); return ms.ToArray(); }

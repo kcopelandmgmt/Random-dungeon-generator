@@ -113,6 +113,10 @@ namespace DungeonGen.Core.Net
         /// </summary>
         public bool Raise(MatchEvent e)
         {
+            // Before the state applies it: whose worn piece is about to leave them (a drop, a hand-off, a destroyed item).
+            int wornLoser = -1;
+            if (e.Kind == MatchEventKind.ItemDropped || e.Kind == MatchEventKind.ItemGiven) wornLoser = _worn.Contains(e.A) ? e.B : -1;
+            else if (e.Kind == MatchEventKind.ItemDestroyed) wornLoser = _worn.Contains(e.A) && State.ItemOwner.TryGetValue(e.A, out int holder) ? holder : -1;
             if (!State.Apply(e, out string why))
             {
                 RejectedCount++;
@@ -129,7 +133,20 @@ namespace DungeonGen.Core.Net
                 foreach (int team in Teams) Wire.SendViewToTeam(team, TeamView.For(State, team, ItemById).ToBytes());
             }
             // A worn piece that changes hands is carried from then on (the paper doll is the profile's; in the round only the bag moves).
-            if (e.Kind == MatchEventKind.ItemDropped || e.Kind == MatchEventKind.ItemGiven || e.Kind == MatchEventKind.ItemTaken) _worn.Remove(e.A);
+            if (e.Kind == MatchEventKind.ItemDropped || e.Kind == MatchEventKind.ItemGiven || e.Kind == MatchEventKind.ItemTaken || e.Kind == MatchEventKind.ItemDestroyed) _worn.Remove(e.A);
+            // A dead player's salvaged materials are lost like their pockets.
+            if (e.Kind == MatchEventKind.PlayerDied || e.Kind == MatchEventKind.PlayerFinished) _salvaged.Remove(e.A);
+            // Worn gear that left a player changes their sheet; whatever moved changes their load and so their speed.
+            if (wornLoser >= 0) RefreshSheet(wornLoser);
+            switch (e.Kind)
+            {
+                case MatchEventKind.ItemTaken: case MatchEventKind.ItemDropped: RefreshCarry(e.B); break;
+                case MatchEventKind.ItemGiven: RefreshCarry(e.B); RefreshCarry(e.C); break;
+                case MatchEventKind.ItemDestroyed: if (wornLoser >= 0) RefreshCarry(wornLoser); else RefreshAllCarry(); break;
+                case MatchEventKind.ItemRegistered: RefreshCarry(e.B); break;
+                case MatchEventKind.ShrinePurchase: case MatchEventKind.PlayerDied: case MatchEventKind.PlayerFinished: case MatchEventKind.PlayerExtracted: RefreshCarry(e.A); break;
+                case MatchEventKind.PlayerResurrected: RefreshSheet(e.A); RefreshCarry(e.A); break;
+            }
             EventRaised?.Invoke(e);
             if (e.Kind == MatchEventKind.PlayerDied || e.Kind == MatchEventKind.PlayerFinished) TrashOnDeath(e);
             return true;
@@ -199,6 +216,7 @@ namespace DungeonGen.Core.Net
             }
             _broughtBy[playerId] = ids;
             _consumablesCarried[playerId] = loadout.Consumables.ToDictionary(kv => kv.Key, kv => kv.Value);
+            RefreshCarry(playerId);
             return c;
         }
 
@@ -212,6 +230,40 @@ namespace DungeonGen.Core.Net
             if (State.Index.Items.TryGetValue(itemId, out var it)) return it;
             if (itemId == LayoutIndex.EventLootId) return Layout.EventLoot;
             return null;
+        }
+
+        /// <summary>Kilograms this player holds now: every item they own plus their pockets, consumables included (what <see cref="CarryRules"/> weighs).</summary>
+        public float LoadKgOf(int playerId)
+        {
+            float load = 0f;
+            foreach (var kv in State.ItemOwner.Where(kv => kv.Value == playerId)) load += ItemById(kv.Key)?.WeightKg ?? 0f;
+            foreach (var kv in PocketsOf(playerId)) load += (Consumable.ByName(kv.Key)?.WeightKg ?? 0f) * kv.Value;
+            return load;
+        }
+
+        /// <summary>Overload slow-down (<see cref="CarryRules.MoveSpeedFactor"/>) set on the combatant's own carry factor, so Chill, buffs and Invisible still multiply on top.</summary>
+        private void RefreshCarry(int playerId)
+        {
+            var body = Sim?.Get(playerId);
+            if (body == null || body.IsMob || body.Stats == null) return;
+            body.CarrySpeedScale = CarryRules.MoveSpeedFactor(LoadKgOf(playerId), body.Stats.CarryKg);
+        }
+
+        private void RefreshAllCarry() { if (Sim != null) foreach (var c in Sim.Combatants.Values.Where(c => !c.IsMob).ToList()) RefreshCarry(c.Id); }
+
+        /// <summary>
+        /// A worn piece left this player (dropped, handed off, destroyed, or lost with a death): rebuild the combat sheet from what they still wear, the way the
+        /// loadout built it (PlayerStats.For with the worn set, the spec the weapon in hand gives) and apply it to the combatant, which keeps its health
+        /// fraction and clamps its resource. Only for players seated with a loadout.
+        /// </summary>
+        private void RefreshSheet(int playerId)
+        {
+            var body = Sim?.Get(playerId);
+            if (body == null || body.IsMob || body.Class == null || !_broughtBy.ContainsKey(playerId)) return;
+            var stats = PlayerStats.For(body.Class, WornBy(playerId), Descriptor.Settings.Combat);
+            string spec = stats.Spec?.Name ?? stats.ElementKit?.Name ?? WeaponSpec.ForClass(body.Class.Name).FirstOrDefault()?.Name ?? stats.SpecName;
+            _spec[playerId] = spec;
+            body.ApplyStats(stats, spec);
         }
 
         /// <summary>The ids this player's loadout registered, in loadout order (worn, then carried).</summary>
@@ -276,6 +328,7 @@ namespace DungeonGen.Core.Net
             }
             if (!_consumableUses.TryGetValue(playerId, out var uses)) _consumableUses[playerId] = uses = new List<(float, string)>();
             uses.Add((Sim?.Time ?? State.Time, c.Name));
+            RefreshCarry(playerId);   // the bottle is gone
             return true;
         }
 
@@ -310,7 +363,7 @@ namespace DungeonGen.Core.Net
             if (intent.PlayerId != playerId) return;
             // A one-press item choice not applied yet survives a newer intent that carries none (the client sends faster than some tick rates).
             if (!intent.AnyItemAction && _intents.TryGetValue(playerId, out var pending) && pending.AnyItemAction)
-            { intent.TakeItemId = pending.TakeItemId; intent.DropItemId = pending.DropItemId; intent.RollItemId = pending.RollItemId; intent.RollChoice = pending.RollChoice; }
+            { intent.TakeItemId = pending.TakeItemId; intent.DropItemId = pending.DropItemId; intent.RollItemId = pending.RollItemId; intent.RollChoice = pending.RollChoice; intent.SalvageItemId = pending.SalvageItemId; }
             _intents[playerId] = intent;
         }
 
@@ -399,7 +452,8 @@ namespace DungeonGen.Core.Net
                 if (intent.RollItemId != 0) AnswerRoll(playerId, intent.RollItemId, (LootRollChoice)intent.RollChoice);
                 if (intent.TakeItemId != 0) TakeItem(playerId, intent.TakeItemId);
                 if (intent.DropItemId != 0) DropItem(playerId, intent.DropItemId);
-                intent.TakeItemId = intent.DropItemId = intent.RollItemId = 0; intent.RollChoice = 0;
+                if (intent.SalvageItemId != 0) SalvageItem(playerId, intent.SalvageItemId);
+                intent.TakeItemId = intent.DropItemId = intent.RollItemId = intent.SalvageItemId = 0; intent.RollChoice = 0;
                 _intents[playerId] = intent;   // one press, one action: a held intent must not repeat it
             }
             var aim = intent.Aim;
@@ -528,6 +582,9 @@ namespace DungeonGen.Core.Net
                 if (item != 0) { if (act) Raise(new MatchEvent(MatchEventKind.ItemTaken, Sim.Time, item, playerId)); return "item"; }
                 if (!State.SilverTakenRooms.Contains(room) && r.Silver > 0) { if (act) Raise(new MatchEvent(MatchEventKind.SilverPicked, Sim.Time, playerId, room)); return "silver"; }
             }
+            // 7b. An item lying on the floor of this room (dropped, a relic): the same reach as TakeItemId, after the chest's items.
+            var floor = State.FloorItems.Where(kv => kv.Value == room && !State.DestroyedItems.Contains(kv.Key) && !State.ItemOwner.ContainsKey(kv.Key)).Select(kv => kv.Key).OrderBy(i => i).FirstOrDefault();
+            if (floor != 0) { if (act) Raise(new MatchEvent(MatchEventKind.ItemTaken, Sim.Time, floor, playerId)); return "floor-item"; }
             // 8. Leaving: an extract room with the gates open, or the centre when the exit is open.
             bool gate = r.Type == RoomType.Extract && State.ExtractsOpen, exit = r.Type == RoomType.FinalBoss && State.BossExitOpen;
             if (gate || exit) { Start("extract", room, Descriptor.Rules.ExtractChannelSeconds, new MatchEvent(MatchEventKind.ExtractStarted, Sim.Time, playerId, room)); return "extract"; }
@@ -592,6 +649,39 @@ namespace DungeonGen.Core.Net
         /// <summary>Drop a carried item on the floor of the room the player stands in (<see cref="PlayerIntent.DropItemId"/>): an <see cref="MatchEventKind.ItemDropped"/>.</summary>
         public bool DropItem(int playerId, int itemId) => DropRefusal(playerId, itemId) == null && Raise(new MatchEvent(MatchEventKind.ItemDropped, Sim.Time, itemId, playerId));
 
+        private readonly Dictionary<int, MaterialBag> _salvaged = new Dictionary<int, MaterialBag>();
+
+        /// <summary>Materials this player broke items down into with a Salvage Kit this round and still holds: credited on extraction (<see cref="Profile.RoundSettlement"/>), gone with a death like the pockets.</summary>
+        public MaterialBag MaterialsSalvagedBy(int playerId) => _salvaged.TryGetValue(playerId, out var b) ? b : new MaterialBag();
+
+        /// <summary>Why this player cannot break this item down now, or null: they must hold it and a Salvage Kit, and it must yield something (starter gear salvages to nothing).</summary>
+        public string SalvageRefusal(int playerId, int itemId)
+        {
+            if (!CanHandle(playerId, out _, out string why)) return why;
+            if (!State.ItemOwner.TryGetValue(itemId, out int owner) || owner != playerId) return "not yours";
+            var item = ItemById(itemId);
+            if (item == null) return "no such item";
+            if (item.IsStarter || item.Condition.IsDestroyed) return "it salvages to nothing";
+            if (!PocketsOf(playerId).TryGetValue(Consumable.SalvageKitName, out int kits) || kits <= 0) return "no Salvage Kit";
+            return null;
+        }
+
+        /// <summary>
+        /// Break a carried item down inside the dungeon (<see cref="PlayerIntent.SalvageItemId"/>): one Salvage Kit is spent, the item is destroyed through a
+        /// validated <see cref="MatchEventKind.ItemDestroyed"/>, and <see cref="CraftingRules.Salvage"/>'s materials are recorded for settlement
+        /// (<see cref="Profile.Inventory.SalvageInField"/> is the same rule on the profile's side).
+        /// </summary>
+        public bool SalvageItem(int playerId, int itemId)
+        {
+            if (SalvageRefusal(playerId, itemId) != null) return false;
+            var bag = CraftingRules.Salvage(ItemById(itemId));
+            if (!Raise(new MatchEvent(MatchEventKind.ItemDestroyed, Sim.Time, itemId))) return false;
+            UseConsumable(playerId, Consumable.ByName(Consumable.SalvageKitName));
+            if (!_salvaged.TryGetValue(playerId, out var mine)) _salvaged[playerId] = mine = new MaterialBag();
+            mine.Add(bag);
+            return true;
+        }
+
         /// <summary>Why this player cannot answer this roll, or null.</summary>
         public string RollRefusal(int playerId, int itemId, LootRollChoice choice)
         {
@@ -637,15 +727,9 @@ namespace DungeonGen.Core.Net
                     foreach (var kv in State.FloorItems.Where(kv => kv.Value == v.Room).OrderBy(kv => kv.Key)) Add(kv.Key, LootSourceKind.Floor);
                 }
             }
-            float load = 0f;
             foreach (var kv in State.ItemOwner.Where(kv => kv.Value == playerId).OrderBy(kv => _worn.Contains(kv.Key) ? 0 : 1).ThenBy(kv => kv.Key))
-            {
-                var item = ItemById(kv.Key);
-                v.Carried.Add(new CarriedItem { ItemId = kv.Key, Item = item, Worn = _worn.Contains(kv.Key) });
-                load += item?.WeightKg ?? 0f;
-            }
-            foreach (var kv in PocketsOf(playerId)) load += (Consumable.ByName(kv.Key)?.WeightKg ?? 0f) * kv.Value;
-            v.LoadKg = load; v.CapacityKg = c.Stats?.CarryKg ?? 0f;
+                v.Carried.Add(new CarriedItem { ItemId = kv.Key, Item = ItemById(kv.Key), Worn = _worn.Contains(kv.Key) });
+            v.LoadKg = LoadKgOf(playerId); v.CapacityKg = c.Stats?.CarryKg ?? 0f;
             var cls = State.ClassOf(playerId);
             foreach (var kv in State.OpenRolls.Where(kv => kv.Value.Eligible.Contains(playerId)).OrderBy(kv => kv.Key))
             {
