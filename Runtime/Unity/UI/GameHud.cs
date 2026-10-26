@@ -282,6 +282,12 @@ namespace DungeonGen.Unity.UI
                     n = s.PocketCount(c.Name);
                     cd = s.ConsumableCooldown(c.Name);
                 }
+                if (c != null && slot.IconFor != c.Name)
+                {   // the consumable's painted icon (ItemIcons); the lock overlay dims it when the pocket is empty
+                    slot.IconFor = c.Name;
+                    slot.Icon.sprite = ItemIcons.For(c.Name);
+                    slot.Icon.enabled = slot.Icon.sprite != null;
+                }
                 slot.Count.text = n.ToString();
                 slot.Count.color = n > 0 ? UiStyle.TextMain : UiStyle.Bad;
                 slot.Lock.enabled = n == 0;

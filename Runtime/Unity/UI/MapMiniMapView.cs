@@ -127,10 +127,13 @@ namespace DungeonGen.Unity.UI
 
         private void OnDestroy() { if (_fog != null) _fog.Destroy(); }
 
+        /// <summary>Cells from the player to the corner map's edge: tighter than the model's reach, so a room fills the frame; marks beyond pin to the edge.</summary>
+        private const float MiniRadiusCells = 12f;
+
         private void DrawMini()
         {
             var self = _hud.Self;
-            _mini.Draw(_hud, self.Cell, _mini.Size.x / (MiniMapModel.ViewRadiusCells * 2f + 1f), pinEdges: true);
+            _mini.Draw(_hud, self.Cell, _mini.Size.x / (MiniRadiusCells * 2f + 1f), pinEdges: true);
         }
 
         private void DrawFull()
