@@ -75,6 +75,8 @@ namespace DungeonGen.Core.Profile
         public IReadOnlyList<string> SettledRounds => _settledRounds;
         private readonly List<string> _settledRounds = new List<string>();
         public const int SettledRoundsKept = 128;
+        /// <summary>Which victims this account has already been paid kill XP for today (2026-10-26 audit #8). Saved with the profile (<see cref="ProfileCodec"/> version 2).</summary>
+        public KillXpTracker KillXp { get; } = new KillXpTracker();
         public bool IsSettled(string roundKey) => _settledRounds.Contains(roundKey);
         public void MarkSettled(string roundKey)
         {

@@ -46,6 +46,12 @@ namespace DungeonGen.Core.Profile
         public IReadOnlyDictionary<string, int> ConsumablesCarried;
         /// <summary>Every consumable used, with the round time it was used at.</summary>
         public IReadOnlyList<(float time, string name)> ConsumableUses;
+        /// <summary>Kill-XP memory to apply and update. Defaults to the profile's own (<see cref="PlayerProfile.KillXp"/>, saved with it).</summary>
+        public KillXpTracker KillXp;
+        /// <summary>Which account stood behind a player id, so a victim can be paid for once a day (2026-10-26 audit #8). Null or a null answer: that kill is paid in full and not remembered.</summary>
+        public Func<int, string> AccountOf;
+        /// <summary>The settlement time in UTC; defaults to now. The cap is per day, so this decides whether a kill is the same day's.</summary>
+        public DateTime? WhenUtc;
     }
 
     /// <summary>
@@ -87,13 +93,14 @@ namespace DungeonGen.Core.Profile
         }
 
         /// <summary>Settle on the host, reading brought items, damage and consumables from the server.</summary>
-        public static SettlementReport Settle(PlayerProfile profile, Character character, MatchServer server, int playerId, string roundKey = null)
+        public static SettlementReport Settle(PlayerProfile profile, Character character, MatchServer server, int playerId, string roundKey = null, Func<int, string> accountOf = null, DateTime? whenUtc = null, KillXpTracker killXp = null)
         {
             var (taken, dealt) = server.DamageTotals(playerId);
             return Settle(profile, character, server.State, playerId, server.ItemById, new SettlementOptions
             {
                 RoundKey = roundKey, DamageTaken = taken, DamageDealt = dealt,
                 ConsumablesCarried = server.ConsumablesCarriedBy(playerId), ConsumableUses = server.ConsumableUsesBy(playerId),
+                AccountOf = accountOf, WhenUtc = whenUtc, KillXp = killXp,
             });
         }
 
@@ -174,7 +181,7 @@ namespace DungeonGen.Core.Profile
             }
 
             // Account XP: earned either way.
-            long xp = report.Summary.AccountXp;
+            long xp = report.Summary.AccountXp - report.Summary.PlayerKills * AccountRules.XpPerPlayerKill + KillXpFor(profile, state, playerId, options);
             profile.AddAccountXp(xp);
             report.XpDelta = Math.Max(0, xp);
             report.LevelAfter = profile.AccountLevel;
@@ -182,6 +189,28 @@ namespace DungeonGen.Core.Profile
             report.CharacterNaked = !character.Equipment.Items.Any();
             profile.MarkSettled(key);
             return report;
+        }
+
+        /// <summary>
+        /// Kill XP for this round, with the once-per-victim-per-day cap applied (<see cref="KillXpTracker"/>, 2026-10-26 audit #8):
+        /// each enemy player this one finished is paid <see cref="AccountRules.XpPerPlayerKill"/> unless that victim's account was already paid
+        /// to this account within 24 hours. A victim with no known account is paid in full and not remembered.
+        /// </summary>
+        private static long KillXpFor(PlayerProfile profile, MatchState state, int playerId, SettlementOptions options)
+        {
+            var tracker = options.KillXp ?? profile.KillXp;
+            var when = options.WhenUtc ?? DateTime.UtcNow;
+            tracker.Prune(when);
+            int team = state.PlayerTeam[playerId];
+            long xp = 0;
+            foreach (var e in state.Log)
+            {
+                if ((e.Kind != MatchEventKind.PlayerDied && e.Kind != MatchEventKind.PlayerFinished) || e.B != playerId || e.A == playerId) continue;
+                if (!state.PlayerTeam.TryGetValue(e.A, out int vt) || vt == team) continue;   // the same rule as RoundSummary.PlayerKills
+                string victim = options.AccountOf?.Invoke(e.A);
+                xp += victim == null ? AccountRules.XpPerPlayerKill : tracker.Award(profile.AccountId, victim, when);
+            }
+            return xp;
         }
 
         /// <summary>

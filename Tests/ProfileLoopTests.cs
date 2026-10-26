@@ -315,9 +315,9 @@ namespace DungeonGen.Tests
             round.Extract(2);
             var krep = RoundSettlement.Settle(killerProfile, killerProfile.Characters[0], round.Server, 2);
             Assert.Equal(RoundOutcome.Extracted, krep.Outcome);
-            Assert.Contains(pickedItem, killerProfile.Stash);
-            Assert.Contains(carried, killerProfile.Stash);
-            Assert.True(brought.All(b => killerProfile.Stash.Contains(b)));
+            // Half the victim's items were trashed on death (DeathTrashChance); the killer walks out with exactly the survivors.
+            var trashed = round.Server.State.DestroyedItems;
+            Assert.All(round.Server.BroughtItemsOf(1).Append(picked), id => Assert.Equal(!trashed.Contains(id), killerProfile.Stash.Contains(round.Server.ItemById(id))));
             Assert.True(krep.SilverDelta > 0);
             Assert.Equal(AccountRules.XpPerExtraction + AccountRules.XpPerPlayerKill, krep.XpDelta);
         }

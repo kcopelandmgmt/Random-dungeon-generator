@@ -156,6 +156,12 @@ namespace DungeonGen.Core.Combat
         }
     }
 
+    /// <summary>One heal in progress (<see cref="FightSim.StartHealOverTime"/>).</summary>
+    public sealed class HealOverTime
+    {
+        public int Target; public float TotalAmount, Remaining, Seconds, Pending, NextReport; public string Label;
+    }
+
     /// <summary>A zone on the ground that ticks once a second until it ends.</summary>
     public sealed class Zone
     {
@@ -178,6 +184,8 @@ namespace DungeonGen.Core.Combat
         public ISet<GridPoint> ClosedDoors { get; set; } = new HashSet<GridPoint>();
         public Dictionary<int, Combatant> Combatants { get; } = new Dictionary<int, Combatant>();
         public List<Zone> Zones { get; } = new List<Zone>();
+        /// <summary>Heals that are still pouring in (a Health Potion's 3 s). Ticked with the fight so the heal events, the snapshots and the recap see them.</summary>
+        public List<HealOverTime> HealsOverTime { get; } = new List<HealOverTime>();
         /// <summary>Every successful cast in order, including mobs' and bosses'. The server feeds the ones a team may see into its snapshot.</summary>
         public List<CastRecord> Casts { get; } = new List<CastRecord>();
         /// <summary>Dev only: no cooldowns, no costs, no swing timer, ultimates always armed, and any spec's ability may be cast. For trying abilities and effects in practice mode; never on a live server.</summary>
@@ -536,7 +544,7 @@ namespace DungeonGen.Core.Combat
             }
         }
 
-        private float Heal(Combatant source, Combatant target, float multiplier, float flat = 0f)
+        private float Heal(Combatant source, Combatant target, float multiplier, float flat = 0f, string label = "")
         {
             if (target.Dead || target.Downed) return 0f;
             float amount = flat + (multiplier > 0f ? source.Dps * multiplier * (source.Stats?.HealingMultiplier ?? 1f) * (source.Spec == "Plaguebearer" ? 0.75f : 1f) : 0f);
@@ -544,8 +552,51 @@ namespace DungeonGen.Core.Combat
             float before = target.Health;
             target.Health = Math.Min(target.MaxHealth, target.Health + amount);
             float healed = target.Health - before;
-            if (healed > 0f) Emit(FightEventKind.Heal, source.Id, target.Id, healed, "");
+            if (healed > 0f) Emit(FightEventKind.Heal, source.Id, target.Id, healed, label ?? "");
             return healed;
+        }
+
+        /// <summary>
+        /// Start a heal of <paramref name="fractionOfMax"/> of the target's max health spread evenly over <paramref name="seconds"/> (the Health Potion: 30% over 3 s).
+        /// Heals are reported once a second and at the end as <see cref="FightEventKind.Heal"/> with the label as detail; a Weaken curse still cuts them.
+        /// Drinking again before it ends adds a second pour. Returns false for a dead, downed or unknown target. No natural regeneration exists; this is a healing source.
+        /// </summary>
+        public bool StartHealOverTime(int targetId, float fractionOfMax, float seconds, string label)
+        {
+            var t = Get(targetId);
+            if (t == null || t.Dead || t.Downed || seconds <= 0f || fractionOfMax <= 0f) return false;
+            HealsOverTime.Add(new HealOverTime { Target = targetId, TotalAmount = t.MaxHealth * fractionOfMax, Remaining = t.MaxHealth * fractionOfMax, Seconds = seconds, Label = label ?? "", NextReport = Time + 1f });
+            return true;
+        }
+
+        /// <summary>Remove every status effect from a combatant (a bottled Purge: the Antidote). Reported as <see cref="FightEventKind.Cleansed"/>. Returns how many were removed.</summary>
+        public int CleanseStatuses(int targetId, string label)
+        {
+            var t = Get(targetId);
+            if (t == null || t.Dead) return 0;
+            int n = t.Status.Active.Count();
+            t.Status.Cleanse();
+            Emit(FightEventKind.Cleansed, targetId, targetId, 0f, label ?? "");
+            return n;
+        }
+
+        private void TickHealsOverTime(float dt)
+        {
+            for (int i = HealsOverTime.Count - 1; i >= 0; i--)
+            {
+                var h = HealsOverTime[i];
+                var t = Get(h.Target);
+                if (t == null || t.Dead || t.Downed) { HealsOverTime.RemoveAt(i); continue; }   // the pour stops when the drinker falls
+                float part = Math.Min(h.Remaining, h.TotalAmount * dt / h.Seconds);
+                h.Remaining -= part; h.Pending += part;
+                bool done = h.Remaining <= 0.0001f;
+                if (done || Time >= h.NextReport)
+                {
+                    if (h.Pending > 0f) Heal(t, t, 0f, h.Pending, h.Label);
+                    h.Pending = 0f; h.NextReport = Time + 1f;
+                }
+                if (done) HealsOverTime.RemoveAt(i);
+            }
         }
 
         /// <summary>A revive by channel (30% health) or by Last Breath (full).</summary>
@@ -562,6 +613,7 @@ namespace DungeonGen.Core.Combat
         public void Tick(float dt)
         {
             Time += dt;
+            TickHealsOverTime(dt);
             foreach (var c in Combatants.Values.Where(c => !c.Dead).ToList())
             {
                 if (c.Resource != ResourceKind.None && FightRules.ResourcesRegenerate) c.ResourceNow = Math.Min(c.ResourceMax, c.ResourceNow + c.ResourceMax * FightRules.ResourceRegenPerSecond * c.RegenMultiplier * dt);

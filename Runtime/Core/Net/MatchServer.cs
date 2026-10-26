@@ -84,16 +84,21 @@ namespace DungeonGen.Core.Net
 
         private sealed class Channel { public string Kind; public int Target; public float Started; public float Seconds; }
 
-        public MatchServer(MatchDescriptor descriptor, DungeonLayout layout, IServerWire wire = null)
+        /// <summary>Server-only: seeds the death-trash rolls (<see cref="DurabilityRules.DeathTrashChance"/>) like the loot. Never sent to a client.</summary>
+        private readonly int _lootSecret;
+
+        public MatchServer(MatchDescriptor descriptor, DungeonLayout layout, IServerWire wire = null, int? lootSecret = null)
         {
             Descriptor = descriptor; State = new MatchState(descriptor, layout); Wire = wire;
+            _lootSecret = lootSecret ?? unchecked(descriptor.Seed * 1103515245 + 12345);   // no secret given (tests, tools): still deterministic per match
         }
 
         /// <summary>Generate the dungeon with a loot secret that never leaves this process and stand the server up on it.</summary>
         public static MatchServer Host(int seed, DungeonSettings settings, MatchRules rules, IServerWire wire = null, int? lootSecret = null)
         {
-            var descriptor = MatchDescriptor.Create(seed, settings, rules, out var layout, lootSecret: lootSecret ?? Guid.NewGuid().GetHashCode());
-            return new MatchServer(descriptor, layout, wire);
+            int secret = lootSecret ?? Guid.NewGuid().GetHashCode();
+            var descriptor = MatchDescriptor.Create(seed, settings, rules, out var layout, lootSecret: secret);
+            return new MatchServer(descriptor, layout, wire, secret);
         }
 
         public IEnumerable<int> Teams => Enumerable.Range(0, Descriptor.TeamSpawnRooms.Count);
@@ -124,6 +129,7 @@ namespace DungeonGen.Core.Net
                 foreach (int team in Teams) Wire.SendViewToTeam(team, TeamView.For(State, team).ToBytes());
             }
             EventRaised?.Invoke(e);
+            if (e.Kind == MatchEventKind.PlayerDied || e.Kind == MatchEventKind.PlayerFinished) TrashOnDeath(e);
             return true;
         }
 
@@ -218,13 +224,50 @@ namespace DungeonGen.Core.Net
             Profile.RoundSettlement.PocketsAt(State, playerId, ConsumablesCarriedBy(playerId), ConsumableUsesBy(playerId), float.MaxValue);
 
         /// <summary>
-        /// Spend one consumable from a standing player's pockets: carried in, or bought at a shrine this round
-        /// (<see cref="MatchEventKind.ShrinePurchase"/>). False if they have none left or cannot act. The effect itself is the caller's.
+        /// The death trash (2026-10-22 "Round, progression…" full loot; <see cref="DurabilityRules.DeathTrashChance"/>): every item the dead player held
+        /// (worn, carried, picked up, unique, starter: 2026-10-26 settlement #2 and #3 give none a pass) is destroyed with that chance, rolled from the
+        /// server's loot secret so the same match always trashes the same items. The corpse keeps the survivors. Keys are not items here and always drop.
+        /// </summary>
+        private void TrashOnDeath(MatchEvent death)
+        {
+            int victim = death.A;
+            if (!State.Corpses.TryGetValue(victim, out var held) || held.Count == 0) return;
+            var rng = new DungeonRandom(unchecked(_lootSecret * 486187739 + victim * 7919 + 101));
+            foreach (int item in held.OrderBy(i => i).ToList())
+                if (rng.Chance(DurabilityRules.DeathTrashChance)) Raise(new MatchEvent(MatchEventKind.ItemDestroyed, death.Time, item));
+        }
+
+        private readonly Dictionary<(int player, string name), float> _consumableReadyAt = new Dictionary<(int, string), float>();
+
+        /// <summary>Seconds until this player may drink/use this consumable again; 0 when ready.</summary>
+        public float ConsumableCooldownRemaining(int playerId, Consumable c)
+        {
+            if (c == null || Sim == null) return 0f;
+            return _consumableReadyAt.TryGetValue((playerId, c.Name), out float at) ? Math.Max(0f, at - Sim.Time) : 0f;
+        }
+
+        /// <summary>
+        /// Use one consumable from a standing player's pockets: carried in, or bought at a shrine this round
+        /// (<see cref="MatchEventKind.ShrinePurchase"/>). False if they have none left, cannot act, or it is on cooldown
+        /// (2026-10-22 "Open questions closed" #8: Health Potion 30% over 3 s, 60 s cooldown; Antidote a bottled Purge, 90 s). The effect runs in the
+        /// simulator, so heal events, snapshots and the death recap see it. The Salvage Kit is only spent here: which item to break down is the profile's call
+        /// (<see cref="Profile.Inventory.SalvageInField"/>), and the intent path never uses it.
         /// </summary>
         public bool UseConsumable(int playerId, Consumable c)
         {
             if (c == null || !State.PlayersInside.Contains(playerId) || State.Downed.ContainsKey(playerId)) return false;
+            var body = Sim?.Get(playerId);
+            if (Sim != null && body != null && (body.Dead || body.Downed)) return false;
             if (!PocketsOf(playerId).TryGetValue(c.Name, out int have) || have <= 0) return false;
+            if (ConsumableCooldownRemaining(playerId, c) > 0f) return false;
+            if (body != null)
+            {
+                bool ok = c.Name == Consumable.HealthPotionName ? Sim.StartHealOverTime(playerId, Consumable.HealthPotionFraction, Consumable.HealthPotionSeconds, c.Name)
+                        : c.Name == Consumable.AntidoteName ? Sim.CleanseStatuses(playerId, c.Name) >= 0
+                        : true;
+                if (!ok) return false;
+                if (c.CooldownSeconds > 0f) _consumableReadyAt[(playerId, c.Name)] = Sim.Time + c.CooldownSeconds;
+            }
             if (!_consumableUses.TryGetValue(playerId, out var uses)) _consumableUses[playerId] = uses = new List<(float, string)>();
             uses.Add((Sim?.Time ?? State.Time, c.Name));
             return true;
@@ -289,6 +332,11 @@ namespace DungeonGen.Core.Net
             _eventCursor = Sim.Events.Count;
             // The clock's events, stamped no earlier than the simulator's time.
             foreach (var e in Clock.Tick(Elapsed)) Raise(new MatchEvent(e.Kind, Math.Max(e.Time, Sim.Time), e.A, e.B, e.C));
+            // A disconnect past its window is a death like any other (2026-10-22 "Technical and production" #10; 2026-10-26 settlement #6): the corpse, souls and loot follow.
+            if (!State.Ended)
+                foreach (int gone in State.ReconnectExpired(Sim.Time))
+                    if (!State.DeadPlayers.Contains(gone) && !State.ExtractedPlayers.Contains(gone))
+                        Raise(new MatchEvent(MatchEventKind.PlayerDied, Sim.Time, gone, -1, _lastRoom.TryGetValue(gone, out int dr) ? dr : 0));
 
             // Rooms entered, rooms seen.
             foreach (var c in Sim.Combatants.Values.Where(c => !c.IsMob && c.Alive))
@@ -325,6 +373,13 @@ namespace DungeonGen.Core.Net
             if (c == null || c.Dead) return;
             if (!State.DoorsOpen && !Descriptor.Rules.IsTutorial) return;   // sealed in the spawn until the countdown ends
             if (c.Downed) return;
+            if (intent.ConsumableSlot > 0)
+            {
+                int index = intent.ConsumableSlot - 1;   // 1-based on the wire; 0 is "none"
+                var wanted = index < Consumable.All.Count ? Consumable.All[index] : null;
+                if (wanted != null && wanted.Name != Consumable.SalvageKitName) UseConsumable(playerId, wanted);
+                intent.ConsumableSlot = 0; _intents[playerId] = intent;   // one press, one use: a held intent must not drink again
+            }
             var aim = intent.Aim;
             if (intent.Move.Length > 0.05f && !_channels.ContainsKey(playerId)) Sim.Move(playerId, c.Position + intent.Move.Normalized * 10f, dt);
             else if ((aim - c.Position).Length > 0.1f) c.Facing = (aim - c.Position).Normalized;
@@ -411,7 +466,7 @@ namespace DungeonGen.Core.Net
                 return true;
             }
             // 1. A door within reach: shut it now, or start opening it.
-            var door = State.Index.Doors.Where(kv => Vec2.Distance(Vec2.Of(kv.Value.cell), c.Position) <= 1.3f).OrderBy(kv => Vec2.Distance(Vec2.Of(kv.Value.cell), c.Position)).FirstOrDefault();
+            var door = State.Index.Doors.Where(kv => Vec2.Distance(Vec2.Of(kv.Value.cell), c.Position) <= 1.3f && State.PlayerRoom.TryGetValue(playerId, out int standingIn) && State.Index.RoomsWithin(kv.Value.room, DoorRules.ReachRooms).Contains(standingIn)).OrderBy(kv => Vec2.Distance(Vec2.Of(kv.Value.cell), c.Position)).FirstOrDefault();
             bool justOpenedAndStillHeld = door.Key != 0 && _heldSinceDoorOpened.TryGetValue(playerId, out int opened) && opened == door.Key && !State.ClosedDoors.Contains(door.Value.cell);
             if (door.Key != 0 && !justOpenedAndStillHeld)
             {

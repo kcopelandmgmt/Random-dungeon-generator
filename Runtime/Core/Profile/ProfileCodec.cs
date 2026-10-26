@@ -31,7 +31,9 @@ namespace DungeonGen.Core.Profile
     {
         /// <summary>"DGPF" little-endian.</summary>
         public const int Magic = 0x46504744;
-        public const int Version = 1;
+        public const int Version = 2;
+        /// <summary>Version 1 files (no kill-XP tracker) still load; the tracker is simply empty.</summary>
+        public const int OldestReadable = 1;
 
         public static byte[] ToBytes(PlayerProfile p)
         {
@@ -84,6 +86,10 @@ namespace DungeonGen.Core.Profile
             // Settled rounds, oldest first.
             w.Write(p.SettledRounds.Count);
             foreach (var k in p.SettledRounds) w.Write(k);
+            // Version 2: the kill-XP tracker (killer account, victim account, UTC ticks), in ordinal key order.
+            var kills = p.KillXp.Entries.ToList();
+            w.Write(kills.Count);
+            foreach (var k in kills) { w.Write(k.killer); w.Write(k.victim); w.Write(k.whenUtc.Ticks); }
         }
 
         public static PlayerProfile Read(BinaryReader r)
@@ -91,7 +97,7 @@ namespace DungeonGen.Core.Profile
             int magic = r.ReadInt32();
             if (magic != Magic) throw new ProfileFormatException($"Not a profile (header 0x{magic:x8}, expected 0x{Magic:x8}).");
             int version = r.ReadInt32();
-            if (version != Version) throw new ProfileFormatException($"Profile version {version} is not supported (this build reads {Version}).");
+            if (version < OldestReadable || version > Version) throw new ProfileFormatException($"Profile version {version} is not supported (this build reads {OldestReadable} to {Version}).");
             var p = new PlayerProfile(r.ReadString()) { Silver = r.ReadInt64() };
             p.AddAccountXp(r.ReadInt64());
             p.Materials.Scrap = r.ReadInt32(); p.Materials.PrimeShards = r.ReadInt32();
@@ -129,6 +135,16 @@ namespace DungeonGen.Core.Profile
             for (int i = 0; i < unlocks; i++) p.Unlocks.Add(r.ReadString());
             int settled = Count(r, "settled rounds");
             for (int i = 0; i < settled; i++) p.MarkSettled(r.ReadString());
+            if (version >= 2)
+            {
+                int kills = Count(r, "kill-XP entries");
+                for (int i = 0; i < kills; i++)
+                {
+                    string killer = r.ReadString(), victim = r.ReadString(); long ticks = r.ReadInt64();
+                    if (ticks < DateTime.MinValue.Ticks || ticks > DateTime.MaxValue.Ticks) throw new ProfileFormatException("Impossible kill-XP timestamp.");
+                    p.KillXp.Restore(killer, victim, new DateTime(ticks, DateTimeKind.Utc));
+                }
+            }
             return p;
         }
 

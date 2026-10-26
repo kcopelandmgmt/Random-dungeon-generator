@@ -50,6 +50,18 @@ namespace DungeonGen.Core.Profile
             _last[(killer, victim)] = whenUtc;
             return AccountRules.XpPerPlayerKill;
         }
+
+        /// <summary>Every (killer, victim, when) still remembered, in ordinal key order: what <see cref="ProfileCodec"/> saves.</summary>
+        public IEnumerable<(string killer, string victim, DateTime whenUtc)> Entries =>
+            _last.OrderBy(kv => kv.Key.killer, StringComparer.Ordinal).ThenBy(kv => kv.Key.victim, StringComparer.Ordinal).Select(kv => (kv.Key.killer, kv.Key.victim, kv.Value)).ToList();
+        public int Count => _last.Count;
+        /// <summary>Loading a saved tracker only: put back one remembered kill.</summary>
+        public void Restore(string killer, string victim, DateTime whenUtc) => _last[(killer, victim)] = whenUtc;
+        /// <summary>Forget kills whose cooldown has passed by <paramref name="nowUtc"/>; they could pay again anyway.</summary>
+        public void Prune(DateTime nowUtc)
+        {
+            foreach (var k in _last.Where(kv => (nowUtc - kv.Value).TotalHours >= CooldownHours).Select(kv => kv.Key).ToList()) _last.Remove(k);
+        }
     }
 
     /// <summary>

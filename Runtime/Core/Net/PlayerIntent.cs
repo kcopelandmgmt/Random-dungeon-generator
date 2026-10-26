@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using DungeonGen.Core.Combat;
 using System.Collections.Generic;
@@ -19,6 +20,8 @@ namespace DungeonGen.Core.Net
         public bool Interact;               // held: channels (chest, corpse, key, door, revive, extract, disarm) continue while held
         public bool Ping;                   // tap: a team ping at the aim point
         public byte PingKind;
+        /// <summary>Use a consumable now: 0 is none, otherwise 1 + the index into <see cref="DungeonGen.Core.Items.Consumable.All"/> (1 Health Potion, 2 Antidote). Appended last on the wire; one press, one use.</summary>
+        public byte ConsumableSlot;
 
         public Vec2 Move => new Vec2(MoveX, MoveY);
         public Vec2 Aim => new Vec2(AimX, AimY);
@@ -29,17 +32,23 @@ namespace DungeonGen.Core.Net
             w.Write(PlayerId); w.Write(Tick); w.Write(MoveX); w.Write(MoveY); w.Write(AimX); w.Write(AimY);
             byte flags = 0;
             if (Basic) flags |= 1; if (Bolt) flags |= 2; if (Zone) flags |= 4; if (Mobility) flags |= 8; if (Ultimate) flags |= 16; if (Interact) flags |= 32; if (Ping) flags |= 64;
-            w.Write(flags); w.Write(PingKind);
+            w.Write(flags); w.Write(PingKind); w.Write(ConsumableSlot);
         }
         public static PlayerIntent Read(BinaryReader r)
         {
             var i = new PlayerIntent { PlayerId = r.ReadInt32(), Tick = r.ReadUInt32(), MoveX = r.ReadSingle(), MoveY = r.ReadSingle(), AimX = r.ReadSingle(), AimY = r.ReadSingle() };
-            byte f = r.ReadByte(); i.PingKind = r.ReadByte();
+            byte f = r.ReadByte(); i.PingKind = r.ReadByte(); i.ConsumableSlot = r.ReadByte();
             i.Basic = (f & 1) != 0; i.Bolt = (f & 2) != 0; i.Zone = (f & 4) != 0; i.Mobility = (f & 8) != 0; i.Ultimate = (f & 16) != 0; i.Interact = (f & 32) != 0; i.Ping = (f & 64) != 0;
             return i;
         }
         public byte[] ToBytes() { using var ms = new MemoryStream(); using (var w = new BinaryWriter(ms)) Write(w); return ms.ToArray(); }
-        public static PlayerIntent FromBytes(byte[] b) { using var ms = new MemoryStream(b); using var r = new BinaryReader(ms); return Read(r); }
+        public static PlayerIntent FromBytes(byte[] b)
+        {
+            // An intent from before the consumable field (one byte shorter) still reads, with no consumable.
+            if (b != null && b.Length == LegacyLength) { var longer = new byte[b.Length + 1]; Array.Copy(b, longer, b.Length); b = longer; }
+            using var ms = new MemoryStream(b); using var r = new BinaryReader(ms); return Read(r);
+        }
+        private const int LegacyLength = 4 + 4 + 4 * 4 + 1 + 1;
     }
 
     /// <summary>Anything that produces intents for a player: the local input reader, a bot, a replay.</summary>

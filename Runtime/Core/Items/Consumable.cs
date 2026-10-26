@@ -22,6 +22,10 @@ namespace DungeonGen.Core.Items
             Name = name; Effect = effect; CooldownSeconds = cooldown; VendorPriceSilver = price; ChestChance = chestChance; WeightKg = weight;
         }
 
+        public const string HealthPotionName = "Health Potion", AntidoteName = "Antidote", SalvageKitName = "Salvage Kit";
+        /// <summary>The Health Potion heals this fraction of max health, evenly over <see cref="HealthPotionSeconds"/> (2026-10-22 "Open questions closed" #8).</summary>
+        public const float HealthPotionFraction = 0.30f, HealthPotionSeconds = 3f;
+
         public static readonly IReadOnlyList<Consumable> All = new[]
         {
             new Consumable("Health Potion", "Heal 30% of max health over 3 s.", 60f, 40, 0.20f, 0.5f),
