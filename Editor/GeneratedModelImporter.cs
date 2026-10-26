@@ -43,6 +43,9 @@ namespace DungeonGen.Unity.Editor
         private static Spec Boss(string slug, string key, float h, bool rigged = true, Fit fit = Fit.Height, float hover = 0f) => new Spec(slug, key, Kind.Boss, fit, new Vector3(h, h, h), rigged, hover);
         private static Spec Prop(string slug, Fit fit, Vector3 size, float hover = 0f) => new Spec(slug, null, Kind.Prop, fit, size, false, hover);
 
+        /// <summary>Names that reuse another entry's model at a scale: (combatant label, source key, scale).</summary>
+        public static readonly (string alias, string source, float scale)[] Aliases = { ("Revenant Champion", "Hollow Knight", 1.6f) };
+
         /// <summary>Every slug and its target size in metres. Heights for walkers; the longest side for crawlers and floaters; exact boxes for tiles.</summary>
         public static readonly Spec[] Specs =
         {
@@ -178,6 +181,13 @@ namespace DungeonGen.Unity.Editor
                         Debug.LogError($"Dungeon Gen models: {spec.Slug} failed: {ex}");
                         failed = true;
                     }
+                }
+                // Combatants with no model of their own borrow one: the mid-round roaming elite wears the Hollow Knight, larger.
+                foreach (var (alias, source, scale) in Aliases)
+                {
+                    var src = lib.Entries.Find(e => e.Key == source);
+                    if (src != null && lib.Entries.Find(e => e.Key == alias) == null)
+                        lib.Entries.Add(new AvatarVisualLibrary.Entry { Key = alias, Prefab = src.Prefab, Scale = scale, RingRadius = src.RingRadius * scale, IsBoss = true });
                 }
                 EditorUtility.SetDirty(lib);
                 AssetDatabase.SaveAssets();

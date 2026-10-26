@@ -3,6 +3,24 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-26 · Mid-round events on the server — BUILT
+
+1. **The roaming elite is a real mob** (`EliteController`, combatant 490): a Revenant Champion at 8×
+   tier (about 2800 HP) that appears in the plan's hub at 10:00, walks room to room (never spawn,
+   vault or boss rooms; extract rooms only when there is no other way; the next room from a fork of
+   the match seed; 5 s rest in each), chases and fights any visible player outside a spawn, and
+   shoulders shut doors open. Its room is server truth (`MatchState.EliteRoom`, `EliteMoved`, never
+   sent); clients only know where it appeared.
+2. **Its death raises `EliteKilled` for the room it died in.** The relic lies on that floor for
+   anyone there. A killed elite grants no soul (mobs grant none).
+3. **The unsealed vault opens with Space, no key, for anyone inside it during its minute**, sealed
+   before and after.
+4. **Bots** go for the elite only whole, at 85%+ health counting potions, nobody under half, with 2
+   potions between them, and fight it as a party; any healthy squad races for the relic; a squad
+   within reach takes the vault. Squads fit for the event stay until 240 s remain.
+5. Measured over 24 seeds, 4×3: extraction 59% (61.5% without events), mean round 11.3 min, 0
+   rejected. Elite strength 7× was free, 9× and above unbeatable for bot trios; 8× chosen.
+
 ## 2026-10-26 · Balance follow-ups: bot squads that stay, avoid and loot — BUILT
 
 1. Bots enter with potions: 2 at tier 1, +1 per tier, max 4 (`BotRules.DefaultConsumables`).
