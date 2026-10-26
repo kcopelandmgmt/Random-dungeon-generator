@@ -40,6 +40,12 @@ namespace DungeonGen.Unity
         public int VisibleCount { get; private set; }
         public int ExploredCount { get; private set; }
 
+        /// <summary>Raised after the fog has set a cell's renderers (materials, enabled). <see cref="WallFade"/> re-applies its fade on top.</summary>
+        public event System.Action<GridPoint> CellApplied;
+
+        /// <summary>The material a dimmed copy was made from; the material itself when it is not one of the fog's copies.</summary>
+        public Material NormalOf(Material m) => m != null && _undim.TryGetValue(m, out var n) ? n : m;
+
         private sealed class CellEntry
         {
             public Renderer[] Renderers; public Material[][] Normal; public Light[] Lights;
@@ -53,6 +59,7 @@ namespace DungeonGen.Unity
         private readonly HashSet<int> _roomsMarked = new HashSet<int>();
         private readonly List<GridPoint> _dirty = new List<GridPoint>();
         private readonly Dictionary<Material, Material> _dim = new Dictionary<Material, Material>();
+        private readonly Dictionary<Material, Material> _undim = new Dictionary<Material, Material>();
         private float _next;
         private bool _revealed, _showingAll;
 
@@ -79,7 +86,7 @@ namespace DungeonGen.Unity
         private void OnDestroy()
         {
             foreach (var m in _dim.Values) if (m != null) Destroy(m);
-            _dim.Clear();
+            _dim.Clear(); _undim.Clear();
         }
 
         /// <summary>The state a cell is drawn in. Hidden when no layout has been seen yet.</summary>
@@ -196,6 +203,7 @@ namespace DungeonGen.Unity
                 r.sharedMaterials = s == FogState.Visible ? e.Normal[i] : DimOf(e.Normal[i]);
             }
             foreach (var l in e.Lights) if (l != null) l.enabled = s != FogState.Hidden;
+            CellApplied?.Invoke(cell);
         }
 
         private Material[] DimOf(Material[] normal)
@@ -219,7 +227,7 @@ namespace DungeonGen.Unity
                 d.SetColor(prop, new Color(k.r * DimTint.r, k.g * DimTint.g, k.b * DimTint.b, c.a));
             }
             if (d.HasProperty("_EmissionColor")) d.SetColor("_EmissionColor", d.GetColor("_EmissionColor") * 0.15f);
-            _dim[m] = d;
+            _dim[m] = d; _undim[d] = m;
             return d;
         }
 

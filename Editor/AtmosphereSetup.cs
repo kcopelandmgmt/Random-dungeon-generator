@@ -16,8 +16,8 @@ namespace DungeonGen.Unity.Editor
     /// <item>Generated assets under <c>Assets/Atmosphere/</c>: a procedural stone texture with its normal map, a solid wall block with
     /// a near-black top (walls read as dark masses from above), a pit that drops into the dark, a glowing spawn sigil, a cold corridor
     /// crystal light, and a brazier variant with a flickering warm light. They are put into the builder's slots.</item>
-    /// <item>Runtime components on the Dungeon root: <see cref="AtmosphereRig"/> (player fill light, zoom-scaled fog) and
-    /// <see cref="FogOfWar"/>.</item>
+    /// <item>Runtime components on the Dungeon root: <see cref="AtmosphereRig"/> (player fill light, zoom-scaled fog),
+    /// <see cref="FogOfWar"/> and <see cref="WallFade"/> (walls between the camera and a character fade).</item>
     /// </list>
     /// Everything is regenerated on each run (asset GUIDs are kept), so a rebuild is idempotent.
     /// </summary>
@@ -25,8 +25,9 @@ namespace DungeonGen.Unity.Editor
     {
         public const string Root = "Assets/Atmosphere";
         public const string ProfilePath = Root + "/AtmosphereProfile.asset";
-        /// <summary>Lower than the 1.8 m arch model: at the 50° camera a tall wall on the camera side hid the player in a corridor.</summary>
-        public const float WallHeight = 1.5f;
+        /// <summary>Full height (the owner's call of 2026-10-26): solid stone masses with a dark top. A wall between the camera and any
+        /// character fades (<see cref="WallFade"/>), so the 50° camera never loses the player behind one.</summary>
+        public const float WallHeight = 3f;
 
         public static readonly Color Ambient = new Color(0.3f, 0.31f, 0.4f);
         public static readonly Color ClearColour = new Color(0.006f, 0.007f, 0.012f);
@@ -47,6 +48,9 @@ namespace DungeonGen.Unity.Editor
 
             var wallSide = Lit("WallSide", stone, new Color(0.85f, 0.84f, 0.88f), 0.12f, stoneNormal);
             var wallTop = Lit("WallTop", stone, new Color(0.2f, 0.2f, 0.23f), 0.05f, stoneNormal);
+            // Transparent twins for the occlusion fade: saved assets, so the player keeps their shader variants.
+            var wallSideFade = FadeTwin(wallSide, "WallSide_Fade");
+            var wallTopFade = FadeTwin(wallTop, "WallTop_Fade");
             var pitWall = Lit("PitWall", pitGradient, new Color(0.5f, 0.5f, 0.55f), 0f);
             var pitFloor = Lit("PitFloor", null, Color.black, 0f);
             var sigilMat = Lit("SpawnSigil", sigil, new Color(0.08f, 0.25f, 0.3f), 0.2f, null, new Color(0.25f, 0.85f, 1f) * 2.6f, sigil, true);
@@ -104,6 +108,13 @@ namespace DungeonGen.Unity.Editor
                 var fog = ctx.Root.GetComponent<FogOfWar>();
                 if (fog == null) fog = ctx.Root.AddComponent<FogOfWar>();
                 fog.Builder = ctx.Builder; fog.World = ctx.World; fog.Bootstrap = ctx.Bootstrap;
+                var fade = ctx.Root.GetComponent<WallFade>();
+                if (fade == null) fade = ctx.Root.AddComponent<WallFade>();
+                fade.Builder = ctx.Builder; fade.World = ctx.World; fade.Fog = fog; fade.Rig = ctx.Camera;
+                fade.WallHeight = WallHeight;
+                fade.FadeFrom = new[] { wallSide, wallTop };
+                fade.FadeTo = new[] { wallSideFade, wallTopFade };
+                EditorUtility.SetDirty(fade);
                 EditorUtility.SetDirty(ctx.Root);
             }
             AssetDatabase.SaveAssets();
@@ -383,6 +394,23 @@ namespace DungeonGen.Unity.Editor
             existing.shaderKeywords = m.shaderKeywords;
             existing.renderQueue = m.renderQueue;
             existing.globalIlluminationFlags = m.globalIlluminationFlags;
+            EditorUtility.SetDirty(existing);
+            UnityEngine.Object.DestroyImmediate(m);
+            return existing;
+        }
+
+        /// <summary>A transparent copy of a Lit material (alpha blended, no depth write) for <see cref="WallFade"/>, saved beside it.</summary>
+        private static Material FadeTwin(Material src, string name)
+        {
+            var m = WallFade.MakeTransparent(new Material(src) { name = name });
+            var path = $"{Root}/Materials/{name}.mat";
+            var existing = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (existing == null) { AssetDatabase.CreateAsset(m, path); return m; }
+            existing.shader = m.shader;
+            existing.CopyPropertiesFromMaterial(m);
+            existing.shaderKeywords = m.shaderKeywords;
+            existing.SetOverrideTag("RenderType", "Transparent");
+            existing.renderQueue = m.renderQueue;
             EditorUtility.SetDirty(existing);
             UnityEngine.Object.DestroyImmediate(m);
             return existing;

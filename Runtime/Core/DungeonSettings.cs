@@ -36,8 +36,8 @@ namespace DungeonGen.Core
         // --- Corridors ----------------------------------------------------------
         /// <summary>Extra A* cost for digging through fresh rock vs. reusing an existing corridor. Higher = more merged, cave-like networks.</summary>
         public float NewCorridorCost = 4f;
-        /// <summary>Corridor width in cells, 1-4. Default 3 (6 m at 2 m cells): room for a fight in the hall, not a queue. Halls narrow to the one door cell where they meet a room.</summary>
-        public int CorridorWidth = 3;
+        /// <summary>Corridor width in cells, 1-4. Default 4 (8 m at 2 m cells, the owner's call of 2026-10-26): room for a fight in the hall, not a queue. Halls narrow to the one door cell where they meet a room.</summary>
+        public int CorridorWidth = 4;
 
         // --- Roles --------------------------------------------------------------
         /// <summary>One spawn room per team. 1-16 supported; use <see cref="ForTeams"/> for a canvas sized to match.</summary>
