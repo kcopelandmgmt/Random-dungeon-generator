@@ -207,11 +207,23 @@ def mload(a):
             "status": "pending", "tasks": {}, "files": [], "errors": []}
 
 
+_mlocks = {}
+
+
 def msave(m):
-    os.makedirs(os.path.join(OUT_ROOT, m["slug"]), exist_ok=True)
-    tmp = mpath(m["slug"]) + ".tmp"
-    json.dump(m, open(tmp, "w", encoding="utf-8"), indent=1)
-    os.replace(tmp, mpath(m["slug"]))
+    with _lock:
+        lk = _mlocks.setdefault(m["slug"], threading.Lock())
+    with lk:
+        os.makedirs(os.path.join(OUT_ROOT, m["slug"]), exist_ok=True)
+        tmp = mpath(m["slug"]) + ".tmp"
+        json.dump(m, open(tmp, "w", encoding="utf-8"), indent=1)
+        for i in range(20):  # Windows: the target can be briefly locked by an indexer or the Unity editor
+            try:
+                os.replace(tmp, mpath(m["slug"]))
+                return
+            except PermissionError:
+                time.sleep(0.25)
+        os.replace(tmp, mpath(m["slug"]))
 
 
 def download(m, url, fname):
