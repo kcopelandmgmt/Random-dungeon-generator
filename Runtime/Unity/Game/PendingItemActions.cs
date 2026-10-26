@@ -13,7 +13,7 @@ namespace DungeonGen.Unity
     /// </summary>
     public static class PendingItemActions
     {
-        public enum Kind : byte { Take, Drop, Roll }
+        public enum Kind : byte { Take, Drop, Roll, Salvage }
 
         public readonly struct Action
         {
@@ -30,6 +30,8 @@ namespace DungeonGen.Unity
         public static void Take(int itemId) { if (itemId != 0) _queue.Add(new Action(Kind.Take, itemId)); }
         public static void Drop(int itemId) { if (itemId != 0) _queue.Add(new Action(Kind.Drop, itemId)); }
         public static void Roll(int itemId, LootRollChoice choice) { if (itemId != 0) _queue.Add(new Action(Kind.Roll, itemId, choice)); }
+        /// <summary>Break a carried item down with a Salvage Kit (<see cref="PlayerIntent.SalvageItemId"/>).</summary>
+        public static void Salvage(int itemId) { if (itemId != 0) _queue.Add(new Action(Kind.Salvage, itemId)); }
         public static void Clear() => _queue.Clear();
 
         /// <summary>
@@ -44,6 +46,7 @@ namespace DungeonGen.Unity
                 var a = _queue[0];
                 if (a.Kind == Kind.Take) { if (intent.TakeItemId != 0) break; intent.TakeItemId = a.ItemId; }
                 else if (a.Kind == Kind.Drop) { if (intent.DropItemId != 0) break; intent.DropItemId = a.ItemId; }
+                else if (a.Kind == Kind.Salvage) { if (intent.SalvageItemId != 0) break; intent.SalvageItemId = a.ItemId; }
                 else { if (intent.RollItemId != 0) break; intent.RollItemId = a.ItemId; intent.RollChoice = (byte)a.Choice; }
                 _queue.RemoveAt(0);
                 any = true;

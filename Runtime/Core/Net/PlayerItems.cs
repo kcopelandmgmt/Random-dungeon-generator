@@ -15,7 +15,7 @@ namespace DungeonGen.Core.Net
     public sealed class PlayerItems
     {
         public int PlayerId;
-        /// <summary>What Space would do here (<see cref="MatchServer.InteractionAvailable"/>): "item", "corpse-item", "roll", "chest", null…</summary>
+        /// <summary>What Space would do here (<see cref="MatchServer.InteractionAvailable"/>): "item", "floor-item", "corpse-item", "roll", "chest", null…</summary>
         public string Interaction;
         /// <summary>Room the player stands in (by cell; -1 in a corridor).</summary>
         public int Room = -1;

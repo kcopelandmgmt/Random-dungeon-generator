@@ -196,6 +196,16 @@ namespace DungeonGen.Unity.UI
                 if (shown == MaxInventoryRows) break;
                 var cc = c;
                 ItemRow(_inv, "Inv-" + cc.ItemId, cc.Item, y, 568f, "Drop-" + cc.ItemId, "Drop", true, () => { PendingItemActions.Drop(cc.ItemId); UiSound.Play(UiSound.Click); }, null, cc.Worn ? "worn" : null, host, worn, compact: true);
+                if (host.SalvageRefusal(LocalPlayerId, cc.ItemId) == null)
+                {
+                    // A Salvage Kit in the pockets: break the item down here; the materials come home only if you do.
+                    var row = _inv.Find("Inv-" + cc.ItemId);
+                    if (row != null)
+                    {
+                        var sb = UiStyle.MakeButton(row, "Salvage-" + cc.ItemId, "Salvage", () => { PendingItemActions.Salvage(cc.ItemId); UiSound.Play(UiSound.Click); }, 18);
+                        ((RectTransform)sb.transform).Place(new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-136f, 0f), new Vector2(110f, 40f));
+                    }
+                }
                 y -= 60f; shown++;
             }
             if (v.Carried.Count == 0)
