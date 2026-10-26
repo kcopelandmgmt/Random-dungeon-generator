@@ -30,7 +30,7 @@ namespace DungeonGen.Unity.Editor
 
         public static void WindowsDev() => Build(DevOutputRelative, BuildOptions.Development);
 
-        public static void WindowsRelease() => Build(OutputRelative, BuildOptions.None);
+        public static void WindowsRelease() => Build(OutputRelative, BuildOptions.CompressWithLz4HC);
 
         /// <summary>The dedicated server build (Windows, Server subtarget: headless, no rendering).</summary>
         public const string ServerOutputRelative = "Builds/WinServer/DungeonGameServer.exe";
@@ -86,6 +86,7 @@ namespace DungeonGen.Unity.Editor
                 var report = BuildPipeline.BuildPlayer(options);
                 var summary = report.summary;
                 Debug.Log($"Dungeon Gen: {(buildOptions.HasFlag(BuildOptions.Development) ? "development" : "release")} player build {summary.result}, {summary.totalSize / (1024.0 * 1024.0):0.0} MB, {summary.totalTime.TotalSeconds:0.0} s, {summary.totalErrors} errors, {summary.totalWarnings} warnings -> {summary.outputPath}");
+                if (summary.result == BuildResult.Succeeded) RemoveShipJunk(output);
                 if (summary.result != BuildResult.Succeeded)
                 {
                     foreach (var step in report.steps)
@@ -99,6 +100,17 @@ namespace DungeonGen.Unity.Editor
                 Debug.LogError("Dungeon Gen: player build threw: " + e);
                 EditorApplication.Exit(1);
             }
+        }
+
+        /// <summary>Unity writes Burst debug symbols beside the exe in a folder named "DoNotShip"; a download does not need them.</summary>
+        private static void RemoveShipJunk(string exePath)
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(exePath);
+                foreach (var junk in Directory.GetDirectories(dir, "*_BurstDebugInformation_DoNotShip")) Directory.Delete(junk, true);
+            }
+            catch (Exception e) { Debug.LogWarning("Dungeon Gen: could not remove build debug folders: " + e.Message); }
         }
 
         private static void ApplySettings()
@@ -116,6 +128,9 @@ namespace DungeonGen.Unity.Editor
             PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.StandaloneWindows64, false);
             PlayerSettings.SetGraphicsAPIs(BuildTarget.StandaloneWindows64, new[] { UnityEngine.Rendering.GraphicsDeviceType.Direct3D11 });
             // Active Input Handling is deliberately left alone (it must stay Both).
+            // The download size: texture caps and crunch for everything the player embeds (idempotent; see BuildSizeSetup).
+            var budget = BuildSizeSetup.Apply(false);
+            if (budget.Changed > 0) Debug.Log(budget.Summary);
             IncludeShaders("Universal Render Pipeline/Lit", "Universal Render Pipeline/Unlit", "Universal Render Pipeline/Simple Lit", "Unlit/Color", "Standard", "Sprites/Default");
         }
 
