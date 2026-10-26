@@ -3,6 +3,17 @@
 A log of the calls that are settled, with the reasoning, so nobody reopens them by accident.
 Newest first.
 
+## 2026-10-26 · Carrying and salvage in the round — BUILT
+
+1. **Overload slows movement** (half speed at double load, `CarryRules.MoveSpeedFactor`) through a
+   dedicated `CarrySpeedScale`, refreshed on every change to what a player carries.
+2. **Losing a worn piece mid-round rebuilds the sheet** from what is still worn (health kept as a
+   fraction, resource clamped); a lost weapon switches the spec to the empty hand.
+3. **Space takes floor items** in the player's room once the room's chest is dealt with.
+4. **The Salvage Kit works in the dungeon** (`PlayerIntent.SalvageItemId`): one kit per item, starter
+   gear refused, materials credited only on extraction (lost on death, like pockets). This replaces
+   "not usable from an intent" in the consumables entry below.
+
 ## 2026-10-26 · Item choices as built — BUILT
 
 1. **Salvaging at the vendor is free** (`Vendor.Salvage`); the Salvage Kit is for salvaging inside
