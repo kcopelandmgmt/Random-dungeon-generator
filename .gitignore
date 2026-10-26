@@ -12,3 +12,7 @@ Temp/
 Logs/
 UserSettings/
 *.csproj.meta
+
+# Python bytecode from the AssetGen tools
+__pycache__/
+__pycache__.meta
