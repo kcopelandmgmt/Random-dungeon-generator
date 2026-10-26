@@ -137,6 +137,7 @@ namespace DungeonGen.Unity.UI
             var t = Label(bg.transform, "Label", label, fontSize, TextMain, TextAnchor.MiddleCenter);
             t.rectTransform.Stretch(12f, 12f, 4f, 4f);
             bg.gameObject.AddComponent<UiButtonSound>();
+            MenuItem.Attach(b);   // gold selection outline for gamepad / keyboard navigation, and registration with the MenuNavigator
             if (onClick != null) b.onClick.AddListener(() => onClick());
             return b;
         }
@@ -177,6 +178,7 @@ namespace DungeonGen.Unity.UI
             s.SetValueWithoutNotify(value);
             var hit = root.gameObject.AddComponent<Image>(); hit.color = new Color(0, 0, 0, 0); hit.raycastTarget = true;   // the whole row is clickable
             if (onChanged != null) s.onValueChanged.AddListener(v => onChanged(v));
+            MenuItem.Attach(s);
             return s;
         }
 
@@ -227,10 +229,11 @@ namespace DungeonGen.Unity.UI
                 if (legacy != null) UnityEngine.Object.DestroyImmediate(legacy);
                 module = es.gameObject.AddComponent<InputSystemUIInputModule>();
             }
-            if (Application.isPlaying && module.actionsAsset == null) module.AssignDefaultActions();
+            if (Application.isPlaying && module.actionsAsset == null) module.AssignDefaultActions();   // the defaults already bind arrows, WASD, Enter, Escape and the gamepad (stick, d-pad, A, B)
 #else
             if (es.GetComponent<BaseInputModule>() == null) es.gameObject.AddComponent<StandaloneInputModule>();
 #endif
+            if (Application.isPlaying && es.GetComponent<MenuNavigator>() == null) es.gameObject.AddComponent<MenuNavigator>();   // picks the first button on each screen, B / Escape goes back
             return es;
         }
 
