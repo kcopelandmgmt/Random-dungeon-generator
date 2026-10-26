@@ -59,6 +59,9 @@ namespace DungeonGen.Core.Combat
             DungeonUtility = dungeonUtility;
         }
 
+        /// <summary>The roster class with this exact name, or null. Saved profiles store classes by name.</summary>
+        public static ClassArchetype ByName(string name) => DefaultRoster.FirstOrDefault(c => c.Name == name);
+
         /// <summary>The six launch classes. Two of each weight; every trio composition has a plausible answer to every other.</summary>
         public static readonly IReadOnlyList<ClassArchetype> DefaultRoster = new[]
         {

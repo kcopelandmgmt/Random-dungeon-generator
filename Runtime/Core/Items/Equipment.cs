@@ -94,6 +94,25 @@ namespace DungeonGen.Core.Items
             return old;
         }
 
+        /// <summary>Take this exact item off, whichever slot holds it. False if it is not worn.</summary>
+        public bool Remove(Item item)
+        {
+            if (item == null) return false;
+            if (ReferenceEquals(Weapon, item)) { Weapon = null; return true; }
+            if (ReferenceEquals(Head, item)) { Head = null; return true; }
+            if (ReferenceEquals(Chest, item)) { Chest = null; return true; }
+            if (ReferenceEquals(Hands, item)) { Hands = null; return true; }
+            if (ReferenceEquals(Legs, item)) { Legs = null; return true; }
+            if (ReferenceEquals(Feet, item)) { Feet = null; return true; }
+            if (ReferenceEquals(Amulet, item)) { Amulet = null; return true; }
+            if (ReferenceEquals(Ring1, item)) { Ring1 = null; return true; }
+            if (ReferenceEquals(Ring2, item)) { Ring2 = null; return true; }
+            return false;
+        }
+
+        /// <summary>True if this exact item is worn.</summary>
+        public bool IsWearing(Item item) => item != null && Items.Any(i => ReferenceEquals(i, item));
+
         /// <summary>A full set of Normal items of one weight at one level: the "store-bought" kit a class starts with.</summary>
         public static Equipment StandardSet(ArmourWeight weight, int level, Attribute primary)
         {

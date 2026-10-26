@@ -155,6 +155,95 @@ namespace DungeonGen.Core.Net
             return c;
         }
 
+        /// <summary>Brought-in items by their server-assigned id (>= <see cref="MatchState.BroughtItemIdBase"/>). Generated loot lives in the layout index.</summary>
+        private readonly Dictionary<int, Item> _brought = new Dictionary<int, Item>();
+        private readonly Dictionary<int, List<int>> _broughtBy = new Dictionary<int, List<int>>();
+        private readonly Dictionary<int, Dictionary<string, int>> _consumablesCarried = new Dictionary<int, Dictionary<string, int>>();
+        private readonly Dictionary<int, List<(float time, string name)>> _consumableUses = new Dictionary<int, List<(float, string)>>();
+        private int _nextBroughtId = MatchState.BroughtItemIdBase;
+
+        /// <summary>
+        /// Seat a player with what their character brings: the sheet from its gear, and every worn and
+        /// carried item registered with the state (<see cref="MatchEventKind.ItemRegistered"/>) from the
+        /// first tick, so full loot, hand-offs, extraction value and settlement all see them. Refuses a
+        /// loadout outside the round's tier band: gear score is worn AND carried (2026-10-23 "Tiers,
+        /// hand-offs…" #1–2). Returns null when the state refuses the spawn, as <see cref="AddPlayer"/> does.
+        /// </summary>
+        public Combatant AddPlayerWithLoadout(int playerId, int team, Profile.Loadout loadout, int accountLevel = 1)
+        {
+            if (loadout == null) throw new ArgumentNullException(nameof(loadout));
+            string refusal = loadout.TierRefusal(Descriptor.Settings.Tier);
+            if (refusal != null) throw new InvalidOperationException(refusal);
+            var c = AddPlayer(playerId, team, loadout.Character.Class, loadout.Spec, loadout.Stats, accountLevel);
+            if (c == null) return null;
+            var ids = new List<int>();
+            // Past anything already registered by hand, so a server-assigned id never collides.
+            _nextBroughtId = Math.Max(_nextBroughtId, State.ItemValue.Keys.Where(k => k >= MatchState.BroughtItemIdBase).DefaultIfEmpty(MatchState.BroughtItemIdBase - 1).Max() + 1);
+            foreach (var (id, item, registration) in loadout.Registrations(playerId, _nextBroughtId, Sim.Time))
+            {
+                if (!Raise(registration)) throw new InvalidOperationException($"The state refused brought item {id} ({item.Name}): {RecentRejections.LastOrDefault()}");
+                _brought[id] = item; ids.Add(id);
+                _nextBroughtId = id + 1;
+            }
+            _broughtBy[playerId] = ids;
+            _consumablesCarried[playerId] = loadout.Consumables.ToDictionary(kv => kv.Key, kv => kv.Value);
+            return c;
+        }
+
+        /// <summary>
+        /// The item behind a network id, on the host: rolled loot from the layout index, the roaming
+        /// elite's relic, or gear a player brought in. Null for an id the server never issued.
+        /// </summary>
+        public Item ItemById(int itemId)
+        {
+            if (_brought.TryGetValue(itemId, out var b)) return b;
+            if (State.Index.Items.TryGetValue(itemId, out var it)) return it;
+            if (itemId == LayoutIndex.EventLootId) return Layout.EventLoot;
+            return null;
+        }
+
+        /// <summary>The ids this player's loadout registered, in loadout order (worn, then carried).</summary>
+        public IReadOnlyList<int> BroughtItemsOf(int playerId) => _broughtBy.TryGetValue(playerId, out var l) ? l : (IReadOnlyList<int>)Array.Empty<int>();
+
+        /// <summary>Consumables carried in (name → count). Empty for a player seated without a loadout.</summary>
+        public IReadOnlyDictionary<string, int> ConsumablesCarriedBy(int playerId) => _consumablesCarried.TryGetValue(playerId, out var d) ? d : new Dictionary<string, int>();
+        /// <summary>Consumables used so far (name → count).</summary>
+        public IReadOnlyDictionary<string, int> ConsumablesUsedBy(int playerId) =>
+            ConsumableUsesBy(playerId).GroupBy(u => u.name).ToDictionary(g => g.Key, g => g.Count());
+        /// <summary>Every consumable this player used, with when. What settlement reads.</summary>
+        public IReadOnlyList<(float time, string name)> ConsumableUsesBy(int playerId) =>
+            _consumableUses.TryGetValue(playerId, out var l) ? l : (IReadOnlyList<(float, string)>)Array.Empty<(float, string)>();
+        /// <summary>What this player has in their pockets now: carried in, bought at shrines, minus uses; a death empties them.</summary>
+        public Dictionary<string, int> PocketsOf(int playerId) =>
+            Profile.RoundSettlement.PocketsAt(State, playerId, ConsumablesCarriedBy(playerId), ConsumableUsesBy(playerId), float.MaxValue);
+
+        /// <summary>
+        /// Spend one consumable from a standing player's pockets: carried in, or bought at a shrine this round
+        /// (<see cref="MatchEventKind.ShrinePurchase"/>). False if they have none left or cannot act. The effect itself is the caller's.
+        /// </summary>
+        public bool UseConsumable(int playerId, Consumable c)
+        {
+            if (c == null || !State.PlayersInside.Contains(playerId) || State.Downed.ContainsKey(playerId)) return false;
+            if (!PocketsOf(playerId).TryGetValue(c.Name, out int have) || have <= 0) return false;
+            if (!_consumableUses.TryGetValue(playerId, out var uses)) _consumableUses[playerId] = uses = new List<(float, string)>();
+            uses.Add((Sim?.Time ?? State.Time, c.Name));
+            return true;
+        }
+
+        /// <summary>Damage this player took and dealt this round (raw hit amounts from the simulator): what durability wear reads.</summary>
+        public (float taken, float dealt) DamageTotals(int playerId)
+        {
+            float taken = 0f, dealt = 0f;
+            if (Sim == null) return (0f, 0f);
+            foreach (var e in Sim.Events)
+            {
+                if (e.Kind != FightEventKind.Hit || e.Amount <= 0f) continue;
+                if (e.Target == playerId) taken += e.Amount;
+                if (e.Source == playerId && e.Target != playerId) dealt += e.Amount;
+            }
+            return (taken, dealt);
+        }
+
         /// <summary>Seat a bot with the given brain (the plain fight brain when none is given). Never seated by matchmaking.</summary>
         public Combatant AddBot(int botId, int team, string spec, int tier, IServerBot brain = null)
         {

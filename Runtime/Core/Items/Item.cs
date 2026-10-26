@@ -68,6 +68,9 @@ namespace DungeonGen.Core.Items
             Name = name; Base = b; Flavour = flavour; Source = source; Legendary = legendary; Fixed = fixedAffixes;
         }
 
+        /// <summary>The unique with this exact name, or null. Saved profiles store uniques by name.</summary>
+        public static UniqueItem ByName(string name) => All.FirstOrDefault(u => u.Name == name);
+
         public static readonly IReadOnlyList<UniqueItem> All = new[]
         {
             new UniqueItem("Sovereign's Crown", ItemBase.Armours.First(a => a.Name == "Plate Helm"),

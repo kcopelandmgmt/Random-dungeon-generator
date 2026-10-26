@@ -29,6 +29,9 @@ namespace DungeonGen.Core.Items
             new Consumable("Salvage Kit", "Break an item down in the dungeon: its materials go in the bag, its weight does not.", 0f, 25, 0.10f, 1f),
         };
 
+        /// <summary>The consumable with this exact name, or null. Profiles and inventories key consumables by name.</summary>
+        public static Consumable ByName(string name) { foreach (var c in All) if (c.Name == name) return c; return null; }
+
         public override string ToString() => $"{Name} ({VendorPriceSilver} silver, {WeightKg} kg): {Effect}";
     }
 }

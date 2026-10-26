@@ -67,7 +67,30 @@ namespace DungeonGen.Core.Profile
             return ch;
         }
 
+        /// <summary>
+        /// Keys of the rounds already settled into this profile, oldest first, so a retried or
+        /// replayed settlement changes nothing (<see cref="RoundSettlement"/>). Saved with the profile
+        /// (<see cref="ProfileCodec"/>); only the newest <see cref="SettledRoundsKept"/> are kept.
+        /// </summary>
+        public IReadOnlyList<string> SettledRounds => _settledRounds;
+        private readonly List<string> _settledRounds = new List<string>();
+        public const int SettledRoundsKept = 128;
+        public bool IsSettled(string roundKey) => _settledRounds.Contains(roundKey);
+        public void MarkSettled(string roundKey)
+        {
+            if (string.IsNullOrEmpty(roundKey) || _settledRounds.Contains(roundKey)) return;
+            _settledRounds.Add(roundKey);
+            while (_settledRounds.Count > SettledRoundsKept) _settledRounds.RemoveAt(0);
+        }
+
         public int ConsumableCount(Consumable c) => Consumables.TryGetValue(c.Name, out int n) ? n : 0;
         public void AddConsumable(Consumable c, int n) => Consumables[c.Name] = ConsumableCount(c) + n;
+        /// <summary>Take up to <paramref name="n"/> away; returns how many were actually removed. A count of zero drops the entry.</summary>
+        public int RemoveConsumable(Consumable c, int n)
+        {
+            int have = ConsumableCount(c), take = System.Math.Max(0, System.Math.Min(have, n));
+            if (have - take <= 0) Consumables.Remove(c.Name); else Consumables[c.Name] = have - take;
+            return take;
+        }
     }
 }

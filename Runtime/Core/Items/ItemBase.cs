@@ -1,5 +1,6 @@
 using Attribute = DungeonGen.Core.Combat.Attribute;
 using System.Collections.Generic;
+using System.Linq;
 using DungeonGen.Core.Combat;
 
 namespace DungeonGen.Core.Items
@@ -97,6 +98,11 @@ namespace DungeonGen.Core.Items
             Armour("Leather Hood", ItemSlot.Head, ArmourWeight.Medium), Armour("Brigandine", ItemSlot.Chest, ArmourWeight.Medium), Armour("Leather Gloves", ItemSlot.Hands, ArmourWeight.Medium), Armour("Studded Leggings", ItemSlot.Legs, ArmourWeight.Medium), Armour("Riding Boots", ItemSlot.Feet, ArmourWeight.Medium),
             Armour("Silk Cowl", ItemSlot.Head, ArmourWeight.Light), Armour("Woven Robe", ItemSlot.Chest, ArmourWeight.Light), Armour("Silk Wraps", ItemSlot.Hands, ArmourWeight.Light), Armour("Cloth Trousers", ItemSlot.Legs, ArmourWeight.Light), Armour("Soft Shoes", ItemSlot.Feet, ArmourWeight.Light),
         };
+
+        /// <summary>Every base in the game: weapons, armour, jewellery. Names are unique across all three.</summary>
+        public static IEnumerable<ItemBase> All => Weapons.Concat(Armours).Concat(Jewellery);
+        /// <summary>The base with this exact name, or null. Saved profiles store items by base name.</summary>
+        public static ItemBase ByName(string name) => All.FirstOrDefault(b => b.Name == name);
 
         public static readonly IReadOnlyList<ItemBase> Jewellery = new[]
         {

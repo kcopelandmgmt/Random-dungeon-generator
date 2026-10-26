@@ -25,6 +25,9 @@ namespace DungeonGen.Core.Items
 
         public void Destroy() { Max = 0f; Current = 0f; }
 
+        /// <summary>Loading a saved item only: put back exactly the wear it was saved with. Internal so nothing in play can repair.</summary>
+        internal void Restore(float max, float current) { Max = Math.Max(0f, max); Current = Math.Max(0f, Math.Min(current, Max)); }
+
         public override string ToString() => IsDestroyed ? "destroyed" : IsBroken ? $"BROKEN (max {Max:0})" : $"{Current:0}/{Max:0}";
     }
 
